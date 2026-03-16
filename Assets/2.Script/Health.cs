@@ -1,16 +1,19 @@
 using UnityEngine;
+using UnityEngine.UI;
 
 public class Health : MonoBehaviour
 {
     public int maxHp = 100;
     public int currentHp;
 
+    public Slider hpSlider;
+
     private bool isDead = false;
 
     void Start()
     {
         currentHp = maxHp;
-        Debug.Log("플레이어 체력 시작: " + currentHp);
+        UpdateHpUI();
     }
 
     public void TakeDamage(int damage)
@@ -18,21 +21,42 @@ public class Health : MonoBehaviour
         if (isDead) return;
 
         currentHp -= damage;
-        Debug.Log("플레이어 피격! 현재 HP: " + currentHp);
+
+        if (currentHp < 0)
+            currentHp = 0;
+
+        UpdateHpUI();
+
+        Debug.Log(gameObject.name + " 피격! 현재 HP: " + currentHp);
 
         if (currentHp <= 0)
         {
-            currentHp = 0;
             Die();
+        }
+    }
+
+    public void HealToFull()
+    {
+        if (isDead) return;
+
+        currentHp = maxHp;
+        UpdateHpUI();
+
+        Debug.Log(gameObject.name + " 체력 전부 회복: " + currentHp);
+    }
+
+    void UpdateHpUI()
+    {
+        if (hpSlider != null)
+        {
+            hpSlider.maxValue = maxHp;
+            hpSlider.value = currentHp;
         }
     }
 
     void Die()
     {
         isDead = true;
-        Debug.Log("플레이어 사망");
-
-        // 여기서는 일단 테스트용으로만 멈춤
-        // 필요하면 이동 스크립트 비활성화 추가 가능
+        Debug.Log(gameObject.name + " 사망");
     }
 }
