@@ -9799,6 +9799,10 @@ PrefabInstance:
       propertyPath: m_Avatar
       value: 
       objectReference: {fileID: 9000000, guid: bf887d356646af94e861368c58a47428, type: 3}
+    - target: {fileID: 1967020351154677018, guid: ec79f989074188c4abe99049e9f050a8, type: 3}
+      propertyPath: m_ApplyRootMotion
+      value: 1
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -9808,7 +9812,7 @@ PrefabInstance:
       addedObject: {fileID: 1452160487}
     - targetCorrespondingSourceObject: {fileID: 1434785059708735181, guid: ec79f989074188c4abe99049e9f050a8, type: 3}
       insertIndex: -1
-      addedObject: {fileID: 1452160490}
+      addedObject: {fileID: 1452160493}
   m_SourcePrefab: {fileID: 100100000, guid: ec79f989074188c4abe99049e9f050a8, type: 3}
 --- !u!1001 &273272723
 PrefabInstance:
@@ -18762,6 +18766,10 @@ PrefabInstance:
     - target: {fileID: 207852677691400858, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
       propertyPath: m_Name
       value: player1
+      objectReference: {fileID: 0}
+    - target: {fileID: 207852677691400858, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
+      propertyPath: m_TagString
+      value: Player
       objectReference: {fileID: 0}
     - target: {fileID: 696263831891523616, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
       propertyPath: m_LocalPosition.x
@@ -51129,11 +51137,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 518399233}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!4 &1379789159 stripped
-Transform:
-  m_CorrespondingSourceObject: {fileID: 696263831891523616, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
-  m_PrefabInstance: {fileID: 499438629}
-  m_PrefabAsset: {fileID: 0}
 --- !u!1001 &1384542492
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -53365,7 +53368,7 @@ NavMeshAgent:
   m_BaseOffset: 0
   m_WalkableMask: 4294967295
   m_ObstacleAvoidanceType: 4
---- !u!114 &1452160490
+--- !u!114 &1452160493
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -53374,11 +53377,13 @@ MonoBehaviour:
   m_GameObject: {fileID: 1452160486}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c37d19e7d2d5f6749b653d676612543f, type: 3}
+  m_Script: {fileID: 11500000, guid: 7d4a5fa89e4e64c47bc9ee5a9e984da8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  patrolPoints:
-  - {fileID: 1379789159}
+  player: {fileID: 0}
+  detectRange: 10
+  attackRange: 2
+  rotateSpeed: 5
 --- !u!1001 &1460013469
 PrefabInstance:
   m_ObjectHideFlags: 0
