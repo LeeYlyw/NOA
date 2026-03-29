@@ -21,6 +21,7 @@ public class PlayerController : MonoBehaviour
     private Vector3 velocity;
     private bool isGrounded;
     private bool isRunning;
+    private bool isCrouching;
 
     void Awake()
     {
@@ -33,8 +34,10 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
+        HandleCrouch();
         HandleMovement();
         HandleJumpAndGravity();
+
     }
 
     void HandleMovement()
@@ -83,5 +86,14 @@ public class PlayerController : MonoBehaviour
 
         velocity.y += gravity * Time.deltaTime;
         controller.Move(velocity * Time.deltaTime);
+    }
+
+    void HandleCrouch()
+    {
+        if (Input.GetKeyDown(KeyCode.C))
+        {
+            isCrouching = !isCrouching;
+            animator.SetBool("isCrouching", isCrouching);
+        }
     }
 }
