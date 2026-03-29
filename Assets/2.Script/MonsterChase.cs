@@ -47,7 +47,6 @@ public class MonsterChase : MonoBehaviour
 
         float distance = Vector3.Distance(transform.position, player.position);
 
-        // 공격 범위 안
         if (distance <= attackRange)
         {
             agent.isStopped = true;
@@ -61,7 +60,6 @@ public class MonsterChase : MonoBehaviour
                 transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * rotateSpeed);
             }
 
-            // 애니메이션이 아직 없어도 null 체크 때문에 문제 없음
             if (animator != null)
             {
                 animator.SetBool("isWalk", false);
@@ -70,15 +68,14 @@ public class MonsterChase : MonoBehaviour
 
             if (Time.time >= lastAttackTime + attackCooldown)
             {
-                Health Health = player.GetComponent<Health>();
-                if (Health != null)
+                PlayerController playerController = player.GetComponent<PlayerController>();
+                if (playerController != null)
                 {
-                    Health.TakeDamage(damage);
+                    playerController.TakeDamage(damage);
                     lastAttackTime = Time.time;
                 }
             }
         }
-        // 감지 범위 안
         else if (distance <= detectRange)
         {
             agent.isStopped = false;
@@ -90,7 +87,6 @@ public class MonsterChase : MonoBehaviour
                 animator.SetBool("isAttack", false);
             }
         }
-        // 감지 범위 밖
         else
         {
             agent.isStopped = true;

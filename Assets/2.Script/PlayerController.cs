@@ -15,6 +15,10 @@ public class PlayerController : MonoBehaviour
     public float coyoteTime = 0.1f;
     private float coyoteTimer;
 
+    [Header("Health")]
+    public int maxHealth = 100;
+    private int currentHealth;
+
     private CharacterController controller;
     private Animator animator;
 
@@ -22,11 +26,14 @@ public class PlayerController : MonoBehaviour
     private bool isGrounded;
     private bool isRunning;
     private bool isCrouching;
+    private bool isDead;
 
     void Awake()
     {
         controller = GetComponent<CharacterController>();
         animator = GetComponent<Animator>();
+
+        currentHealth = maxHealth;
 
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
@@ -34,10 +41,23 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
-        HandleCrouch();
-        HandleMovement();
-        HandleJumpAndGravity();
+        if (!isDead)
+        {
+            HandleCrouch();
+            HandleMovement();
 
+            if (Input.GetKeyDown(KeyCode.H))
+            {
+                TakeDamage(10);
+            }
+
+            if (Input.GetKeyDown(KeyCode.K))
+            {
+                Die();
+            }
+        }
+
+        HandleJumpAndGravity();
     }
 
     void HandleMovement()
@@ -53,15 +73,11 @@ public class PlayerController : MonoBehaviour
         float speed = isRunning ? runSpeed : walkSpeed;
         controller.Move(move * speed * Time.deltaTime);
 
-        // Animation
         float inputMagnitude = Mathf.Clamp01(move.magnitude);
         animator.SetFloat("Speed", inputMagnitude);
         animator.SetBool("IsRunning", isRunning);
     }
 
-    // =========================
-    // Jump + Gravity
-    // =========================
     void HandleJumpAndGravity()
     {
         isGrounded = controller.isGrounded;
@@ -95,5 +111,47 @@ public class PlayerController : MonoBehaviour
             isCrouching = !isCrouching;
             animator.SetBool("isCrouching", isCrouching);
         }
+    }
+
+    public void TakeDamage(int damage)
+    {
+        if (isDead) return;
+
+        int previousHealth = currentHealth;
+        currentHealth -= damage;
+
+        if (currentHealth < 0)
+            currentHealth = 0;
+
+        if (currentHealth <= 0)
+        {
+            Die();
+            return;
+        }
+
+        if (currentHealth < previousHealth)
+        {
+            animator.SetTrigger("Hit");
+            Debug.Log("Player Hit! Current Health: " + currentHealth);
+        }
+    }
+
+    void Die()
+    {
+        if (isDead) return;
+
+        isDead = true;
+
+        isRunning = false;
+        isCrouching = false;
+
+        velocity = Vector3.zero;
+        velocity.y = -2f;
+
+        animator.SetBool("IsRunning", false);
+        animator.SetBool("isCrouching", false);
+        animator.SetBool("isDead", true);
+
+        Debug.Log("Player Died");
     }
 }
