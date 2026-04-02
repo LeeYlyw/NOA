@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.UI;
 
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
@@ -25,6 +26,10 @@ public class PlayerController : MonoBehaviour
     public float staminaDrainPerSecond = 20f;
     public float staminaRecoveryPerSecond = 15f;
 
+    [Header("UI")]
+    public Slider hpSlider;
+    public Slider staminaSlider;
+
     private CharacterController controller;
     private Animator animator;
 
@@ -45,6 +50,20 @@ public class PlayerController : MonoBehaviour
 
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
+
+        if (hpSlider != null)
+        {
+            hpSlider.maxValue = maxHealth;
+            hpSlider.value = currentHealth;
+        }
+
+        if (staminaSlider != null)
+        {
+            staminaSlider.maxValue = maxStamina;
+            staminaSlider.value = currentStamina;
+        }
+
+        UpdateUI();
     }
 
     void Update()
@@ -67,6 +86,15 @@ public class PlayerController : MonoBehaviour
         }
 
         HandleJumpAndGravity();
+    }
+
+    void UpdateUI()
+    {
+        if (hpSlider != null)
+            hpSlider.value = currentHealth;
+
+        if (staminaSlider != null)
+            staminaSlider.value = currentStamina;
     }
 
     void HandleMovement()
@@ -116,6 +144,8 @@ public class PlayerController : MonoBehaviour
                 canRun = true;
             }
         }
+
+        UpdateUI();
     }
 
     void HandleJumpAndGravity()
@@ -174,6 +204,8 @@ public class PlayerController : MonoBehaviour
             animator.SetTrigger("Hit");
             Debug.Log("Player Hit! Current Health: " + currentHealth);
         }
+
+        UpdateUI();
     }
 
     void Die()
@@ -193,5 +225,8 @@ public class PlayerController : MonoBehaviour
         animator.SetBool("isDead", true);
 
         Debug.Log("Player Died");
+
+        UpdateUI();
     }
+
 }
