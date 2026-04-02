@@ -19,6 +19,12 @@ public class PlayerController : MonoBehaviour
     public int maxHealth = 100;
     private int currentHealth;
 
+    [Header("Stamina")]
+    public float maxStamina = 100f;
+    public float currentStamina = 100f;
+    public float staminaDrainPerSecond = 20f;
+    public float staminaRecoveryPerSecond = 15f;
+
     private CharacterController controller;
     private Animator animator;
 
@@ -27,6 +33,7 @@ public class PlayerController : MonoBehaviour
     private bool isRunning;
     private bool isCrouching;
     private bool isDead;
+    private bool canRun = true;
 
     void Awake()
     {
@@ -34,6 +41,7 @@ public class PlayerController : MonoBehaviour
         animator = GetComponent<Animator>();
 
         currentHealth = maxHealth;
+        currentStamina = maxStamina;
 
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
@@ -45,6 +53,7 @@ public class PlayerController : MonoBehaviour
         {
             HandleCrouch();
             HandleMovement();
+            HandleStamina();
 
             if (Input.GetKeyDown(KeyCode.H))
             {
@@ -68,7 +77,9 @@ public class PlayerController : MonoBehaviour
         Vector3 move = transform.right * x + transform.forward * z;
 
         bool hasInput = move.magnitude > 0.1f;
-        isRunning = Input.GetKey(KeyCode.LeftShift) && hasInput;
+        bool runInput = Input.GetKey(KeyCode.LeftShift);
+
+        isRunning = runInput && hasInput && canRun && currentStamina > 0f;
 
         float speed = isRunning ? runSpeed : walkSpeed;
         controller.Move(move * speed * Time.deltaTime);
@@ -76,6 +87,35 @@ public class PlayerController : MonoBehaviour
         float inputMagnitude = Mathf.Clamp01(move.magnitude);
         animator.SetFloat("Speed", inputMagnitude);
         animator.SetBool("IsRunning", isRunning);
+    }
+
+    void HandleStamina()
+    {
+        if (isRunning)
+        {
+            currentStamina -= staminaDrainPerSecond * Time.deltaTime;
+
+            if (currentStamina <= 0f)
+            {
+                currentStamina = 0f;
+                canRun = false;
+                isRunning = false;
+            }
+        }
+        else
+        {
+            currentStamina += staminaRecoveryPerSecond * Time.deltaTime;
+
+            if (currentStamina >= maxStamina)
+            {
+                currentStamina = maxStamina;
+            }
+
+            if (currentStamina > 0f)
+            {
+                canRun = true;
+            }
+        }
     }
 
     void HandleJumpAndGravity()
