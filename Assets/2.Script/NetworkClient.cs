@@ -17,11 +17,21 @@ public class NetworkClient : MonoBehaviour
 
     [Header("Remote Player")]
     public Transform remotePlayerTransform;
+    public float positionLerpSpeed = 10f;
+    public float rotationLerpSpeed = 10f;
+    public float remoteTimeout = 2.0f;
 
     private TcpClient client;
     private NetworkStream stream;
     private float sendTimer = 0f;
     private bool isConnected = false;
+
+    private Vector3 targetRemotePosition;
+    private Quaternion targetRemoteRotation;
+    private bool hasReceivedRemoteData = false;
+
+    private string receiveBuffer = "";
+    private float lastRemotePacketTime = -999f;
 
     void Start()
     {
@@ -32,6 +42,13 @@ public class NetworkClient : MonoBehaviour
 
             stream = client.GetStream();
             isConnected = true;
+
+            if (remotePlayerTransform != null)
+            {
+                targetRemotePosition = remotePlayerTransform.position;
+                targetRemoteRotation = remotePlayerTransform.rotation;
+                remotePlayerTransform.gameObject.SetActive(false);
+            }
 
             Debug.Log($"Server connected! Player ID: {playerId}");
         }
@@ -48,12 +65,17 @@ public class NetworkClient : MonoBehaviour
 
         UpdateSend();
         UpdateReceive();
+        UpdateRemoteInterpolation();
+        UpdateRemoteVisibility();
     }
 
     void UpdateSend()
     {
         if (playerTransform == null)
+        {
+            Debug.LogWarning("Player Transform is not assigned.");
             return;
+        }
 
         sendTimer += Time.deltaTime;
 
@@ -66,7 +88,7 @@ public class NetworkClient : MonoBehaviour
 
             string message = string.Format(
                 CultureInfo.InvariantCulture,
-                "MOVE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}",
+                "MOVE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}\n",
                 playerId, pos.x, pos.y, pos.z, rotY);
 
             byte[] sendData = Encoding.UTF8.GetBytes(message);
@@ -94,8 +116,9 @@ public class NetworkClient : MonoBehaviour
 
                 if (recvLength > 0)
                 {
-                    string message = Encoding.UTF8.GetString(recvBuffer, 0, recvLength);
-                    ApplyRemoteMove(message);
+                    string chunk = Encoding.UTF8.GetString(recvBuffer, 0, recvLength);
+                    receiveBuffer += chunk;
+                    ProcessReceiveBuffer();
                 }
             }
         }
@@ -106,10 +129,32 @@ public class NetworkClient : MonoBehaviour
         }
     }
 
+    void ProcessReceiveBuffer()
+    {
+        while (true)
+        {
+            int newlineIndex = receiveBuffer.IndexOf('\n');
+
+            if (newlineIndex < 0)
+                break;
+
+            string packet = receiveBuffer.Substring(0, newlineIndex).Trim();
+            receiveBuffer = receiveBuffer.Substring(newlineIndex + 1);
+
+            if (string.IsNullOrWhiteSpace(packet))
+                continue;
+
+            ApplyRemoteMove(packet);
+        }
+    }
+
     void ApplyRemoteMove(string message)
     {
         if (remotePlayerTransform == null)
+        {
+            Debug.LogWarning("Remote Player Transform is not assigned.");
             return;
+        }
 
         string[] parts = message.Split('|');
 
@@ -133,8 +178,49 @@ public class NetworkClient : MonoBehaviour
         if (!parsedX || !parsedY || !parsedZ || !parsedRotY)
             return;
 
-        remotePlayerTransform.position = new Vector3(x, y, z);
-        remotePlayerTransform.rotation = Quaternion.Euler(0f, rotY, 0f);
+        targetRemotePosition = new Vector3(x, y, z);
+        targetRemoteRotation = Quaternion.Euler(0f, rotY, 0f);
+        hasReceivedRemoteData = true;
+        lastRemotePacketTime = Time.time;
+
+        if (!remotePlayerTransform.gameObject.activeSelf)
+        {
+            remotePlayerTransform.gameObject.SetActive(true);
+        }
+    }
+
+    void UpdateRemoteInterpolation()
+    {
+        if (!hasReceivedRemoteData || remotePlayerTransform == null)
+            return;
+
+        if (!remotePlayerTransform.gameObject.activeSelf)
+            return;
+
+        remotePlayerTransform.position = Vector3.Lerp(
+            remotePlayerTransform.position,
+            targetRemotePosition,
+            Time.deltaTime * positionLerpSpeed);
+
+        remotePlayerTransform.rotation = Quaternion.Lerp(
+            remotePlayerTransform.rotation,
+            targetRemoteRotation,
+            Time.deltaTime * rotationLerpSpeed);
+    }
+
+    void UpdateRemoteVisibility()
+    {
+        if (remotePlayerTransform == null)
+            return;
+
+        if (!remotePlayerTransform.gameObject.activeSelf)
+            return;
+
+        if (Time.time - lastRemotePacketTime > remoteTimeout)
+        {
+            remotePlayerTransform.gameObject.SetActive(false);
+            hasReceivedRemoteData = false;
+        }
     }
 
     void OnApplicationQuit()
