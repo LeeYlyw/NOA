@@ -4,6 +4,8 @@ using UnityEngine.UI;
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
 {
+    private PlayerNoiseEmitter noiseEmitter;
+
     [Header("Network")]
     public bool isLocalPlayer = true;
 
@@ -47,6 +49,7 @@ public class PlayerController : MonoBehaviour
     {
         controller = GetComponent<CharacterController>();
         animator = GetComponent<Animator>();
+        noiseEmitter = GetComponent<PlayerNoiseEmitter>();
 
         currentHealth = maxHealth;
         currentStamina = maxStamina;
@@ -179,6 +182,9 @@ public class PlayerController : MonoBehaviour
         {
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
             coyoteTimer = 0f;
+
+            if (noiseEmitter != null)
+                noiseEmitter.EmitJumpNoise();
         }
 
         velocity.y += gravity * Time.deltaTime;
@@ -241,5 +247,10 @@ public class PlayerController : MonoBehaviour
 
         Debug.Log("Player Died");
         UpdateUI();
+    }
+
+    public bool IsRunning()
+    {
+        return isRunning;
     }
 }

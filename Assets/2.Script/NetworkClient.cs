@@ -147,34 +147,42 @@ public class NetworkClient : MonoBehaviour
 
         string[] parts = packet.Split('|');
 
-        if (parts.Length != 6)
+        if (parts.Length < 2)
             return;
 
-        if (parts[0] != "MOVE")
-            return;
-
-        if (!int.TryParse(parts[1], out int receivedPlayerId))
-            return;
-
-        if (receivedPlayerId == playerId)
-            return;
-
-        bool okX = float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float x);
-        bool okY = float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float y);
-        bool okZ = float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float z);
-        bool okRot = float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float rotY);
-
-        if (!okX || !okY || !okZ || !okRot)
+        if (parts[0] == "COUNT")
         {
-            Debug.LogWarning("패킷 파싱 실패: " + packet);
+            if (int.TryParse(parts[1], out int count))
+            {
+                if (LobbyManager.Instance != null)
+                    LobbyManager.Instance.SetPlayerCount(count);
+            }
             return;
         }
 
-        targetRemotePosition = new Vector3(x, y, z);
-        targetRemoteRotation = Quaternion.Euler(0f, rotY, 0f);
-        hasRemoteState = true;
+        if (parts[0] == "MOVE")
+        {
+            if (parts.Length != 6)
+                return;
 
-        Debug.Log("리모트 목표 위치 설정: " + targetRemotePosition);
+            if (!int.TryParse(parts[1], out int receivedPlayerId))
+                return;
+
+            if (receivedPlayerId == playerId)
+                return;
+
+            bool okX = float.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float x);
+            bool okY = float.TryParse(parts[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float y);
+            bool okZ = float.TryParse(parts[4], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float z);
+            bool okRot = float.TryParse(parts[5], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float rotY);
+
+            if (!okX || !okY || !okZ || !okRot)
+                return;
+
+            targetRemotePosition = new Vector3(x, y, z);
+            targetRemoteRotation = Quaternion.Euler(0f, rotY, 0f);
+            hasRemoteState = true;
+        }
     }
 
     void ApplyRemotePlayerTransform()

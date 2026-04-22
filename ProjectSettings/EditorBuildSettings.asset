@@ -8,6 +8,9 @@ EditorBuildSettings:
   - enabled: 0
     path: Assets/1.Scenes/InGame.unity
     guid: 99c9720ab356a0642a771bea13969a05
+  - enabled: 0
+    path: Assets/1.Scenes/Lobby.unity
+    guid: 12cae69598341964087140916ad71201
   - enabled: 1
     path: Assets/1.Scenes/Demo.unity
     guid: a15b1b8c0f4132745bdcef1a27170a74
