@@ -4,6 +4,9 @@ using UnityEngine.UI;
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
 {
+    [Header("Network")]
+    public bool isLocalPlayer = true;
+
     [Header("Movement")]
     public float walkSpeed = 3f;
     public float runSpeed = 6f;
@@ -48,8 +51,11 @@ public class PlayerController : MonoBehaviour
         currentHealth = maxHealth;
         currentStamina = maxStamina;
 
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
+        if (isLocalPlayer)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
 
         if (hpSlider != null)
         {
@@ -68,6 +74,9 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
+        if (!isLocalPlayer)
+            return;
+
         if (!isDead)
         {
             HandleCrouch();
@@ -75,14 +84,10 @@ public class PlayerController : MonoBehaviour
             HandleStamina();
 
             if (Input.GetKeyDown(KeyCode.H))
-            {
                 TakeDamage(10);
-            }
 
             if (Input.GetKeyDown(KeyCode.K))
-            {
                 Die();
-            }
         }
 
         HandleJumpAndGravity();
@@ -99,6 +104,9 @@ public class PlayerController : MonoBehaviour
 
     void HandleMovement()
     {
+        if (controller == null || !controller.enabled)
+            return;
+
         float x = Input.GetAxis("Horizontal");
         float z = Input.GetAxis("Vertical");
 
@@ -113,8 +121,12 @@ public class PlayerController : MonoBehaviour
         controller.Move(move * speed * Time.deltaTime);
 
         float inputMagnitude = Mathf.Clamp01(move.magnitude);
-        animator.SetFloat("Speed", inputMagnitude);
-        animator.SetBool("IsRunning", isRunning);
+
+        if (animator != null)
+        {
+            animator.SetFloat("Speed", inputMagnitude);
+            animator.SetBool("IsRunning", isRunning);
+        }
     }
 
     void HandleStamina()
@@ -135,14 +147,10 @@ public class PlayerController : MonoBehaviour
             currentStamina += staminaRecoveryPerSecond * Time.deltaTime;
 
             if (currentStamina >= maxStamina)
-            {
                 currentStamina = maxStamina;
-            }
 
             if (currentStamina > 0f)
-            {
                 canRun = true;
-            }
         }
 
         UpdateUI();
@@ -150,6 +158,9 @@ public class PlayerController : MonoBehaviour
 
     void HandleJumpAndGravity()
     {
+        if (controller == null || !controller.enabled)
+            return;
+
         isGrounded = controller.isGrounded;
 
         if (isGrounded)
@@ -164,7 +175,7 @@ public class PlayerController : MonoBehaviour
             coyoteTimer -= Time.deltaTime;
         }
 
-        if (Input.GetKeyDown(KeyCode.Space) && coyoteTimer > 0f)
+        if (isLocalPlayer && Input.GetKeyDown(KeyCode.Space) && coyoteTimer > 0f)
         {
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
             coyoteTimer = 0f;
@@ -179,7 +190,9 @@ public class PlayerController : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.C))
         {
             isCrouching = !isCrouching;
-            animator.SetBool("isCrouching", isCrouching);
+
+            if (animator != null)
+                animator.SetBool("isCrouching", isCrouching);
         }
     }
 
@@ -199,7 +212,7 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
-        if (currentHealth < previousHealth)
+        if (currentHealth < previousHealth && animator != null)
         {
             animator.SetTrigger("Hit");
             Debug.Log("Player Hit! Current Health: " + currentHealth);
@@ -213,20 +226,20 @@ public class PlayerController : MonoBehaviour
         if (isDead) return;
 
         isDead = true;
-
         isRunning = false;
         isCrouching = false;
 
         velocity = Vector3.zero;
         velocity.y = -2f;
 
-        animator.SetBool("IsRunning", false);
-        animator.SetBool("isCrouching", false);
-        animator.SetBool("isDead", true);
+        if (animator != null)
+        {
+            animator.SetBool("IsRunning", false);
+            animator.SetBool("isCrouching", false);
+            animator.SetBool("isDead", true);
+        }
 
         Debug.Log("Player Died");
-
         UpdateUI();
     }
-
 }

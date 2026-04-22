@@ -237,9 +237,6 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 265fe651265c2ff479ef0a0ea96cd2ff, type: 3}
       insertIndex: -1
       addedObject: {fileID: 6470452632123069680}
-    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 265fe651265c2ff479ef0a0ea96cd2ff, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 3280042277894742259}
   m_SourcePrefab: {fileID: 100100000, guid: 265fe651265c2ff479ef0a0ea96cd2ff, type: 3}
 --- !u!1 &207852677691400858 stripped
 GameObject:
@@ -283,38 +280,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 40531e1cba1b7d740be7615a58b220bc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  isLocalPlayer: 1
   walkSpeed: 3
   runSpeed: 6
   jumpHeight: 1.5
   gravity: -9.81
   coyoteTime: 0.1
---- !u!54 &3280042277894742259
-Rigidbody:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 207852677691400858}
-  serializedVersion: 4
-  m_Mass: 1
-  m_Drag: 0
-  m_AngularDrag: 0.05
-  m_CenterOfMass: {x: 0, y: 0, z: 0}
-  m_InertiaTensor: {x: 1, y: 1, z: 1}
-  m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ImplicitCom: 1
-  m_ImplicitTensor: 1
-  m_UseGravity: 1
-  m_IsKinematic: 0
-  m_Interpolate: 0
-  m_Constraints: 0
-  m_CollisionDetection: 0
+  maxHealth: 100
+  maxStamina: 100
+  currentStamina: 100
+  staminaDrainPerSecond: 20
+  staminaRecoveryPerSecond: 15
+  hpSlider: {fileID: 0}
+  staminaSlider: {fileID: 0}
 --- !u!4 &696263831891523616 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 265fe651265c2ff479ef0a0ea96cd2ff, type: 3}

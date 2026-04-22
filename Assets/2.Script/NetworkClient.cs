@@ -11,50 +11,31 @@ public class NetworkClient : MonoBehaviour
     public int serverPort = 7777;
     public int playerId = 1;
 
-    [Header("Local Player")]
-    public Transform playerTransform;
-    public float sendInterval = 0.1f;
-
-    [Header("Remote Player")]
+    [Header("Players")]
+    public Transform localPlayerTransform;
     public Transform remotePlayerTransform;
-    public float positionLerpSpeed = 10f;
-    public float rotationLerpSpeed = 10f;
-    public float remoteTimeout = 2.0f;
+
+    [Header("Sync")]
+    public float sendInterval = 0.1f;
 
     private TcpClient client;
     private NetworkStream stream;
-    private float sendTimer = 0f;
     private bool isConnected = false;
+    private float sendTimer = 0f;
+    private string receiveBuffer = "";
 
     private Vector3 targetRemotePosition;
     private Quaternion targetRemoteRotation;
-    private bool hasReceivedRemoteData = false;
-
-    private string receiveBuffer = "";
-    private float lastRemotePacketTime = -999f;
+    private bool hasRemoteState = false;
 
     void Start()
     {
-        try
+        ConnectToServer();
+
+        if (remotePlayerTransform != null)
         {
-            client = new TcpClient();
-            client.Connect(serverIP, serverPort);
-
-            stream = client.GetStream();
-            isConnected = true;
-
-            if (remotePlayerTransform != null)
-            {
-                targetRemotePosition = remotePlayerTransform.position;
-                targetRemoteRotation = remotePlayerTransform.rotation;
-                remotePlayerTransform.gameObject.SetActive(false);
-            }
-
-            Debug.Log($"Server connected! Player ID: {playerId}");
-        }
-        catch (Exception e)
-        {
-            Debug.LogError("Connect failed: " + e.Message);
+            targetRemotePosition = remotePlayerTransform.position;
+            targetRemoteRotation = remotePlayerTransform.rotation;
         }
     }
 
@@ -63,68 +44,81 @@ public class NetworkClient : MonoBehaviour
         if (!isConnected || stream == null)
             return;
 
-        UpdateSend();
-        UpdateReceive();
-        UpdateRemoteInterpolation();
-        UpdateRemoteVisibility();
+        SendLocalPlayerTransform();
+        ReceivePackets();
+        ApplyRemotePlayerTransform();
     }
 
-    void UpdateSend()
-    {
-        if (playerTransform == null)
-        {
-            Debug.LogWarning("Player Transform is not assigned.");
-            return;
-        }
-
-        sendTimer += Time.deltaTime;
-
-        if (sendTimer >= sendInterval)
-        {
-            sendTimer = 0f;
-
-            Vector3 pos = playerTransform.position;
-            float rotY = playerTransform.eulerAngles.y;
-
-            string message = string.Format(
-                CultureInfo.InvariantCulture,
-                "MOVE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}\n",
-                playerId, pos.x, pos.y, pos.z, rotY);
-
-            byte[] sendData = Encoding.UTF8.GetBytes(message);
-
-            try
-            {
-                stream.Write(sendData, 0, sendData.Length);
-            }
-            catch (Exception e)
-            {
-                Debug.LogError("Send failed: " + e.Message);
-                isConnected = false;
-            }
-        }
-    }
-
-    void UpdateReceive()
+    void ConnectToServer()
     {
         try
         {
-            if (stream.DataAvailable)
-            {
-                byte[] recvBuffer = new byte[512];
-                int recvLength = stream.Read(recvBuffer, 0, recvBuffer.Length);
+            client = new TcpClient();
+            client.Connect(serverIP, serverPort);
+            stream = client.GetStream();
+            isConnected = true;
 
-                if (recvLength > 0)
-                {
-                    string chunk = Encoding.UTF8.GetString(recvBuffer, 0, recvLength);
-                    receiveBuffer += chunk;
-                    ProcessReceiveBuffer();
-                }
-            }
+            Debug.Log("서버 연결 성공");
         }
         catch (Exception e)
         {
-            Debug.LogError("Receive failed: " + e.Message);
+            Debug.LogError("서버 연결 실패: " + e.Message);
+        }
+    }
+
+    void SendLocalPlayerTransform()
+    {
+        if (localPlayerTransform == null)
+            return;
+
+        sendTimer += Time.deltaTime;
+        if (sendTimer < sendInterval)
+            return;
+
+        sendTimer = 0f;
+
+        Vector3 pos = localPlayerTransform.position;
+        float rotY = localPlayerTransform.eulerAngles.y;
+
+        string message = string.Format(
+            CultureInfo.InvariantCulture,
+            "MOVE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}\n",
+            playerId, pos.x, pos.y, pos.z, rotY
+        );
+
+        byte[] data = Encoding.UTF8.GetBytes(message);
+
+        try
+        {
+            stream.Write(data, 0, data.Length);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("전송 실패: " + e.Message);
+            isConnected = false;
+        }
+    }
+
+    void ReceivePackets()
+    {
+        try
+        {
+            while (stream.DataAvailable)
+            {
+                byte[] buffer = new byte[512];
+                int length = stream.Read(buffer, 0, buffer.Length);
+
+                if (length <= 0)
+                    break;
+
+                receiveBuffer += Encoding.UTF8.GetString(buffer, 0, length);
+            }
+
+            ProcessReceiveBuffer();
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("수신 실패: " + e.Message);
             isConnected = false;
         }
     }
@@ -134,29 +128,24 @@ public class NetworkClient : MonoBehaviour
         while (true)
         {
             int newlineIndex = receiveBuffer.IndexOf('\n');
-
             if (newlineIndex < 0)
                 break;
 
             string packet = receiveBuffer.Substring(0, newlineIndex).Trim();
             receiveBuffer = receiveBuffer.Substring(newlineIndex + 1);
 
-            if (string.IsNullOrWhiteSpace(packet))
+            if (string.IsNullOrEmpty(packet))
                 continue;
 
-            ApplyRemoteMove(packet);
+            ProcessPacket(packet);
         }
     }
 
-    void ApplyRemoteMove(string message)
+    void ProcessPacket(string packet)
     {
-        if (remotePlayerTransform == null)
-        {
-            Debug.LogWarning("Remote Player Transform is not assigned.");
-            return;
-        }
+        Debug.Log("클라가 받은 패킷: " + packet);
 
-        string[] parts = message.Split('|');
+        string[] parts = packet.Split('|');
 
         if (parts.Length != 6)
             return;
@@ -170,71 +159,41 @@ public class NetworkClient : MonoBehaviour
         if (receivedPlayerId == playerId)
             return;
 
-        bool parsedX = float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float x);
-        bool parsedY = float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float y);
-        bool parsedZ = float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float z);
-        bool parsedRotY = float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float rotY);
+        bool okX = float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float x);
+        bool okY = float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float y);
+        bool okZ = float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float z);
+        bool okRot = float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float rotY);
 
-        if (!parsedX || !parsedY || !parsedZ || !parsedRotY)
+        if (!okX || !okY || !okZ || !okRot)
+        {
+            Debug.LogWarning("패킷 파싱 실패: " + packet);
             return;
+        }
 
         targetRemotePosition = new Vector3(x, y, z);
         targetRemoteRotation = Quaternion.Euler(0f, rotY, 0f);
-        hasReceivedRemoteData = true;
-        lastRemotePacketTime = Time.time;
+        hasRemoteState = true;
 
-        if (!remotePlayerTransform.gameObject.activeSelf)
-        {
-            remotePlayerTransform.gameObject.SetActive(true);
-        }
+        Debug.Log("리모트 목표 위치 설정: " + targetRemotePosition);
     }
 
-    void UpdateRemoteInterpolation()
+    void ApplyRemotePlayerTransform()
     {
-        if (!hasReceivedRemoteData || remotePlayerTransform == null)
+        if (!hasRemoteState || remotePlayerTransform == null)
             return;
 
-        if (!remotePlayerTransform.gameObject.activeSelf)
-            return;
+        remotePlayerTransform.position = targetRemotePosition;
+        remotePlayerTransform.rotation = targetRemoteRotation;
 
-        remotePlayerTransform.position = Vector3.Lerp(
-            remotePlayerTransform.position,
-            targetRemotePosition,
-            Time.deltaTime * positionLerpSpeed);
-
-        remotePlayerTransform.rotation = Quaternion.Lerp(
-            remotePlayerTransform.rotation,
-            targetRemoteRotation,
-            Time.deltaTime * rotationLerpSpeed);
-    }
-
-    void UpdateRemoteVisibility()
-    {
-        if (remotePlayerTransform == null)
-            return;
-
-        if (!remotePlayerTransform.gameObject.activeSelf)
-            return;
-
-        if (Time.time - lastRemotePacketTime > remoteTimeout)
-        {
-            remotePlayerTransform.gameObject.SetActive(false);
-            hasReceivedRemoteData = false;
-        }
+        Debug.Log("리모트 실제 위치 적용: " + remotePlayerTransform.position);
     }
 
     void OnApplicationQuit()
     {
         if (stream != null)
-        {
             stream.Close();
-            stream = null;
-        }
 
         if (client != null)
-        {
             client.Close();
-            client = null;
-        }
     }
 }
