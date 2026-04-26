@@ -244,6 +244,16 @@ public class PlayerController : MonoBehaviour
         UpdateUI();
     }
 
+    public void HealToFull()
+    {
+        if (isDead) return;
+
+        currentHp = maxHealth;
+        UpdateUI();
+
+        Debug.Log(gameObject.name + " 체력 전부 회복: " + currentHp);
+    }
+
     void Die()
     {
         if (isDead) return;
