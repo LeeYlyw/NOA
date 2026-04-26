@@ -23,7 +23,7 @@ public class PlayerController : MonoBehaviour
 
     [Header("Health")]
     public int maxHealth = 100;
-    private int currentHealth;
+    [SerializeField] private int currentHp;
 
     [Header("Stamina")]
     public float maxStamina = 100f;
@@ -56,13 +56,13 @@ public class PlayerController : MonoBehaviour
         animator = GetComponent<Animator>();
         noiseEmitter = GetComponent<PlayerNoiseEmitter>();
 
-        currentHealth = maxHealth;
+        currentHp = maxHealth;
         currentStamina = maxStamina;
 
         if (hpSlider != null)
         {
             hpSlider.maxValue = maxHealth;
-            hpSlider.value = currentHealth;
+            hpSlider.value = currentHp;
         }
 
         if (staminaSlider != null)
@@ -107,7 +107,7 @@ public class PlayerController : MonoBehaviour
     void UpdateUI()
     {
         if (hpSlider != null)
-            hpSlider.value = currentHealth;
+            hpSlider.value = currentHp;
 
         if (staminaSlider != null)
             staminaSlider.value = currentStamina;
@@ -223,22 +223,22 @@ public class PlayerController : MonoBehaviour
     {
         if (isDead) return;
 
-        int previousHealth = currentHealth;
-        currentHealth -= damage;
+        int previousHealth = currentHp;
+        currentHp -= damage;
 
-        if (currentHealth < 0)
-            currentHealth = 0;
+        if (currentHp < 0)
+            currentHp = 0;
 
-        if (currentHealth <= 0)
+        if (currentHp <= 0)
         {
             Die();
             return;
         }
 
-        if (currentHealth < previousHealth && animator != null)
+        if (currentHp < previousHealth && animator != null)
         {
             animator.SetTrigger("Hit");
-            Debug.Log("Player Hit! Current Health: " + currentHealth);
+            Debug.Log("Player Hit! Current Health: " + currentHp);
         }
 
         UpdateUI();

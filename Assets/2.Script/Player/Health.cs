@@ -4,7 +4,7 @@ using UnityEngine.UI;
 public class Health : MonoBehaviour
 {
     public int maxHp = 100;
-    public int currentHp;
+    [SerializeField] public int currentHp;
 
     public Slider hpSlider;
 
