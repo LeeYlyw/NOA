@@ -45,6 +45,11 @@ public class PlayerController : MonoBehaviour
     private bool isDead;
     private bool canRun = true;
 
+    // NetworkClient가 읽을 애니메이션 상태값
+    public float CurrentAnimSpeed { get; private set; }
+    public bool IsRunningState => isRunning;
+    public bool IsCrouchingState => isCrouching;
+
     void Awake()
     {
         controller = GetComponent<CharacterController>();
@@ -53,12 +58,6 @@ public class PlayerController : MonoBehaviour
 
         currentHealth = maxHealth;
         currentStamina = maxStamina;
-
-        if (isLocalPlayer)
-        {
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
-        }
 
         if (hpSlider != null)
         {
@@ -73,6 +72,15 @@ public class PlayerController : MonoBehaviour
         }
 
         UpdateUI();
+    }
+
+    void Start()
+    {
+        if (isLocalPlayer)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
     }
 
     void Update()
@@ -118,18 +126,24 @@ public class PlayerController : MonoBehaviour
         bool hasInput = move.magnitude > 0.1f;
         bool runInput = Input.GetKey(KeyCode.LeftShift);
 
-        isRunning = runInput && hasInput && canRun && currentStamina > 0f;
+        isRunning = runInput && hasInput && canRun && currentStamina > 0f && !isCrouching;
 
         float speed = isRunning ? runSpeed : walkSpeed;
         controller.Move(move * speed * Time.deltaTime);
 
-        float inputMagnitude = Mathf.Clamp01(move.magnitude);
+        CurrentAnimSpeed = Mathf.Clamp01(move.magnitude);
 
         if (animator != null)
         {
-            animator.SetFloat("Speed", inputMagnitude);
+            animator.SetFloat("Speed", CurrentAnimSpeed);
             animator.SetBool("IsRunning", isRunning);
+            animator.SetBool("isCrouching", isCrouching);
         }
+
+        // if (isRunning && noiseEmitter != null)
+        // {
+        //     noiseEmitter.EmitRunNoise();
+        // }
     }
 
     void HandleStamina()
@@ -197,6 +211,9 @@ public class PlayerController : MonoBehaviour
         {
             isCrouching = !isCrouching;
 
+            if (isCrouching)
+                isRunning = false;
+
             if (animator != null)
                 animator.SetBool("isCrouching", isCrouching);
         }
@@ -234,12 +251,14 @@ public class PlayerController : MonoBehaviour
         isDead = true;
         isRunning = false;
         isCrouching = false;
+        CurrentAnimSpeed = 0f;
 
         velocity = Vector3.zero;
         velocity.y = -2f;
 
         if (animator != null)
         {
+            animator.SetFloat("Speed", 0f);
             animator.SetBool("IsRunning", false);
             animator.SetBool("isCrouching", false);
             animator.SetBool("isDead", true);
@@ -249,6 +268,7 @@ public class PlayerController : MonoBehaviour
         UpdateUI();
     }
 
+    // 기존 다른 스크립트가 IsRunning()을 쓰고 있을 수 있으니까 유지
     public bool IsRunning()
     {
         return isRunning;
