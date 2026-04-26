@@ -30,22 +30,21 @@ public class Slot : MonoBehaviour
         // 1. 아이템 타입 확인
         if (item.type == ItemData.ItemType.Heal)
         {
-            // 씬에서 Health 스크립트를 가진 플레이어를 찾음
-            Health playerHealth = FindObjectOfType<Health>();
+            PlayerController player = FindObjectOfType<PlayerController>();
 
-            if (playerHealth != null)
+            if (player != null)
             {
-                playerHealth.HealToFull(); // 아까 PotionItem에서 쓰던 함수 호출
+                player.HealToFull();
                 Debug.Log("회복 아이템 사용 완료!");
 
-                // 2. 사용했으니 슬롯 비우기
                 ClearSlot();
             }
             else
             {
-                Debug.LogError("Health 스크립트를 찾을 수 없습니다!");
+                Debug.LogError("PlayerController를 찾을 수 없습니다!");
             }
         }
+
         // Slot.cs 의 OnClickSlot 내부
         else if (item.type == ItemData.ItemType.Stealth) // 은신 타입일 때
         {
