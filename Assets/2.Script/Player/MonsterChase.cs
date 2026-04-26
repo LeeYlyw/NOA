@@ -45,6 +45,20 @@ public class MonsterChase : MonoBehaviour
     {
         if (player == null || agent == null) return;
 
+        // --- [추가] 은신 여부 확인 ---
+        PlayerStealth pStealth = player.GetComponent<PlayerStealth>();
+        if (pStealth != null && pStealth.isStealth)
+        {
+            // 플레이어가 은신 중이면 추격/공격을 멈추고 대기 상태로 전환
+            agent.isStopped = true;
+            if (animator != null)
+            {
+                animator.SetBool("isWalk", false);
+                animator.SetBool("isAttack", false);
+            }
+            return; // 아래 추격 로직을 실행하지 않고 나감
+        }
+
         float distance = Vector3.Distance(transform.position, player.position);
 
         if (distance <= attackRange)
