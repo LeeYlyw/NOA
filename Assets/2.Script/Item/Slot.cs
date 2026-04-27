@@ -102,17 +102,19 @@ public class Slot : MonoBehaviour
 
             if (pc != null)
             {
-                // 2. 찾은 그 캐릭터(pc)에게 부활하라고 시킵니다.
-                pc.Revive();
-
-                Debug.Log("부활 아이템 사용 성공!");
-                ClearSlot();
-            }
-            else
-            {
-                Debug.LogError("씬에서 PlayerController를 찾을 수 없습니다!");
+                // --- [추가] 플레이어가 죽었을 때만 아이템 사용 가능하게 제한 ---
+                if (pc.IsDead()) // IsDead()라는 체크용 함수가 필요합니다. (아래 2번 참고)
+                {
+                    pc.Revive();
+                    Debug.Log("부활 아이템 사용 성공!");
+                    ClearSlot();
+                }
+                else
+                {
+                    // 아직 살아있다면 아이템을 쓰지 않고 로그만 띄웁니다.
+                    Debug.Log("플레이어가 아직 살아있어서 부활 아이템을 사용할 수 없습니다.");
+                }
             }
         }
-        // 은신이나 순간이동 로직은 나중에 여기에 추가하면 됩니다.
     }
 }

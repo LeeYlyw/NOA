@@ -55,7 +55,7 @@ public class MonsterChase : MonoBehaviour
                 animator.SetBool("isWalk", false);
                 animator.SetBool("isAttack", false);
                 // 몬스터가 즉시 멈추도록 애니메이션 강제 전환
-                animator.Play("Idle");
+              //  animator.Play("Idle");
             }
             return;
         }

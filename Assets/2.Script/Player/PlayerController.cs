@@ -283,6 +283,10 @@ public class PlayerController : MonoBehaviour
     {
         return isRunning;
     }
+    public bool IsDead()
+    {
+        return isDead;
+    }
     public void Revive()
     {
         // 1. 상태 초기화
