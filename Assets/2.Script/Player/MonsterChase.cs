@@ -43,20 +43,21 @@ public class MonsterChase : MonoBehaviour
 
     void Update()
     {
-        if (player == null || agent == null) return;
+        PlayerStealth pStealth = player.GetComponentInParent<PlayerStealth>();
 
-        // --- [추가] 은신 여부 확인 ---
-        PlayerStealth pStealth = player.GetComponent<PlayerStealth>();
         if (pStealth != null && pStealth.isStealth)
         {
-            // 플레이어가 은신 중이면 추격/공격을 멈추고 대기 상태로 전환
             agent.isStopped = true;
+            agent.velocity = Vector3.zero; // 관성 제거
+
             if (animator != null)
             {
                 animator.SetBool("isWalk", false);
                 animator.SetBool("isAttack", false);
+                // 몬스터가 즉시 멈추도록 애니메이션 강제 전환
+                animator.Play("Idle");
             }
-            return; // 아래 추격 로직을 실행하지 않고 나감
+            return;
         }
 
         float distance = Vector3.Distance(transform.position, player.position);

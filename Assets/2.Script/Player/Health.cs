@@ -15,7 +15,8 @@ public class Health : MonoBehaviour
         currentHp = maxHp;
         UpdateHpUI();
     }
-
+   
+   
     public void TakeDamage(int damage)
     {
         if (isDead) return;
@@ -37,7 +38,7 @@ public class Health : MonoBehaviour
 
     public void HealToFull()
     {
-        
+        if (isDead) return;
 
         currentHp = maxHp;
         UpdateHpUI();

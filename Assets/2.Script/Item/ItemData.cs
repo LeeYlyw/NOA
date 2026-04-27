@@ -11,6 +11,7 @@ public class ItemData : ScriptableObject
     {
         Teleport,
         Stealth,
-        Heal
+        Heal,
+        Resurrection
     }
 }

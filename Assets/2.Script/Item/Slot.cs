@@ -48,6 +48,7 @@ public class Slot : MonoBehaviour
         // Slot.cs 의 OnClickSlot 내부
         else if (item.type == ItemData.ItemType.Stealth) // 은신 타입일 때
         {
+
             // 씬에서 플레이어의 PlayerStealth 스크립트를 찾습니다.
             PlayerStealth stealth = FindObjectOfType<PlayerStealth>();
 
@@ -92,6 +93,24 @@ public class Slot : MonoBehaviour
             else
             {
                 Debug.LogError("맵에 'TeleportPoint' 태그를 가진 오브젝트가 없습니다!");
+            }
+        }
+        else if (item.type == ItemData.ItemType.Resurrection)
+        {
+            // 1. 씬에 있는 PlayerController라는 '컴포넌트'를 찾아서 'pc'라는 변수에 담습니다.
+            PlayerController pc = FindObjectOfType<PlayerController>();
+
+            if (pc != null)
+            {
+                // 2. 찾은 그 캐릭터(pc)에게 부활하라고 시킵니다.
+                pc.Revive();
+
+                Debug.Log("부활 아이템 사용 성공!");
+                ClearSlot();
+            }
+            else
+            {
+                Debug.LogError("씬에서 PlayerController를 찾을 수 없습니다!");
             }
         }
         // 은신이나 순간이동 로직은 나중에 여기에 추가하면 됩니다.

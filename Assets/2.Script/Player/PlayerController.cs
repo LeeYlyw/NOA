@@ -283,4 +283,27 @@ public class PlayerController : MonoBehaviour
     {
         return isRunning;
     }
+    public void Revive()
+    {
+        // 1. 상태 초기화
+        isDead = false;
+        currentHp = maxHealth;
+        currentStamina = maxStamina;
+
+        // 2. 애니메이션 초기화
+        if (animator != null)
+        {
+            animator.SetBool("isDead", false); // 죽음 애니메이션 탈출
+            animator.Play("Idle", 0, 0f);      // 강제로 대기 상태로 리셋
+            animator.SetFloat("Speed", 0f);
+        }
+
+        // 3. 물리 및 속도 초기화
+        velocity = Vector3.zero;
+
+        // 4. UI 업데이트
+        UpdateUI();
+
+        Debug.Log(gameObject.name + "이(가) 완전히 부활하여 다시 움직일 수 있습니다!");
+    }
 }
