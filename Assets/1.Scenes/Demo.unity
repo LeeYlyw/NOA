@@ -1014,7 +1014,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 221112665}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: d3e8c72d22b729d47a79221a5ae53315, type: 3}
   m_Name: 
@@ -1825,24 +1825,6 @@ GameObject:
   m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: faab311a84f2e2c43b9af74ff42cc9aa, type: 3}
   m_PrefabInstance: {fileID: 1490083023}
   m_PrefabAsset: {fileID: 0}
---- !u!114 &356707882
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 356707881}
-  m_Enabled: 0
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 7d4a5fa89e4e64c47bc9ee5a9e984da8, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  player: {fileID: 0}
-  detectRange: 10
-  attackRange: 2
-  damage: 10
-  attackCooldown: 1.5
-  rotateSpeed: 5
 --- !u!95 &356707883
 Animator:
   serializedVersion: 7
@@ -1906,6 +1888,37 @@ MonoBehaviour:
   sightRange: 6
   loseSightTime: 3
   investigateWaitTime: 2
+--- !u!114 &356707887
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 356707881}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3493785bc2a40124c94d810378d93e84, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  smoothSpeed: 10
+--- !u!114 &356707888
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 356707881}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d845c40d57eea7146b66073c752ea342, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  monsterId: 2
+  hasAuthority: 1
+  aiScripts:
+  - {fileID: 356707886}
+  navMeshAgent: {fileID: 356707885}
+  remoteMonster: {fileID: 356707887}
 --- !u!1001 &363219366
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -5128,6 +5141,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4628ab5434f664e478271a31d13aee02, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  itemData: {fileID: 0}
 --- !u!4 &1305084048 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 0adbcb4d96b1b274fb15ae78f2004e32, type: 3}
@@ -5183,6 +5197,37 @@ NavMeshAgent:
   m_BaseOffset: 0
   m_WalkableMask: 4294967295
   m_ObstacleAvoidanceType: 4
+--- !u!114 &1306309441
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1306309436}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3493785bc2a40124c94d810378d93e84, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  smoothSpeed: 10
+--- !u!114 &1306309442
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1306309436}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d845c40d57eea7146b66073c752ea342, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  monsterId: 1
+  hasAuthority: 1
+  aiScripts:
+  - {fileID: 1306309437}
+  navMeshAgent: {fileID: 1306309440}
+  remoteMonster: {fileID: 1306309441}
 --- !u!1001 &1316265352
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -6274,13 +6319,16 @@ PrefabInstance:
       addedObject: {fileID: 356707883}
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: faab311a84f2e2c43b9af74ff42cc9aa, type: 3}
       insertIndex: -1
-      addedObject: {fileID: 356707882}
-    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: faab311a84f2e2c43b9af74ff42cc9aa, type: 3}
-      insertIndex: -1
       addedObject: {fileID: 356707886}
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: faab311a84f2e2c43b9af74ff42cc9aa, type: 3}
       insertIndex: -1
       addedObject: {fileID: 356707885}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: faab311a84f2e2c43b9af74ff42cc9aa, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 356707887}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: faab311a84f2e2c43b9af74ff42cc9aa, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 356707888}
   m_SourcePrefab: {fileID: 100100000, guid: faab311a84f2e2c43b9af74ff42cc9aa, type: 3}
 --- !u!4 &1498775204 stripped
 Transform:
@@ -6894,13 +6942,14 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   serverIP: 127.0.0.1
   serverPort: 7777
-  playerId: 1
-  localPlayerTransform: {fileID: 5473649178970520274}
-  remotePlayerTransform: {fileID: 221112666}
+  playerId: 2
+  localPlayerTransform: {fileID: 221112666}
+  remotePlayerTransform: {fileID: 5473649178970520274}
   autoSetupPlayers: 1
-  player1Object: {fileID: 296073702}
-  player2Object: {fileID: 221112665}
+  player1Object: {fileID: 221112665}
+  player2Object: {fileID: 296073702}
   sendInterval: 0.1
+  monsterSendInterval: 0.1
 --- !u!4 &1659927973
 Transform:
   m_ObjectHideFlags: 0
@@ -9504,6 +9553,12 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 1434785059708735181, guid: ec79f989074188c4abe99049e9f050a8, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1306309440}
+    - targetCorrespondingSourceObject: {fileID: 1434785059708735181, guid: ec79f989074188c4abe99049e9f050a8, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1306309441}
+    - targetCorrespondingSourceObject: {fileID: 1434785059708735181, guid: ec79f989074188c4abe99049e9f050a8, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1306309442}
   m_SourcePrefab: {fileID: 100100000, guid: ec79f989074188c4abe99049e9f050a8, type: 3}
 --- !u!1001 &5473649178970520273
 PrefabInstance:
@@ -9567,7 +9622,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5403681110930507535, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 5547903788617858042, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
       propertyPath: m_Enabled
@@ -9579,7 +9634,7 @@ PrefabInstance:
       objectReference: {fileID: 1703467259}
     - target: {fileID: 6470452632123069680, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
       propertyPath: m_Enabled
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6470452632123069680, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
       propertyPath: isLocalPlayer

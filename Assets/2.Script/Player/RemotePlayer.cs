@@ -67,6 +67,25 @@ public class RemotePlayer : MonoBehaviour
         targetIsCrouching = isCrouching;
     }
 
+    public void PlayHitAnimation()
+    {
+        if (animator != null)
+        {
+            animator.SetTrigger("Hit");
+        }
+    }
+
+    public void PlayDeathAnimation()
+    {
+        if (animator != null)
+        {
+            animator.SetFloat("Speed", 0f);
+            animator.SetBool("IsRunning", false);
+            animator.SetBool("isCrouching", false);
+            animator.SetBool("isDead", true);
+        }
+    }
+
     public void SetupPlayer(bool isLocal)
     {
         PlayerController controller = GetComponent<PlayerController>();
@@ -74,7 +93,12 @@ public class RemotePlayer : MonoBehaviour
         if (controller != null)
         {
             controller.isLocalPlayer = isLocal;
-            controller.enabled = isLocal;
+
+            // 중요:
+            // PlayerController를 꺼버리면 리모트 플레이어의 TakeDamage/Die/Hit 처리가 꼬일 수 있음.
+            // 입력은 PlayerController.Update()의 isLocalPlayer 검사로 막고,
+            // 컴포넌트 자체는 항상 켜둔다.
+            controller.enabled = true;
         }
 
         Camera[] cameras = GetComponentsInChildren<Camera>(true);

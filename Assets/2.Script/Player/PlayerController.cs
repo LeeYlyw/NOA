@@ -45,10 +45,12 @@ public class PlayerController : MonoBehaviour
     private bool isDead;
     private bool canRun = true;
 
-    // NetworkClient가 읽을 애니메이션 상태값
+    // NetworkClient가 읽을 애니메이션/상태값
     public float CurrentAnimSpeed { get; private set; }
     public bool IsRunningState => isRunning;
     public bool IsCrouchingState => isCrouching;
+    public bool IsDeadState => isDead;
+    public int CurrentHp => currentHp;
 
     void Awake()
     {
@@ -140,6 +142,7 @@ public class PlayerController : MonoBehaviour
             animator.SetBool("isCrouching", isCrouching);
         }
 
+        // 현재 PlayerNoiseEmitter에 EmitRunNoise가 없다면 유지하지 말 것
         // if (isRunning && noiseEmitter != null)
         // {
         //     noiseEmitter.EmitRunNoise();
@@ -198,7 +201,9 @@ public class PlayerController : MonoBehaviour
             coyoteTimer = 0f;
 
             if (noiseEmitter != null)
+            {
                 noiseEmitter.EmitJumpNoise();
+            }
         }
 
         velocity.y += gravity * Time.deltaTime;
@@ -278,34 +283,31 @@ public class PlayerController : MonoBehaviour
         UpdateUI();
     }
 
-    // 기존 다른 스크립트가 IsRunning()을 쓰고 있을 수 있으니까 유지
     public bool IsRunning()
     {
         return isRunning;
     }
+
     public bool IsDead()
     {
         return isDead;
     }
+
     public void Revive()
     {
-        // 1. 상태 초기화
         isDead = false;
         currentHp = maxHealth;
         currentStamina = maxStamina;
 
-        // 2. 애니메이션 초기화
         if (animator != null)
         {
-            animator.SetBool("isDead", false); // 죽음 애니메이션 탈출
-            animator.Play("Idle", 0, 0f);      // 강제로 대기 상태로 리셋
+            animator.SetBool("isDead", false);
+            animator.Play("Idle", 0, 0f);
             animator.SetFloat("Speed", 0f);
         }
 
-        // 3. 물리 및 속도 초기화
         velocity = Vector3.zero;
 
-        // 4. UI 업데이트
         UpdateUI();
 
         Debug.Log(gameObject.name + "이(가) 완전히 부활하여 다시 움직일 수 있습니다!");
