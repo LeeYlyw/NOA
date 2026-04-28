@@ -12,6 +12,7 @@ public class ItemData : ScriptableObject
         Teleport,
         Stealth,
         Heal,
-        Resurrection
+        Resurrection,
+        Clue
     }
 }
