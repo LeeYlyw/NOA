@@ -67,6 +67,12 @@ public class MonsterChase : MonoBehaviour
 
         foreach (GameObject playerObject in players)
         {
+            PlayerStealth stealth = playerObject.GetComponent<PlayerStealth>();
+            // 은신 스크립트가 있고, 현재 은신 중(isStealth == true)이면 무시하고 다음 플레이어로 넘어감
+            if (stealth != null && stealth.isStealth)
+            {
+                continue;
+            }
             float distance = Vector3.Distance(transform.position, playerObject.transform.position);
 
             if (distance < nearestDistance)
