@@ -9,7 +9,7 @@ public class NetworkClient : MonoBehaviour
     public static NetworkClient Instance;
 
     [Header("Network")]
-    public string serverIP = "127.0.0.1";
+    public string serverIP = "192.168.54.179";
     public int serverPort = 7777;
     public int playerId = 1;
 
@@ -49,6 +49,10 @@ public class NetworkClient : MonoBehaviour
 
     private MonsterNetworkSetup[] monsterSetups;
 
+
+    [Header("Item Sync")]
+    public PotionItem[] potionItems;
+
     void Awake()
     {
         Instance = this;
@@ -61,6 +65,7 @@ public class NetworkClient : MonoBehaviour
         SetupMonstersByPlayerId();
 
         monsterSetups = FindObjectsOfType<MonsterNetworkSetup>();
+        potionItems = FindObjectsOfType<PotionItem>(true);
 
         ConnectToServer();
 
@@ -136,6 +141,19 @@ public class NetworkClient : MonoBehaviour
         }
 
         Debug.Log("몬스터 권한 설정 완료 / PlayerId: " + playerId + " / Authority: " + hasMonsterAuthority);
+    }
+
+    public void SendItemPickup(int itemId)
+    {
+        string message = string.Format(
+            CultureInfo.InvariantCulture,
+            "ITEM_PICKUP|{0}|{1}\n",
+            itemId,
+            playerId
+        );
+
+        SendMessageToServer(message, "아이템 획득 전송 실패");
+        Debug.Log("아이템 획득 전송: " + message);
     }
 
     void ConnectToServer()
@@ -263,6 +281,13 @@ public class NetworkClient : MonoBehaviour
 
         SendMessageToServer(message, "플레이어 데미지 전송 실패");
         Debug.Log("플레이어 데미지 전송: " + message);
+
+        // 현재 서버는 보낸 클라이언트에게 다시 패킷을 돌려주지 않음.
+        // 그래서 내가 보낸 데미지 패킷도 내 화면에 즉시 반영해야 함.
+        if (targetPlayerId != playerId)
+        {
+            ApplyPlayerDamage(targetPlayerId, damage);
+        }
     }
 
     void SendMessageToServer(string message, string errorMessage)
@@ -363,6 +388,12 @@ public class NetworkClient : MonoBehaviour
             ProcessPlayerDamagePacket(parts, packet);
             return;
         }
+
+        if (parts[0] == "ITEM_PICKUP")
+        {
+            ProcessItemPickupPacket(parts, packet);
+            return;
+        }
     }
 
     void ProcessMovePacket(string[] parts, string packet)
@@ -449,6 +480,42 @@ public class NetworkClient : MonoBehaviour
             return;
 
         ApplyPlayerDamage(targetPlayerId, damage);
+    }
+
+    void ProcessItemPickupPacket(string[] parts, string packet)
+    {
+        if (parts.Length != 3)
+        {
+            Debug.LogWarning("ITEM_PICKUP 패킷 형식이 맞지 않음: " + packet);
+            return;
+        }
+
+        if (!int.TryParse(parts[1], out int itemId))
+            return;
+
+        if (!int.TryParse(parts[2], out int pickedPlayerId))
+            return;
+
+        if (pickedPlayerId == playerId)
+            return;
+
+        if (potionItems == null || potionItems.Length == 0)
+            potionItems = FindObjectsOfType<PotionItem>(true);
+
+        foreach (PotionItem item in potionItems)
+        {
+            if (item == null)
+                continue;
+
+            if (item.itemId != itemId)
+                continue;
+
+            item.ApplyRemotePickup();
+            Debug.Log("상대 아이템 획득 반영 완료 / itemId: " + itemId);
+            return;
+        }
+
+        Debug.LogWarning("itemId에 해당하는 아이템을 찾지 못함: " + itemId);
     }
 
     void ApplyRemotePlayerTransform()

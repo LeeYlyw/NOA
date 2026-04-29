@@ -2,29 +2,59 @@ using UnityEngine;
 
 public class PotionItem : MonoBehaviour
 {
-    // [추가] 유니티에서 만든 'HealItem' 데이터를 연결할 칸입니다.
+    [Header("Network")]
+    public int itemId = 1;
+    private bool isPicked = false;
+
+    [Header("Item Data")]
     public ItemData itemData;
 
     private void OnTriggerEnter(Collider other)
     {
+        if (isPicked)
+            return;
+
         Debug.Log("포션 충돌 감지: " + other.name);
 
-        if (other.CompareTag("Player"))
+        if (!other.CompareTag("Player"))
+            return;
+
+        PlayerController player = other.GetComponent<PlayerController>();
+
+        if (player == null)
+            player = other.GetComponentInParent<PlayerController>();
+
+        // 멀티에서 상대 플레이어가 내 화면에서 닿았다고 내 클라가 먹으면 안 됨
+        if (player != null && !player.isLocalPlayer)
+            return;
+
+        Debug.Log("플레이어가 포션 획득 시도 / itemId: " + itemId);
+
+        InventoryManager inv = FindObjectOfType<InventoryManager>();
+
+        if (inv != null)
         {
-            Debug.Log("플레이어가 포션 획득 시도");
+            isPicked = true;
 
-            // [수정] 바로 회복하는 대신, 인벤토리 매니저를 찾아서 아이템을 추가합니다.
-            InventoryManager inv = FindObjectOfType<InventoryManager>();
+            inv.AddItem(itemData);
 
-            if (inv != null)
-            {
-                inv.AddItem(itemData); // 인벤토리에 데이터 전달
-                Destroy(gameObject);   // 맵에서 아이템 제거
-            }
-            else
-            {
-                Debug.LogWarning("InventoryManager를 찾지 못했습니다!");
-            }
+            if (NetworkClient.Instance != null)
+                NetworkClient.Instance.SendItemPickup(itemId);
+
+            gameObject.SetActive(false);
         }
+        else
+        {
+            Debug.LogWarning("InventoryManager를 찾지 못했습니다!");
+        }
+    }
+
+    public void ApplyRemotePickup()
+    {
+        if (isPicked)
+            return;
+
+        isPicked = true;
+        gameObject.SetActive(false);
     }
 }
