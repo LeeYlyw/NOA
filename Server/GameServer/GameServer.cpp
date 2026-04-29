@@ -50,7 +50,7 @@ int main()
 
     std::cout << "Server Start" << std::endl;
     std::cout << "Listen Port : 7777" << std::endl;
-    std::cout << "Server IP : 192.168.54.179" << std::endl;
+    std::cout << "Server IP : 127.0.0.1" << std::endl;
 
     std::cout << "Waiting for client 1..." << std::endl;
     clientSocket1 = accept(listenSocket, nullptr, nullptr);

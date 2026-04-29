@@ -9,7 +9,7 @@ public class NetworkClient : MonoBehaviour
     public static NetworkClient Instance;
 
     [Header("Network")]
-    public string serverIP = "192.168.54.179";
+    public string serverIP = "127.0.0.1";
     public int serverPort = 7777;
     public int playerId = 1;
 
@@ -27,6 +27,9 @@ public class NetworkClient : MonoBehaviour
 
     [Header("Monster Sync")]
     public float monsterSendInterval = 0.1f;
+
+    [Header("Item Sync")]
+    public PotionItem[] potionItems;
 
     private TcpClient client;
     private NetworkStream stream;
@@ -48,10 +51,6 @@ public class NetworkClient : MonoBehaviour
     private bool targetRemoteIsCrouching;
 
     private MonsterNetworkSetup[] monsterSetups;
-
-
-    [Header("Item Sync")]
-    public PotionItem[] potionItems;
 
     void Awake()
     {
@@ -154,6 +153,14 @@ public class NetworkClient : MonoBehaviour
 
         SendMessageToServer(message, "아이템 획득 전송 실패");
         Debug.Log("아이템 획득 전송: " + message);
+    }
+
+    public void SendGameClear()
+    {
+        string msg = "GAME_CLEAR\n";
+        SendMessageToServer(msg, "게임 클리어 전송 실패");
+
+        Debug.Log("서버로 GAME_CLEAR 전송");
     }
 
     void ConnectToServer()
@@ -282,8 +289,6 @@ public class NetworkClient : MonoBehaviour
         SendMessageToServer(message, "플레이어 데미지 전송 실패");
         Debug.Log("플레이어 데미지 전송: " + message);
 
-        // 현재 서버는 보낸 클라이언트에게 다시 패킷을 돌려주지 않음.
-        // 그래서 내가 보낸 데미지 패킷도 내 화면에 즉시 반영해야 함.
         if (targetPlayerId != playerId)
         {
             ApplyPlayerDamage(targetPlayerId, damage);
@@ -355,6 +360,24 @@ public class NetworkClient : MonoBehaviour
     {
         Debug.Log("클라가 받은 패킷: " + packet);
 
+        // GAME_CLEAR는 | 기호가 없는 단독 패킷이라
+        // Split 검사보다 먼저 처리해야 함
+        if (packet == "GAME_CLEAR")
+        {
+            Debug.Log("GAME_CLEAR 수신 / 엔딩 패널 표시");
+
+            if (ClueManager.instance != null)
+            {
+                ClueManager.instance.ShowEnding();
+            }
+            else
+            {
+                Debug.LogWarning("ClueManager instance를 찾지 못했습니다.");
+            }
+
+            return;
+        }
+
         string[] parts = packet.Split('|');
 
         if (parts.Length < 2)
@@ -393,6 +416,20 @@ public class NetworkClient : MonoBehaviour
         {
             ProcessItemPickupPacket(parts, packet);
             return;
+        }
+    }
+
+    void ProcessGameClearPacket()
+    {
+        Debug.Log("GAME_CLEAR 수신 / 엔딩 패널 표시");
+
+        if (ClueManager.instance != null)
+        {
+            ClueManager.instance.ShowEnding();
+        }
+        else
+        {
+            Debug.LogWarning("ClueManager instance를 찾지 못했습니다.");
         }
     }
 
