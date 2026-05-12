@@ -28,8 +28,19 @@ public class PotionItem : MonoBehaviour
         if (player != null && !player.isLocalPlayer)
             return;
 
-        Debug.Log("플레이어가 포션 획득 시도 / itemId: " + itemId);
+        PlayerRoleSetup role = other.GetComponent<PlayerRoleSetup>();
+        if (role == null) role = other.GetComponentInParent<PlayerRoleSetup>();
 
+        if (role != null)
+        {
+            // 만약 이 아이템이 '단서' 타입인데, 먹으려는 사람이 '탐지기(0번)'라면?
+            if (itemData.type == ItemData.ItemType.Clue && role.ownerClientId == 0)
+            {
+                Debug.Log("탐지기는 단서를 획득할 수 없습니다!");
+                return; // 함수 종료 (못 먹게 함)
+            }
+        }
+        
         InventoryManager inv = FindObjectOfType<InventoryManager>();
 
         if (inv != null)
