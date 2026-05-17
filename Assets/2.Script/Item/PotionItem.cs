@@ -48,7 +48,17 @@ public class PotionItem : MonoBehaviour
             isPicked = true;
 
             inv.AddItem(itemData);
-
+            if (itemData != null && itemData.type == ItemData.ItemType.Clue)
+            {
+                if (ClueManager.instance != null)
+                {
+                    ClueManager.instance.AddClue();
+                }
+                else
+                {
+                    Debug.LogError("ClueManager 인스턴스를 찾을 수 없습니다!");
+                }
+            }
             if (NetworkClient.Instance != null)
                 NetworkClient.Instance.SendItemPickup(itemId);
 
