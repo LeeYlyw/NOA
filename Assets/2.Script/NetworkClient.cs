@@ -116,6 +116,18 @@ public class NetworkClient : MonoBehaviour
         if (player2Remote != null)
             player2Remote.SetupPlayer(isPlayer2Local);
 
+        // 역할 설정
+        // Player1 = 감지자
+        // Player2 = 탐색자
+        PlayerRoleSetup player1Role = player1Object.GetComponent<PlayerRoleSetup>();
+        PlayerRoleSetup player2Role = player2Object.GetComponent<PlayerRoleSetup>();
+
+        if (player1Role != null)
+            player1Role.Setup(1, playerId, PlayerRole.Detector);
+
+        if (player2Role != null)
+            player2Role.Setup(2, playerId, PlayerRole.Explorer);
+
         if (playerId == 1)
         {
             localPlayerTransform = player1Object.transform;

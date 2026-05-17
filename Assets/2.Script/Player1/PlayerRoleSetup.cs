@@ -1,22 +1,46 @@
 using UnityEngine;
 
+public enum PlayerRole
+{
+    Detector, // 감지자
+    Explorer  // 탐색자
+}
+
 public class PlayerRoleSetup : MonoBehaviour
 {
-    public int ownerClientId;   // 이 플레이어의 주인 번호
-    public int myClientId;      // 현재 실행중인 내 클라이언트 번호
+    [Header("Network Owner")]
+    public int ownerClientId;   // 이 캐릭터의 주인 번호
+    public int myClientId;      // 현재 실행 중인 클라이언트 번호
 
-    public PlayerController playerController;
-    public GameObject playerCamera;
+    [Header("Role")]
+    public PlayerRole role;
 
-    void Start()
+    public bool IsLocalOwner
     {
-        bool isLocalPlayer = (ownerClientId == myClientId);
-
-        if (playerController != null)
-            playerController.enabled = isLocalPlayer;
-
-        if (playerCamera != null)
-            playerCamera.SetActive(isLocalPlayer);
+        get { return ownerClientId == myClientId; }
     }
-}   
 
+    public bool IsDetector
+    {
+        get { return role == PlayerRole.Detector; }
+    }
+
+    public bool IsExplorer
+    {
+        get { return role == PlayerRole.Explorer; }
+    }
+
+    public void Setup(int ownerId, int myId, PlayerRole newRole)
+    {
+        ownerClientId = ownerId;
+        myClientId = myId;
+        role = newRole;
+
+        Debug.Log(
+            gameObject.name +
+            " 역할 설정 완료 / Owner: " + ownerClientId +
+            " / My: " + myClientId +
+            " / Role: " + role
+        );
+    }
+}

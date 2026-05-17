@@ -1,6 +1,5 @@
 using UnityEngine;
 
-// 파일 이름이 반드시 ClueDetector.cs 여야 합니다!
 public class ClueDetector : MonoBehaviour
 {
     [Header("설정")]
@@ -11,7 +10,6 @@ public class ClueDetector : MonoBehaviour
 
     void Start()
     {
-        // PlayerRoleSetup이 같은 오브젝트에 있는지 확인
         roleSetup = GetComponent<PlayerRoleSetup>();
 
         if (beepSound != null)
@@ -27,42 +25,69 @@ public class ClueDetector : MonoBehaviour
 
     void Update()
     {
-        // 역할 정보가 없거나, 내 캐릭터가 아니거나, 탐지기(0번)가 아니면 종료
-        if (roleSetup == null) return;
-        if (roleSetup.ownerClientId != roleSetup.myClientId || roleSetup.ownerClientId != 0) return;
+        if (!CanUseDetector())
+        {
+            StopBeep();
+            return;
+        }
 
-        // 맵에서 "Clue" 태그를 가진 단서들 찾기
         GameObject[] clues = GameObject.FindGameObjectsWithTag("Clue");
 
         if (clues.Length == 0)
         {
-            if (beepSound.isPlaying) beepSound.Stop();
+            StopBeep();
             return;
         }
 
         float closestDist = float.MaxValue;
+
         foreach (GameObject clue in clues)
         {
             float dist = Vector3.Distance(transform.position, clue.transform.position);
-            if (dist < closestDist) closestDist = dist;
+
+            if (dist < closestDist)
+                closestDist = dist;
         }
 
-        // 거리 기반 소리 로직
         if (closestDist <= maxDetectionDist)
         {
-            if (!beepSound.isPlaying) beepSound.Play();
+            if (beepSound != null && !beepSound.isPlaying)
+                beepSound.Play();
 
-            // 볼륨: 가까울수록 1, 멀어질수록 0
-            float volumeRatio = 1f - (closestDist / maxDetectionDist);
-            beepSound.volume = Mathf.Clamp01(volumeRatio);
+            float ratio = 1f - (closestDist / maxDetectionDist);
 
-            // 피치: 가까울수록 고음 (1.0 ~ 3.0)
-            float pitchRatio = 1f - (closestDist / maxDetectionDist);
-            beepSound.pitch = Mathf.Lerp(1f, 3f, pitchRatio);
+            if (beepSound != null)
+            {
+                beepSound.volume = Mathf.Clamp01(ratio);
+                beepSound.pitch = Mathf.Lerp(1f, 3f, ratio);
+            }
         }
         else
         {
-            if (beepSound.isPlaying) beepSound.Stop();
+            StopBeep();
         }
+    }
+
+    private bool CanUseDetector()
+    {
+        if (roleSetup == null)
+            return false;
+
+        // 감지자 역할이 아니면 사용 불가
+        if (!roleSetup.IsDetector)
+            return false;
+
+        // 내 클라이언트에서 내가 조작하는 감지자일 때만 소리 재생
+        // 이걸 빼면 탐색자 클라이언트에서도 상대 감지자의 소리가 들릴 수 있음
+        if (!roleSetup.IsLocalOwner)
+            return false;
+
+        return true;
+    }
+
+    private void StopBeep()
+    {
+        if (beepSound != null && beepSound.isPlaying)
+            beepSound.Stop();
     }
 }

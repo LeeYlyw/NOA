@@ -33,14 +33,14 @@ public class PotionItem : MonoBehaviour
 
         if (role != null)
         {
-            // 만약 이 아이템이 '단서' 타입인데, 먹으려는 사람이 '탐지기(0번)'라면?
-            if (itemData.type == ItemData.ItemType.Clue && role.ownerClientId == 0)
+            // 단서는 탐색자만 획득 가능
+            if (itemData.type == ItemData.ItemType.Clue && !role.IsExplorer)
             {
-                Debug.Log("탐지기는 단서를 획득할 수 없습니다!");
-                return; // 함수 종료 (못 먹게 함)
+                Debug.Log("탐색자만 단서를 획득할 수 있습니다!");
+                return;
             }
         }
-        
+
         InventoryManager inv = FindObjectOfType<InventoryManager>();
 
         if (inv != null)
