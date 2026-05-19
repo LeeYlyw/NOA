@@ -7807,7 +7807,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 207852677691400858, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 207852677691400858, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
       propertyPath: m_TagString
@@ -8117,8 +8117,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   ownerClientId: 0
   myClientId: 0
-  playerController: {fileID: 0}
-  playerCamera: {fileID: 0}
+  role: 0
 --- !u!1001 &1329354264
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -10335,8 +10334,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   ownerClientId: 0
   myClientId: 0
-  playerController: {fileID: 0}
-  playerCamera: {fileID: 0}
+  role: 0
 --- !u!1001 &1757473790
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -11224,11 +11222,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   serverIP: 127.0.0.1
   serverPort: 7777
-  playerId: 2
-  localPlayerTransform: {fileID: 0}
+  playerId: 1
+  localPlayerTransform: {fileID: 2014975748}
   remotePlayerTransform: {fileID: 1306263783}
   autoSetupPlayers: 1
-  player1Object: {fileID: 0}
+  player1Object: {fileID: 2014975747}
   player2Object: {fileID: 1306263782}
   sendInterval: 0.1
   monsterSendInterval: 0.1
@@ -11356,8 +11354,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   ownerClientId: 1
   myClientId: 0
-  playerController: {fileID: 0}
-  playerCamera: {fileID: 0}
+  role: 0
 --- !u!114 &2014975750
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -6,69 +6,45 @@ public class PlayerStealth : MonoBehaviour
     public bool isStealth = false;
     public float stealthDuration = 5f; // 은신 지속 시간 (5초)
 
-    [Header("Material Settings")]
-    public Material stealthMaterial;   // 1단계에서 만든 투명 메테리얼 넣는 칸
-    private Material[] originalMaterials; // 원래 메테리얼들 저장용
-    private Renderer playerRenderer;
-
-    void Start()
-    {
-        // 플레이어의 MeshRenderer를 가져옵니다. (자식 오브젝트에 있다면 GetComponentsInChildren 사용)
-        playerRenderer = GetComponentInChildren<MeshRenderer>();
-        if (playerRenderer == null)
-        {
-            // 만약 못 찾았다면, 모든 자식을 다 뒤져서라도 하나 가져오게 합니다.
-            playerRenderer = GetComponent<MeshRenderer>(); // 본인에게 있는 경우
-            if (playerRenderer == null)
-                playerRenderer = GetComponentInChildren<SkinnedMeshRenderer>(); // 캐릭터 모델인 경우 이게 많음
-        }
-        if (playerRenderer != null)
-        {
-            // 원래 메테리얼들을 배열에 백업해둡니다.
-            originalMaterials = playerRenderer.materials;
-        }
-    }
+    [Header("Stealth Target")]
+    [Tooltip("플레이어 자식에 있는 'model' 오브젝트를 여기에 드래그해서 넣어주세요.")]
+    public GameObject playerModel; //  껐다 켤 자식 모델 오브젝트
 
     public void ActivateStealth()
     {
-     
-        if (isStealth || playerRenderer == null || stealthMaterial == null)
+        // 1. 이미 은신 중이면 중복 실행 막기
+        if (isStealth)
         {
-            Debug.LogWarning("은신 실행 실패! 원인: " +
-                (playerRenderer == null ? "렌더러 없음 " : "") +
-                (stealthMaterial == null ? "메테리얼 없음" : "이미 은신중"));
+            Debug.LogWarning("이미 은신 중입니다!");
             return;
         }
-        
+
+        // 2. 인스펙터에 model 오브젝트를 안 넣었을 때를 위한 안전장치
+        if (playerModel == null)
+        {
+            Debug.LogError("PlayerStealth :: 'Player Model' 슬롯이 비어있습니다! 자식의 model 오브젝트를 연결해주세요.");
+            return;
+        }
+
+        // 은신 루틴 시작
         StartCoroutine(StealthRoutine());
     }
 
     IEnumerator StealthRoutine()
     {
         isStealth = true;
-        Debug.Log("은신 시작!");
+        Debug.Log("은신 시작! (귀신이 플레이어를 감지하지 못하는 기믹을 여기에 연결하세요)");
 
-        // 시각 효과: 모든 자식 렌더러를 찾아 투명 메테리얼 적용
-        MeshRenderer[] renderers = GetComponentsInChildren<MeshRenderer>();
-        foreach (var rend in renderers)
-        {
-            Material[] stealthMats = new Material[rend.materials.Length];
-            for (int i = 0; i < stealthMats.Length; i++)
-            {
-                stealthMats[i] = stealthMaterial;
-            }
-            rend.materials = stealthMats;
-        }
+        //  [해결] 자식 model 오브젝트를 비활성화해서 눈에서 감추기
+        playerModel.SetActive(false);
 
+        // 5초 동안 은신 유지
         yield return new WaitForSeconds(stealthDuration);
 
-        // 복구: 원래대로 (가장 간단한 건 Rebind나 씬 재배치지만, 일단 원래대로 복구)
-        // 사실 원래 메테리얼을 배열로 다 저장해두는 건 복잡하니 
-        // 그냥 렌더러를 껐다 켜거나 씬의 기본 메테리얼을 다시 입히는 게 확실합니다.
-        foreach (var rend in renderers)
+        //  [해결] 5초 뒤 자식 model 오브젝트를 다시 활성화해서 짠! 하고 나타나기
+        if (playerModel != null)
         {
-            // 원래 메테리얼로 복구하는 로직 (기존 originalMaterials 활용)
-            rend.materials = originalMaterials;
+            playerModel.SetActive(true);
         }
 
         isStealth = false;
