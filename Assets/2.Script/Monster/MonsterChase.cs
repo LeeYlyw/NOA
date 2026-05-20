@@ -67,12 +67,20 @@ public class MonsterChase : MonoBehaviour
 
         foreach (GameObject playerObject in players)
         {
+            PlayerController playerController = playerObject.GetComponent<PlayerController>();
+
+            if (playerController != null && playerController.IsDeadState)
+            {
+                continue;
+            }
+
             PlayerStealth stealth = playerObject.GetComponent<PlayerStealth>();
-            // 은신 스크립트가 있고, 현재 은신 중(isStealth == true)이면 무시하고 다음 플레이어로 넘어감
+
             if (stealth != null && stealth.isStealth)
             {
                 continue;
             }
+
             float distance = Vector3.Distance(transform.position, playerObject.transform.position);
 
             if (distance < nearestDistance)
@@ -158,14 +166,14 @@ public class MonsterChase : MonoBehaviour
         if (target == null)
             return -1;
 
-        string targetName = target.name.ToLower();
+        PlayerRoleSetup roleSetup = target.GetComponent<PlayerRoleSetup>();
 
-        if (targetName.Contains("player1"))
-            return 1;
+        if (roleSetup != null)
+        {
+            return roleSetup.ownerClientId;
+        }
 
-        if (targetName.Contains("player2"))
-            return 2;
-
+        Debug.LogWarning("공격 대상에서 PlayerRoleSetup을 찾지 못했습니다: " + target.name);
         return -1;
     }
 

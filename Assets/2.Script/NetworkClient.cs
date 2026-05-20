@@ -300,10 +300,10 @@ public class NetworkClient : MonoBehaviour
         SendMessageToServer(message, "플레이어 데미지 전송 실패");
         Debug.Log("플레이어 데미지 전송: " + message);
 
-        if (targetPlayerId != playerId)
-        {
-            ApplyPlayerDamage(targetPlayerId, damage);
-        }
+        // 몬스터 권한을 가진 클라이언트에서도 즉시 데미지를 적용한다.
+        // 기존 코드는 targetPlayerId == playerId일 때 데미지를 적용하지 않아서
+        // 로컬 플레이어가 맞아도 체력이 줄지 않는 문제가 있었다.
+        ApplyPlayerDamage(targetPlayerId, damage);
     }
 
     public void SendPlayerRevive(int targetPlayerId)
