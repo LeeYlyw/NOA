@@ -116,7 +116,6 @@ public class NetworkClient : MonoBehaviour
         if (player2Remote != null)
             player2Remote.SetupPlayer(isPlayer2Local);
 
-        // 역할 설정
         // Player1 = 감지자
         // Player2 = 탐색자
         PlayerRoleSetup player1Role = player1Object.GetComponent<PlayerRoleSetup>();
@@ -307,6 +306,18 @@ public class NetworkClient : MonoBehaviour
         }
     }
 
+    public void SendPlayerRevive(int targetPlayerId)
+    {
+        string message = string.Format(
+            CultureInfo.InvariantCulture,
+            "PLAYER_REVIVE|{0}\n",
+            targetPlayerId
+        );
+
+        SendMessageToServer(message, "플레이어 부활 전송 실패");
+        Debug.Log("플레이어 부활 전송: " + message);
+    }
+
     void SendMessageToServer(string message, string errorMessage)
     {
         if (!isConnected || stream == null)
@@ -372,8 +383,6 @@ public class NetworkClient : MonoBehaviour
     {
         Debug.Log("클라가 받은 패킷: " + packet);
 
-        // GAME_CLEAR는 | 기호가 없는 단독 패킷이라
-        // Split 검사보다 먼저 처리해야 함
         if (packet == "GAME_CLEAR")
         {
             Debug.Log("GAME_CLEAR 수신 / 엔딩 패널 표시");
@@ -421,6 +430,12 @@ public class NetworkClient : MonoBehaviour
         if (parts[0] == "PLAYER_DAMAGE")
         {
             ProcessPlayerDamagePacket(parts, packet);
+            return;
+        }
+
+        if (parts[0] == "PLAYER_REVIVE")
+        {
+            ProcessPlayerRevivePacket(parts, packet);
             return;
         }
 
@@ -529,6 +544,20 @@ public class NetworkClient : MonoBehaviour
             return;
 
         ApplyPlayerDamage(targetPlayerId, damage);
+    }
+
+    void ProcessPlayerRevivePacket(string[] parts, string packet)
+    {
+        if (parts.Length != 2)
+        {
+            Debug.LogWarning("PLAYER_REVIVE 패킷 형식이 맞지 않음: " + packet);
+            return;
+        }
+
+        if (!int.TryParse(parts[1], out int targetPlayerId))
+            return;
+
+        ApplyPlayerRevive(targetPlayerId);
     }
 
     void ProcessItemPickupPacket(string[] parts, string packet)
@@ -676,6 +705,34 @@ public class NetworkClient : MonoBehaviour
         }
 
         Debug.Log("PLAYER_DAMAGE 적용 완료 / target: " + targetPlayerId + " / damage: " + damage);
+    }
+
+    void ApplyPlayerRevive(int targetPlayerId)
+    {
+        GameObject targetObject = null;
+
+        if (targetPlayerId == 1)
+            targetObject = player1Object;
+        else if (targetPlayerId == 2)
+            targetObject = player2Object;
+
+        if (targetObject == null)
+        {
+            Debug.LogWarning("부활 대상 플레이어 오브젝트를 찾지 못함: " + targetPlayerId);
+            return;
+        }
+
+        PlayerController playerController = targetObject.GetComponent<PlayerController>();
+
+        if (playerController == null)
+        {
+            Debug.LogWarning("부활 대상에 PlayerController가 없음: " + targetObject.name);
+            return;
+        }
+
+        playerController.Revive();
+
+        Debug.Log("PLAYER_REVIVE 적용 완료 / target: " + targetPlayerId);
     }
 
     void OnApplicationQuit()
