@@ -90,6 +90,11 @@ public class Slot : MonoBehaviour
             return;
         }
 
+        if (ItemEffectManager.Instance != null)
+        {
+            ItemEffectManager.Instance.PlayHealEffect(localPlayer.position);
+        }
+
         player.HealToFull();
         Debug.Log("회복 아이템 사용 완료");
         ClearSlot();
@@ -106,6 +111,11 @@ public class Slot : MonoBehaviour
         {
             Debug.LogError("로컬 플레이어에 PlayerStealth가 없습니다.");
             return;
+        }
+
+        if (ItemEffectManager.Instance != null)
+        {
+            ItemEffectManager.Instance.PlayStealthEffect(localPlayer.position);
         }
 
         stealth.ActivateStealth();
@@ -127,6 +137,13 @@ public class Slot : MonoBehaviour
         }
 
         CharacterController cc = localPlayer.GetComponent<CharacterController>();
+
+        Vector3 originPos = localPlayer.position;
+        if (ItemEffectManager.Instance != null)
+        {
+            ItemEffectManager.Instance.PlayTeleportEffect(originPos);
+        }
+
         if (cc != null)
             cc.enabled = false;
 
@@ -134,6 +151,11 @@ public class Slot : MonoBehaviour
 
         if (cc != null)
             cc.enabled = true;
+
+        if (ItemEffectManager.Instance != null)
+        {
+            ItemEffectManager.Instance.PlayTeleportEffect(targetPoint.transform.position);
+        }
 
         Debug.Log("텔레포트 아이템 사용 완료");
         ClearSlot();
@@ -156,6 +178,11 @@ public class Slot : MonoBehaviour
         {
             Debug.Log("동료가 살아있어서 부활 아이템을 사용할 수 없습니다.");
             return;
+        }
+
+        if (ItemEffectManager.Instance != null)
+        {
+            ItemEffectManager.Instance.PlayResurrectionEffect(remotePlayer.position);
         }
 
         int targetPlayerId = NetworkClient.Instance.playerId == 1 ? 2 : 1;
