@@ -2051,6 +2051,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 0029601f2a1f45848ae94cf7112a25bf, type: 3}
       insertIndex: -1
       addedObject: {fileID: 284581317}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 0029601f2a1f45848ae94cf7112a25bf, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 284581321}
   m_SourcePrefab: {fileID: 100100000, guid: 0029601f2a1f45848ae94cf7112a25bf, type: 3}
 --- !u!1 &284581316 stripped
 GameObject:
@@ -2124,6 +2127,20 @@ Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 0029601f2a1f45848ae94cf7112a25bf, type: 3}
   m_PrefabInstance: {fileID: 284581315}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &284581321
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 284581316}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7b29ccfeb34f3ca479238806dee22e92, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  visualRoot: {fileID: 0}
+  disableColliderForDetector: 1
 --- !u!1001 &287668997
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -10955,6 +10972,7 @@ MonoBehaviour:
   isStealth: 0
   stealthDuration: 5
   playerModel: {fileID: 1953970115}
+  onlyLocalPlayerCanUse: 1
 --- !u!1001 &1329354264
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -14334,6 +14352,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 0029601f2a1f45848ae94cf7112a25bf, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1832480640}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 0029601f2a1f45848ae94cf7112a25bf, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1832480644}
   m_SourcePrefab: {fileID: 100100000, guid: 0029601f2a1f45848ae94cf7112a25bf, type: 3}
 --- !u!1 &1832480639 stripped
 GameObject:
@@ -14407,6 +14428,20 @@ Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 0029601f2a1f45848ae94cf7112a25bf, type: 3}
   m_PrefabInstance: {fileID: 1832480638}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &1832480644
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1832480639}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7b29ccfeb34f3ca479238806dee22e92, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  visualRoot: {fileID: 0}
+  disableColliderForDetector: 1
 --- !u!1001 &1841120042
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -15186,6 +15221,7 @@ MonoBehaviour:
   isStealth: 0
   stealthDuration: 5
   playerModel: {fileID: 1360703101}
+  onlyLocalPlayerCanUse: 1
 --- !u!114 &2014975757
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -16574,8 +16610,30 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 950130552823306764, guid: f64df20e10e002540b32b1edf698bec2, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1390451682}
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 460592124010102966, guid: f64df20e10e002540b32b1edf698bec2, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 8066815641227722544}
   m_SourcePrefab: {fileID: 100100000, guid: f64df20e10e002540b32b1edf698bec2, type: 3}
+--- !u!1 &8066815641227722543 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 460592124010102966, guid: f64df20e10e002540b32b1edf698bec2, type: 3}
+  m_PrefabInstance: {fileID: 8066815641227722542}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &8066815641227722544
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8066815641227722543}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7b29ccfeb34f3ca479238806dee22e92, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  visualRoot: {fileID: 0}
+  disableColliderForDetector: 1
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
