@@ -34,6 +34,12 @@ public class PotionItem : MonoBehaviour
         if (role != null)
         {
             // 단서는 탐색자만 획득 가능
+            if (itemData == null)
+            {
+                Debug.LogError(gameObject.name + " itemData가 설정되지 않았습니다.");
+                return;
+            }
+
             if (itemData.type == ItemData.ItemType.Clue && !role.IsExplorer)
             {
                 Debug.Log("탐색자만 단서를 획득할 수 있습니다!");
