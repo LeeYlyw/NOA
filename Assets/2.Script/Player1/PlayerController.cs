@@ -38,6 +38,7 @@ public class PlayerController : MonoBehaviour
     private CharacterController controller;
     private Animator animator;
 
+    private Vector3 horizontalMove; //  [변경] 수평 이동 속도를 임시 저장할 변수
     private Vector3 velocity;
     private bool isGrounded;
     private bool isRunning;
@@ -102,7 +103,12 @@ public class PlayerController : MonoBehaviour
             if (Input.GetKeyDown(KeyCode.K))
                 Die();
         }
+        else
+        {
+            horizontalMove = Vector3.zero;
+        }
 
+        // 수평 이동과 수직 이동을 계산한 뒤, 항상 마지막에 최종 Move()를 처리합니다.
         HandleJumpAndGravity();
     }
 
@@ -131,7 +137,9 @@ public class PlayerController : MonoBehaviour
         isRunning = runInput && hasInput && canRun && currentStamina > 0f && !isCrouching;
 
         float speed = isRunning ? runSpeed : walkSpeed;
-        controller.Move(move * speed * Time.deltaTime);
+
+        //  [수정] 여기서 직접 Move하지 않고, 속도만 계산해서 저장합니다.
+        horizontalMove = move * speed;
 
         CurrentAnimSpeed = Mathf.Clamp01(move.magnitude);
 
@@ -141,12 +149,6 @@ public class PlayerController : MonoBehaviour
             animator.SetBool("IsRunning", isRunning);
             animator.SetBool("isCrouching", isCrouching);
         }
-
-        // 현재 PlayerNoiseEmitter에 EmitRunNoise가 없다면 유지하지 말 것
-        // if (isRunning && noiseEmitter != null)
-        // {
-        //     noiseEmitter.EmitRunNoise();
-        // }
     }
 
     void HandleStamina()
@@ -181,7 +183,14 @@ public class PlayerController : MonoBehaviour
         if (controller == null || !controller.enabled)
             return;
 
+        // 단 한 번만 Move가 돌기 때문에 이 값이 정확하게 체크됩니다.
         isGrounded = controller.isGrounded;
+
+        if (animator != null)
+        {
+            //  [추가] 애니메이터에 현재 땅에 닿아있는지 상태를 계속 쏴줍니다.
+            animator.SetBool("isGrounded", isGrounded);
+        }
 
         if (isGrounded)
         {
@@ -195,10 +204,17 @@ public class PlayerController : MonoBehaviour
             coyoteTimer -= Time.deltaTime;
         }
 
+        // 점프 입력
         if (isLocalPlayer && Input.GetKeyDown(KeyCode.Space) && coyoteTimer > 0f)
         {
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
             coyoteTimer = 0f;
+
+            //  [추가] 점프하는 순간 애니메이터에 Jump 트리거를 날려줍니다.
+            if (animator != null)
+            {
+                animator.SetTrigger("Jump");
+            }
 
             if (noiseEmitter != null)
             {
@@ -207,7 +223,10 @@ public class PlayerController : MonoBehaviour
         }
 
         velocity.y += gravity * Time.deltaTime;
-        controller.Move(velocity * Time.deltaTime);
+
+        //  [수정] 수평 이동 속도와 중력/점프 속도를 합쳐서 프레임당 딱 한 번만 Move를 실행합니다.
+        Vector3 finalMove = horizontalMove + velocity;
+        controller.Move(finalMove * Time.deltaTime);
     }
 
     void HandleCrouch()
@@ -268,6 +287,7 @@ public class PlayerController : MonoBehaviour
         isCrouching = false;
         CurrentAnimSpeed = 0f;
 
+        horizontalMove = Vector3.zero;
         velocity = Vector3.zero;
         velocity.y = -2f;
 
@@ -306,6 +326,7 @@ public class PlayerController : MonoBehaviour
             animator.SetFloat("Speed", 0f);
         }
 
+        horizontalMove = Vector3.zero;
         velocity = Vector3.zero;
 
         UpdateUI();
