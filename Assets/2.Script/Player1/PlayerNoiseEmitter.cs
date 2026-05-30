@@ -68,5 +68,13 @@ public class PlayerNoiseEmitter : MonoBehaviour
     public void EmitNoise(float amount)
     {
         OnNoiseEmitted?.Invoke(transform.position, amount, gameObject);
+
+        if (playerController != null && !playerController.isLocalPlayer)
+            return;
+
+        if (NetworkClient.Instance != null)
+        {
+            NetworkClient.Instance.SendNoise(transform.position, amount);
+        }
     }
 }

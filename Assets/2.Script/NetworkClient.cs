@@ -86,7 +86,10 @@ public class NetworkClient : MonoBehaviour
             return;
 
         SendLocalPlayerTransform();
-        SendMonsterTransforms();
+
+        // 서버 권한 몬스터 구조에서는 클라이언트가 몬스터 위치를 보내지 않는다.
+        // 서버가 MONSTER_MOVE 또는 S_MONSTER_STATE를 보내고, 클라이언트는 이를 반영만 한다.
+        // SendMonsterTransforms();
 
         ReceivePackets();
 
@@ -141,16 +144,20 @@ public class NetworkClient : MonoBehaviour
 
     void SetupMonstersByPlayerId()
     {
-        bool hasMonsterAuthority = playerId == 1;
-
         MonsterNetworkSetup[] monsters = FindObjectsOfType<MonsterNetworkSetup>();
 
         foreach (MonsterNetworkSetup monster in monsters)
         {
-            monster.SetupMonster(hasMonsterAuthority);
+            if (monster == null)
+                continue;
+
+            // 서버 권한 몬스터 구조:
+            // 모든 클라이언트는 몬스터 AI/NavMeshAgent 권한을 가지지 않고,
+            // 서버가 보내는 몬스터 상태를 RemoteMonster로 반영만 한다.
+            monster.SetupMonster(false);
         }
 
-        Debug.Log("몬스터 권한 설정 완료 / PlayerId: " + playerId + " / Authority: " + hasMonsterAuthority);
+        Debug.Log("몬스터 권한 설정 완료 / 모든 클라이언트는 서버 몬스터 상태만 반영 / PlayerId: " + playerId);
     }
 
     public void SendItemPickup(int itemId)
@@ -233,59 +240,28 @@ public class NetworkClient : MonoBehaviour
         SendMessageToServer(message, "플레이어 위치 전송 실패");
     }
 
+
+    public void SendNoise(Vector3 position, float amount)
+    {
+        string message = string.Format(
+            CultureInfo.InvariantCulture,
+            "C_NOISE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}\n",
+            playerId,
+            position.x,
+            position.y,
+            position.z,
+            amount
+        );
+
+        SendMessageToServer(message, "소리 이벤트 전송 실패");
+    }
+
     void SendMonsterTransforms()
     {
-        if (playerId != 1)
-            return;
-
-        if (monsterSetups == null || monsterSetups.Length == 0)
-            return;
-
-        monsterSendTimer += Time.deltaTime;
-
-        if (monsterSendTimer < monsterSendInterval)
-            return;
-
-        monsterSendTimer = 0f;
-
-        foreach (MonsterNetworkSetup monster in monsterSetups)
-        {
-            if (monster == null)
-                continue;
-
-            Transform monsterTransform = monster.transform;
-
-            Vector3 pos = monsterTransform.position;
-            float rotY = monsterTransform.eulerAngles.y;
-
-            float speed = 0f;
-            bool isWalk = false;
-            bool isAttack = false;
-
-            Animator animator = monster.GetComponent<Animator>();
-
-            if (animator != null)
-            {
-                speed = animator.GetFloat("Speed");
-                isWalk = animator.GetBool("isWalk");
-                isAttack = animator.GetBool("isAttack");
-            }
-
-            string message = string.Format(
-                CultureInfo.InvariantCulture,
-                "MONSTER_MOVE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6}|{7}\n",
-                monster.monsterId,
-                pos.x,
-                pos.y,
-                pos.z,
-                rotY,
-                speed,
-                isWalk ? 1 : 0,
-                isAttack ? 1 : 0
-            );
-
-            SendMessageToServer(message, "몬스터 위치/애니메이션 전송 실패");
-        }
+        // 서버 권한 몬스터 구조에서는 사용하지 않는다.
+        // 예전 구조에서는 playerId 1 클라이언트가 몬스터 위치를 서버로 보냈지만,
+        // 이제 몬스터 위치와 상태는 서버가 계산해서 모든 클라이언트로 전송한다.
+        return;
     }
 
     public void SendPlayerDamage(int targetPlayerId, int damage)
@@ -300,10 +276,9 @@ public class NetworkClient : MonoBehaviour
         SendMessageToServer(message, "플레이어 데미지 전송 실패");
         Debug.Log("플레이어 데미지 전송: " + message);
 
-        // 몬스터 권한을 가진 클라이언트에서도 즉시 데미지를 적용한다.
-        // 기존 코드는 targetPlayerId == playerId일 때 데미지를 적용하지 않아서
-        // 로컬 플레이어가 맞아도 체력이 줄지 않는 문제가 있었다.
-        ApplyPlayerDamage(targetPlayerId, damage);
+        // 서버 권한 데미지 구조:
+        // 클라이언트는 데미지를 확정하지 않고 서버의 PLAYER_DAMAGE/S_PLAYER_DAMAGE를 기다린다.
+        // ApplyPlayerDamage(targetPlayerId, damage);
     }
 
     public void SendPlayerRevive(int targetPlayerId)
@@ -383,19 +358,9 @@ public class NetworkClient : MonoBehaviour
     {
         Debug.Log("클라가 받은 패킷: " + packet);
 
-        if (packet == "GAME_CLEAR")
+        if (packet == "GAME_CLEAR" || packet == "S_GAME_CLEAR")
         {
-            Debug.Log("GAME_CLEAR 수신 / 엔딩 패널 표시");
-
-            if (ClueManager.instance != null)
-            {
-                ClueManager.instance.ShowEnding();
-            }
-            else
-            {
-                Debug.LogWarning("ClueManager instance를 찾지 못했습니다.");
-            }
-
+            ProcessGameClearPacket();
             return;
         }
 
@@ -427,7 +392,13 @@ public class NetworkClient : MonoBehaviour
             return;
         }
 
-        if (parts[0] == "PLAYER_DAMAGE")
+        if (parts[0] == "S_MONSTER_STATE")
+        {
+            ProcessServerMonsterStatePacket(parts, packet);
+            return;
+        }
+
+        if (parts[0] == "PLAYER_DAMAGE" || parts[0] == "S_PLAYER_DAMAGE")
         {
             ProcessPlayerDamagePacket(parts, packet);
             return;
@@ -529,11 +500,48 @@ public class NetworkClient : MonoBehaviour
         );
     }
 
+
+    void ProcessServerMonsterStatePacket(string[] parts, string packet)
+    {
+        if (parts.Length != 11)
+        {
+            Debug.LogWarning("S_MONSTER_STATE 패킷 형식이 맞지 않음: " + packet);
+            return;
+        }
+
+        if (!int.TryParse(parts[1], out int receivedMonsterId))
+            return;
+
+        // parts[2] = monsterType, parts[3] = aiState
+        bool okX = float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float x);
+        bool okY = float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float y);
+        bool okZ = float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float z);
+        bool okRot = float.TryParse(parts[7], NumberStyles.Float, CultureInfo.InvariantCulture, out float rotY);
+        bool okSpeed = float.TryParse(parts[8], NumberStyles.Float, CultureInfo.InvariantCulture, out float speed);
+
+        bool okWalk = int.TryParse(parts[9], out int walkValue);
+        bool okAttack = int.TryParse(parts[10], out int attackValue);
+
+        if (!okX || !okY || !okZ || !okRot || !okSpeed || !okWalk || !okAttack)
+            return;
+
+        ApplyRemoteMonsterTransform(
+            receivedMonsterId,
+            new Vector3(x, y, z),
+            Quaternion.Euler(0f, rotY, 0f),
+            speed,
+            walkValue == 1,
+            attackValue == 1
+        );
+    }
+
     void ProcessPlayerDamagePacket(string[] parts, string packet)
     {
-        if (parts.Length != 3)
+        // 기존 형식: PLAYER_DAMAGE|targetPlayerId|damage
+        // 서버 권한 형식: S_PLAYER_DAMAGE|targetPlayerId|damage|attackerMonsterId
+        if (parts.Length != 3 && parts.Length != 4)
         {
-            Debug.LogWarning("PLAYER_DAMAGE 패킷 형식이 맞지 않음: " + packet);
+            Debug.LogWarning("PLAYER_DAMAGE/S_PLAYER_DAMAGE 패킷 형식이 맞지 않음: " + packet);
             return;
         }
 
@@ -628,9 +636,6 @@ public class NetworkClient : MonoBehaviour
         bool isAttack
     )
     {
-        if (playerId == 1)
-            return;
-
         if (monsterSetups == null || monsterSetups.Length == 0)
             monsterSetups = FindObjectsOfType<MonsterNetworkSetup>();
 
