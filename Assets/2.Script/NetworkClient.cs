@@ -358,6 +358,12 @@ public class NetworkClient : MonoBehaviour
     {
         Debug.Log("클라가 받은 패킷: " + packet);
 
+        if (packet.StartsWith("ID:"))
+        {
+            ProcessIdPacket(packet);
+            return;
+        }
+
         if (packet == "GAME_CLEAR" || packet == "S_GAME_CLEAR")
         {
             ProcessGameClearPacket();
@@ -415,6 +421,27 @@ public class NetworkClient : MonoBehaviour
             ProcessItemPickupPacket(parts, packet);
             return;
         }
+    }
+
+    void ProcessIdPacket(string packet)
+    {
+        string idText = packet.Substring(3);
+
+        if (!int.TryParse(idText, out int receivedId))
+        {
+            Debug.LogWarning("ID 패킷 형식이 맞지 않음: " + packet);
+            return;
+        }
+
+        playerId = receivedId;
+
+        Debug.Log("서버에서 PlayerId 배정: " + playerId);
+
+        SetupPlayersByPlayerId();
+        SetupMonstersByPlayerId();
+
+        if (localPlayerTransform != null)
+            localPlayerController = localPlayerTransform.GetComponent<PlayerController>();
     }
 
     void ProcessGameClearPacket()
