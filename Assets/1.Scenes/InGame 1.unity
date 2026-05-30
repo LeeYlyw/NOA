@@ -10844,9 +10844,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cc071320ed82de44699f1de928daeb2d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  maxHp: 100
-  currentHp: 0
-  hpSlider: {fileID: 0}
 --- !u!82 &1306263790
 AudioSource:
   m_ObjectHideFlags: 0
@@ -14586,12 +14583,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   serverIP: 127.0.0.1
   serverPort: 7777
-  playerId: 1
-  localPlayerTransform: {fileID: 1306263783}
-  remotePlayerTransform: {fileID: 2014975748}
+  playerId: 2
+  localPlayerTransform: {fileID: 2014975748}
+  remotePlayerTransform: {fileID: 1306263783}
   autoSetupPlayers: 1
-  player1Object: {fileID: 1306263782}
-  player2Object: {fileID: 2014975747}
+  player1Object: {fileID: 2014975747}
+  player2Object: {fileID: 1306263782}
   sendInterval: 0.1
   monsterSendInterval: 0.1
   potionItems: []
@@ -14957,9 +14954,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cc071320ed82de44699f1de928daeb2d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  maxHp: 100
-  currentHp: 0
-  hpSlider: {fileID: 0}
 --- !u!114 &2014975753
 MonoBehaviour:
   m_ObjectHideFlags: 0
