@@ -216,17 +216,19 @@ public class NetworkClient : MonoBehaviour
         float animSpeed = 0f;
         bool isRunning = false;
         bool isCrouching = false;
+        bool isDead = false;
 
         if (localPlayerController != null)
         {
             animSpeed = localPlayerController.CurrentAnimSpeed;
             isRunning = localPlayerController.IsRunningState;
             isCrouching = localPlayerController.IsCrouchingState;
+            isDead = localPlayerController.IsDeadState;
         }
 
         string message = string.Format(
             CultureInfo.InvariantCulture,
-            "MOVE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6}|{7}\n",
+            "MOVE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6}|{7}|{8}\n",
             playerId,
             pos.x,
             pos.y,
@@ -234,7 +236,8 @@ public class NetworkClient : MonoBehaviour
             rotY,
             animSpeed,
             isRunning ? 1 : 0,
-            isCrouching ? 1 : 0
+            isCrouching ? 1 : 0,
+            isDead ? 1 : 0
         );
 
         SendMessageToServer(message, "플레이어 위치 전송 실패");

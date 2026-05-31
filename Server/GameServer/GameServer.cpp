@@ -1,4 +1,6 @@
-﻿#include <iostream>
+﻿#define NOMINMAX
+
+#include <iostream>
 #include <WinSock2.h>
 #include <string>
 #include <vector>
@@ -8,6 +10,14 @@
 #include <iomanip>
 #include <algorithm>
 #include <cstdlib>
+
+#ifdef min
+#undef min
+#endif
+
+#ifdef max
+#undef max
+#endif
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -99,7 +109,13 @@ float Distance2D(const Vec3& a, const Vec3& b)
 
 float Clamp(float value, float minValue, float maxValue)
 {
-    return std::max(minValue, std::min(maxValue, value));
+    if (value < minValue)
+        return minValue;
+
+    if (value > maxValue)
+        return maxValue;
+
+    return value;
 }
 
 std::vector<std::string> Split(const std::string& text, char delimiter)
@@ -309,6 +325,27 @@ PlayerState* FindNearestAttackTarget(MonsterState& monster, PlayerState players[
     return bestPlayer;
 }
 
+bool IsCurrentTargetDead(const MonsterState& monster, PlayerState players[])
+{
+    if (monster.targetPlayerId < 1 || monster.targetPlayerId > 2)
+        return false;
+
+    const PlayerState& target = players[monster.targetPlayerId];
+    return target.hasState && target.isDead;
+}
+
+void ClearDeadTargetAggro(MonsterState& monster)
+{
+    monster.targetPlayerId = 0;
+    monster.state = MonsterAIState::Return;
+    monster.targetPosition = monster.spawnPosition;
+    monster.lastKnownPosition = monster.position;
+    monster.lastHeardPosition = monster.position;
+    monster.isAttack = false;
+    monster.isWalk = false;
+    monster.currentSpeed = 0.0f;
+}
+
 void SendPlayerDamageIfPossible(
     MonsterState& monster,
     PlayerState& target,
@@ -356,6 +393,12 @@ void UpdateVisionMonster(
     double now)
 {
     monster.isAttack = false;
+
+    if (IsCurrentTargetDead(monster, players))
+    {
+        ClearDeadTargetAggro(monster);
+        return;
+    }
 
     PlayerState* visiblePlayer = FindVisiblePlayer(monster, players);
 
@@ -424,6 +467,12 @@ void UpdateSoundMonster(
     double now)
 {
     monster.isAttack = false;
+
+    if (IsCurrentTargetDead(monster, players))
+    {
+        ClearDeadTargetAggro(monster);
+        return;
+    }
 
     PlayerState* attackTarget = FindNearestAttackTarget(monster, players);
     if (attackTarget != nullptr)
@@ -511,13 +560,19 @@ void ProcessMovePacket(const std::vector<std::string>& parts, PlayerState player
     player.hasState = true;
 }
 
-void ProcessNoisePacket(const std::vector<std::string>& parts, MonsterState monsters[])
+void ProcessNoisePacket(const std::vector<std::string>& parts, PlayerState players[], MonsterState monsters[])
 {
     // C_NOISE|playerId|x|y|z|noiseAmount
     if (parts.size() != 6)
         return;
 
     int playerId = ToInt(parts[1]);
+
+    if (playerId < 1 || playerId > 2)
+        return;
+
+    if (players[playerId].hasState && players[playerId].isDead)
+        return;
 
     Vec3 noisePosition;
     noisePosition.x = ToFloat(parts[2]);
@@ -583,7 +638,7 @@ void ProcessClientPacket(
 
     if (type == "C_NOISE")
     {
-        ProcessNoisePacket(parts, monsters);
+        ProcessNoisePacket(parts, players, monsters);
         return;
     }
 
