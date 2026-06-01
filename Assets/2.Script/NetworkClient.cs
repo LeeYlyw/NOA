@@ -1,4 +1,4 @@
-using System;
+ï»¿using System;
 using System.Globalization;
 using System.Net.Sockets;
 using System.Text;
@@ -86,10 +86,7 @@ public class NetworkClient : MonoBehaviour
             return;
 
         SendLocalPlayerTransform();
-
-        // ¼­¹ö ±ÇÇÑ ¸ó½ºÅÍ ±¸Á¶¿¡¼­´Â Å¬¶óÀÌ¾ğÆ®°¡ ¸ó½ºÅÍ À§Ä¡¸¦ º¸³»Áö ¾Ê´Â´Ù.
-        // ¼­¹ö°¡ MONSTER_MOVE ¶Ç´Â S_MONSTER_STATE¸¦ º¸³»°í, Å¬¶óÀÌ¾ğÆ®´Â ÀÌ¸¦ ¹İ¿µ¸¸ ÇÑ´Ù.
-        // SendMonsterTransforms();
+        SendMonsterTransforms();
 
         ReceivePackets();
 
@@ -103,7 +100,7 @@ public class NetworkClient : MonoBehaviour
 
         if (player1Object == null || player2Object == null)
         {
-            Debug.LogWarning("Player1 Object ¶Ç´Â Player2 Object°¡ ºñ¾î ÀÖ½À´Ï´Ù.");
+            Debug.LogWarning("Player1 Object ë˜ëŠ” Player2 Objectê°€ ë¹„ì–´ ìˆìŠµë‹ˆë‹¤.");
             return;
         }
 
@@ -119,8 +116,8 @@ public class NetworkClient : MonoBehaviour
         if (player2Remote != null)
             player2Remote.SetupPlayer(isPlayer2Local);
 
-        // Player1 = °¨ÁöÀÚ
-        // Player2 = Å½»öÀÚ
+        // Player1 = ê°ì§€ì
+        // Player2 = íƒìƒ‰ì
         PlayerRoleSetup player1Role = player1Object.GetComponent<PlayerRoleSetup>();
         PlayerRoleSetup player2Role = player2Object.GetComponent<PlayerRoleSetup>();
 
@@ -144,20 +141,16 @@ public class NetworkClient : MonoBehaviour
 
     void SetupMonstersByPlayerId()
     {
+        bool hasMonsterAuthority = playerId == 1;
+
         MonsterNetworkSetup[] monsters = FindObjectsOfType<MonsterNetworkSetup>();
 
         foreach (MonsterNetworkSetup monster in monsters)
         {
-            if (monster == null)
-                continue;
-
-            // ¼­¹ö ±ÇÇÑ ¸ó½ºÅÍ ±¸Á¶:
-            // ¸ğµç Å¬¶óÀÌ¾ğÆ®´Â ¸ó½ºÅÍ AI/NavMeshAgent ±ÇÇÑÀ» °¡ÁöÁö ¾Ê°í,
-            // ¼­¹ö°¡ º¸³»´Â ¸ó½ºÅÍ »óÅÂ¸¦ RemoteMonster·Î ¹İ¿µ¸¸ ÇÑ´Ù.
-            monster.SetupMonster(false);
+            monster.SetupMonster(hasMonsterAuthority);
         }
 
-        Debug.Log("¸ó½ºÅÍ ±ÇÇÑ ¼³Á¤ ¿Ï·á / ¸ğµç Å¬¶óÀÌ¾ğÆ®´Â ¼­¹ö ¸ó½ºÅÍ »óÅÂ¸¸ ¹İ¿µ / PlayerId: " + playerId);
+        Debug.Log("ëª¬ìŠ¤í„° ê¶Œí•œ ì„¤ì • ì™„ë£Œ / PlayerId: " + playerId + " / Authority: " + hasMonsterAuthority);
     }
 
     public void SendItemPickup(int itemId)
@@ -169,16 +162,16 @@ public class NetworkClient : MonoBehaviour
             playerId
         );
 
-        SendMessageToServer(message, "¾ÆÀÌÅÛ È¹µæ Àü¼Û ½ÇÆĞ");
-        Debug.Log("¾ÆÀÌÅÛ È¹µæ Àü¼Û: " + message);
+        SendMessageToServer(message, "ì•„ì´í…œ íšë“ ì „ì†¡ ì‹¤íŒ¨");
+        Debug.Log("ì•„ì´í…œ íšë“ ì „ì†¡: " + message);
     }
 
     public void SendGameClear()
     {
         string msg = "GAME_CLEAR\n";
-        SendMessageToServer(msg, "°ÔÀÓ Å¬¸®¾î Àü¼Û ½ÇÆĞ");
+        SendMessageToServer(msg, "ê²Œì„ í´ë¦¬ì–´ ì „ì†¡ ì‹¤íŒ¨");
 
-        Debug.Log("¼­¹ö·Î GAME_CLEAR Àü¼Û");
+        Debug.Log("ì„œë²„ë¡œ GAME_CLEAR ì „ì†¡");
     }
 
     void ConnectToServer()
@@ -190,11 +183,11 @@ public class NetworkClient : MonoBehaviour
             stream = client.GetStream();
             isConnected = true;
 
-            Debug.Log("¼­¹ö ¿¬°á ¼º°ø");
+            Debug.Log("ì„œë²„ ì—°ê²° ì„±ê³µ");
         }
         catch (Exception e)
         {
-            Debug.LogError("¼­¹ö ¿¬°á ½ÇÆĞ: " + e.Message);
+            Debug.LogError("ì„œë²„ ì—°ê²° ì‹¤íŒ¨: " + e.Message);
         }
     }
 
@@ -216,19 +209,17 @@ public class NetworkClient : MonoBehaviour
         float animSpeed = 0f;
         bool isRunning = false;
         bool isCrouching = false;
-        bool isDead = false;
 
         if (localPlayerController != null)
         {
             animSpeed = localPlayerController.CurrentAnimSpeed;
             isRunning = localPlayerController.IsRunningState;
             isCrouching = localPlayerController.IsCrouchingState;
-            isDead = localPlayerController.IsDeadState;
         }
 
         string message = string.Format(
             CultureInfo.InvariantCulture,
-            "MOVE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6}|{7}|{8}\n",
+            "MOVE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6}|{7}\n",
             playerId,
             pos.x,
             pos.y,
@@ -236,35 +227,65 @@ public class NetworkClient : MonoBehaviour
             rotY,
             animSpeed,
             isRunning ? 1 : 0,
-            isCrouching ? 1 : 0,
-            isDead ? 1 : 0
+            isCrouching ? 1 : 0
         );
 
-        SendMessageToServer(message, "ÇÃ·¹ÀÌ¾î À§Ä¡ Àü¼Û ½ÇÆĞ");
-    }
-
-
-    public void SendNoise(Vector3 position, float amount)
-    {
-        string message = string.Format(
-            CultureInfo.InvariantCulture,
-            "C_NOISE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}\n",
-            playerId,
-            position.x,
-            position.y,
-            position.z,
-            amount
-        );
-
-        SendMessageToServer(message, "¼Ò¸® ÀÌº¥Æ® Àü¼Û ½ÇÆĞ");
+        SendMessageToServer(message, "í”Œë ˆì´ì–´ ìœ„ì¹˜ ì „ì†¡ ì‹¤íŒ¨");
     }
 
     void SendMonsterTransforms()
     {
-        // ¼­¹ö ±ÇÇÑ ¸ó½ºÅÍ ±¸Á¶¿¡¼­´Â »ç¿ëÇÏÁö ¾Ê´Â´Ù.
-        // ¿¹Àü ±¸Á¶¿¡¼­´Â playerId 1 Å¬¶óÀÌ¾ğÆ®°¡ ¸ó½ºÅÍ À§Ä¡¸¦ ¼­¹ö·Î º¸³ÂÁö¸¸,
-        // ÀÌÁ¦ ¸ó½ºÅÍ À§Ä¡¿Í »óÅÂ´Â ¼­¹ö°¡ °è»êÇØ¼­ ¸ğµç Å¬¶óÀÌ¾ğÆ®·Î Àü¼ÛÇÑ´Ù.
-        return;
+        if (playerId != 1)
+            return;
+
+        if (monsterSetups == null || monsterSetups.Length == 0)
+            return;
+
+        monsterSendTimer += Time.deltaTime;
+
+        if (monsterSendTimer < monsterSendInterval)
+            return;
+
+        monsterSendTimer = 0f;
+
+        foreach (MonsterNetworkSetup monster in monsterSetups)
+        {
+            if (monster == null)
+                continue;
+
+            Transform monsterTransform = monster.transform;
+
+            Vector3 pos = monsterTransform.position;
+            float rotY = monsterTransform.eulerAngles.y;
+
+            float speed = 0f;
+            bool isWalk = false;
+            bool isAttack = false;
+
+            Animator animator = monster.GetComponent<Animator>();
+
+            if (animator != null)
+            {
+                speed = animator.GetFloat("Speed");
+                isWalk = animator.GetBool("isWalk");
+                isAttack = animator.GetBool("isAttack");
+            }
+
+            string message = string.Format(
+                CultureInfo.InvariantCulture,
+                "MONSTER_MOVE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6}|{7}\n",
+                monster.monsterId,
+                pos.x,
+                pos.y,
+                pos.z,
+                rotY,
+                speed,
+                isWalk ? 1 : 0,
+                isAttack ? 1 : 0
+            );
+
+            SendMessageToServer(message, "ëª¬ìŠ¤í„° ìœ„ì¹˜/ì• ë‹ˆë©”ì´ì…˜ ì „ì†¡ ì‹¤íŒ¨");
+        }
     }
 
     public void SendPlayerDamage(int targetPlayerId, int damage)
@@ -276,12 +297,13 @@ public class NetworkClient : MonoBehaviour
             damage
         );
 
-        SendMessageToServer(message, "ÇÃ·¹ÀÌ¾î µ¥¹ÌÁö Àü¼Û ½ÇÆĞ");
-        Debug.Log("ÇÃ·¹ÀÌ¾î µ¥¹ÌÁö Àü¼Û: " + message);
+        SendMessageToServer(message, "í”Œë ˆì´ì–´ ë°ë¯¸ì§€ ì „ì†¡ ì‹¤íŒ¨");
+        Debug.Log("í”Œë ˆì´ì–´ ë°ë¯¸ì§€ ì „ì†¡: " + message);
 
-        // ¼­¹ö ±ÇÇÑ µ¥¹ÌÁö ±¸Á¶:
-        // Å¬¶óÀÌ¾ğÆ®´Â µ¥¹ÌÁö¸¦ È®Á¤ÇÏÁö ¾Ê°í ¼­¹öÀÇ PLAYER_DAMAGE/S_PLAYER_DAMAGE¸¦ ±â´Ù¸°´Ù.
-        // ApplyPlayerDamage(targetPlayerId, damage);
+        // ëª¬ìŠ¤í„° ê¶Œí•œì„ ê°€ì§„ í´ë¼ì´ì–¸íŠ¸ì—ì„œë„ ì¦‰ì‹œ ë°ë¯¸ì§€ë¥¼ ì ìš©í•œë‹¤.
+        // ê¸°ì¡´ ì½”ë“œëŠ” targetPlayerId == playerIdì¼ ë•Œ ë°ë¯¸ì§€ë¥¼ ì ìš©í•˜ì§€ ì•Šì•„ì„œ
+        // ë¡œì»¬ í”Œë ˆì´ì–´ê°€ ë§ì•„ë„ ì²´ë ¥ì´ ì¤„ì§€ ì•ŠëŠ” ë¬¸ì œê°€ ìˆì—ˆë‹¤.
+        ApplyPlayerDamage(targetPlayerId, damage);
     }
 
     public void SendPlayerRevive(int targetPlayerId)
@@ -292,8 +314,8 @@ public class NetworkClient : MonoBehaviour
             targetPlayerId
         );
 
-        SendMessageToServer(message, "ÇÃ·¹ÀÌ¾î ºÎÈ° Àü¼Û ½ÇÆĞ");
-        Debug.Log("ÇÃ·¹ÀÌ¾î ºÎÈ° Àü¼Û: " + message);
+        SendMessageToServer(message, "í”Œë ˆì´ì–´ ë¶€í™œ ì „ì†¡ ì‹¤íŒ¨");
+        Debug.Log("í”Œë ˆì´ì–´ ë¶€í™œ ì „ì†¡: " + message);
     }
 
     void SendMessageToServer(string message, string errorMessage)
@@ -333,7 +355,7 @@ public class NetworkClient : MonoBehaviour
         }
         catch (Exception e)
         {
-            Debug.LogError("¼ö½Å ½ÇÆĞ: " + e.Message);
+            Debug.LogError("ìˆ˜ì‹  ì‹¤íŒ¨: " + e.Message);
             isConnected = false;
         }
     }
@@ -359,17 +381,21 @@ public class NetworkClient : MonoBehaviour
 
     void ProcessPacket(string packet)
     {
-        Debug.Log("Å¬¶ó°¡ ¹ŞÀº ÆĞÅ¶: " + packet);
+        Debug.Log("í´ë¼ê°€ ë°›ì€ íŒ¨í‚·: " + packet);
 
-        if (packet.StartsWith("ID:"))
+        if (packet == "GAME_CLEAR")
         {
-            ProcessIdPacket(packet);
-            return;
-        }
+            Debug.Log("GAME_CLEAR ìˆ˜ì‹  / ì—”ë”© íŒ¨ë„ í‘œì‹œ");
 
-        if (packet == "GAME_CLEAR" || packet == "S_GAME_CLEAR")
-        {
-            ProcessGameClearPacket();
+            if (ClueManager.instance != null)
+            {
+                ClueManager.instance.ShowEnding();
+            }
+            else
+            {
+                Debug.LogWarning("ClueManager instanceë¥¼ ì°¾ì§€ ëª»í–ˆìŠµë‹ˆë‹¤.");
+            }
+
             return;
         }
 
@@ -401,13 +427,7 @@ public class NetworkClient : MonoBehaviour
             return;
         }
 
-        if (parts[0] == "S_MONSTER_STATE")
-        {
-            ProcessServerMonsterStatePacket(parts, packet);
-            return;
-        }
-
-        if (parts[0] == "PLAYER_DAMAGE" || parts[0] == "S_PLAYER_DAMAGE")
+        if (parts[0] == "PLAYER_DAMAGE")
         {
             ProcessPlayerDamagePacket(parts, packet);
             return;
@@ -426,30 +446,9 @@ public class NetworkClient : MonoBehaviour
         }
     }
 
-    void ProcessIdPacket(string packet)
-    {
-        string idText = packet.Substring(3);
-
-        if (!int.TryParse(idText, out int receivedId))
-        {
-            Debug.LogWarning("ID ÆĞÅ¶ Çü½ÄÀÌ ¸ÂÁö ¾ÊÀ½: " + packet);
-            return;
-        }
-
-        playerId = receivedId;
-
-        Debug.Log("¼­¹ö¿¡¼­ PlayerId ¹èÁ¤: " + playerId);
-
-        SetupPlayersByPlayerId();
-        SetupMonstersByPlayerId();
-
-        if (localPlayerTransform != null)
-            localPlayerController = localPlayerTransform.GetComponent<PlayerController>();
-    }
-
     void ProcessGameClearPacket()
     {
-        Debug.Log("GAME_CLEAR ¼ö½Å / ¿£µù ÆĞ³Î Ç¥½Ã");
+        Debug.Log("GAME_CLEAR ìˆ˜ì‹  / ì—”ë”© íŒ¨ë„ í‘œì‹œ");
 
         if (ClueManager.instance != null)
         {
@@ -457,7 +456,7 @@ public class NetworkClient : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning("ClueManager instance¸¦ Ã£Áö ¸øÇß½À´Ï´Ù.");
+            Debug.LogWarning("ClueManager instanceë¥¼ ì°¾ì§€ ëª»í–ˆìŠµë‹ˆë‹¤.");
         }
     }
 
@@ -465,7 +464,7 @@ public class NetworkClient : MonoBehaviour
     {
         if (parts.Length != 9)
         {
-            Debug.LogWarning("MOVE ÆĞÅ¶ Çü½ÄÀÌ ¸ÂÁö ¾ÊÀ½: " + packet);
+            Debug.LogWarning("MOVE íŒ¨í‚· í˜•ì‹ì´ ë§ì§€ ì•ŠìŒ: " + packet);
             return;
         }
 
@@ -501,7 +500,7 @@ public class NetworkClient : MonoBehaviour
     {
         if (parts.Length != 9)
         {
-            Debug.LogWarning("MONSTER_MOVE ÆĞÅ¶ Çü½ÄÀÌ ¸ÂÁö ¾ÊÀ½: " + packet);
+            Debug.LogWarning("MONSTER_MOVE íŒ¨í‚· í˜•ì‹ì´ ë§ì§€ ì•ŠìŒ: " + packet);
             return;
         }
 
@@ -530,48 +529,11 @@ public class NetworkClient : MonoBehaviour
         );
     }
 
-
-    void ProcessServerMonsterStatePacket(string[] parts, string packet)
-    {
-        if (parts.Length != 11)
-        {
-            Debug.LogWarning("S_MONSTER_STATE ÆĞÅ¶ Çü½ÄÀÌ ¸ÂÁö ¾ÊÀ½: " + packet);
-            return;
-        }
-
-        if (!int.TryParse(parts[1], out int receivedMonsterId))
-            return;
-
-        // parts[2] = monsterType, parts[3] = aiState
-        bool okX = float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float x);
-        bool okY = float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float y);
-        bool okZ = float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float z);
-        bool okRot = float.TryParse(parts[7], NumberStyles.Float, CultureInfo.InvariantCulture, out float rotY);
-        bool okSpeed = float.TryParse(parts[8], NumberStyles.Float, CultureInfo.InvariantCulture, out float speed);
-
-        bool okWalk = int.TryParse(parts[9], out int walkValue);
-        bool okAttack = int.TryParse(parts[10], out int attackValue);
-
-        if (!okX || !okY || !okZ || !okRot || !okSpeed || !okWalk || !okAttack)
-            return;
-
-        ApplyRemoteMonsterTransform(
-            receivedMonsterId,
-            new Vector3(x, y, z),
-            Quaternion.Euler(0f, rotY, 0f),
-            speed,
-            walkValue == 1,
-            attackValue == 1
-        );
-    }
-
     void ProcessPlayerDamagePacket(string[] parts, string packet)
     {
-        // ±âÁ¸ Çü½Ä: PLAYER_DAMAGE|targetPlayerId|damage
-        // ¼­¹ö ±ÇÇÑ Çü½Ä: S_PLAYER_DAMAGE|targetPlayerId|damage|attackerMonsterId
-        if (parts.Length != 3 && parts.Length != 4)
+        if (parts.Length != 3)
         {
-            Debug.LogWarning("PLAYER_DAMAGE/S_PLAYER_DAMAGE ÆĞÅ¶ Çü½ÄÀÌ ¸ÂÁö ¾ÊÀ½: " + packet);
+            Debug.LogWarning("PLAYER_DAMAGE íŒ¨í‚· í˜•ì‹ì´ ë§ì§€ ì•ŠìŒ: " + packet);
             return;
         }
 
@@ -588,7 +550,7 @@ public class NetworkClient : MonoBehaviour
     {
         if (parts.Length != 2)
         {
-            Debug.LogWarning("PLAYER_REVIVE ÆĞÅ¶ Çü½ÄÀÌ ¸ÂÁö ¾ÊÀ½: " + packet);
+            Debug.LogWarning("PLAYER_REVIVE íŒ¨í‚· í˜•ì‹ì´ ë§ì§€ ì•ŠìŒ: " + packet);
             return;
         }
 
@@ -602,7 +564,7 @@ public class NetworkClient : MonoBehaviour
     {
         if (parts.Length != 3)
         {
-            Debug.LogWarning("ITEM_PICKUP ÆĞÅ¶ Çü½ÄÀÌ ¸ÂÁö ¾ÊÀ½: " + packet);
+            Debug.LogWarning("ITEM_PICKUP íŒ¨í‚· í˜•ì‹ì´ ë§ì§€ ì•ŠìŒ: " + packet);
             return;
         }
 
@@ -627,11 +589,11 @@ public class NetworkClient : MonoBehaviour
                 continue;
 
             item.ApplyRemotePickup();
-            Debug.Log("»ó´ë ¾ÆÀÌÅÛ È¹µæ ¹İ¿µ ¿Ï·á / itemId: " + itemId);
+            Debug.Log("ìƒëŒ€ ì•„ì´í…œ íšë“ ë°˜ì˜ ì™„ë£Œ / itemId: " + itemId);
             return;
         }
 
-        Debug.LogWarning("itemId¿¡ ÇØ´çÇÏ´Â ¾ÆÀÌÅÛÀ» Ã£Áö ¸øÇÔ: " + itemId);
+        Debug.LogWarning("itemIdì— í•´ë‹¹í•˜ëŠ” ì•„ì´í…œì„ ì°¾ì§€ ëª»í•¨: " + itemId);
     }
 
     void ApplyRemotePlayerTransform()
@@ -666,6 +628,9 @@ public class NetworkClient : MonoBehaviour
         bool isAttack
     )
     {
+        if (playerId == 1)
+            return;
+
         if (monsterSetups == null || monsterSetups.Length == 0)
             monsterSetups = FindObjectsOfType<MonsterNetworkSetup>();
 
@@ -693,7 +658,7 @@ public class NetworkClient : MonoBehaviour
             return;
         }
 
-        Debug.LogWarning("monsterId¿¡ ÇØ´çÇÏ´Â ¸ó½ºÅÍ¸¦ Ã£Áö ¸øÇÔ: " + monsterId);
+        Debug.LogWarning("monsterIdì— í•´ë‹¹í•˜ëŠ” ëª¬ìŠ¤í„°ë¥¼ ì°¾ì§€ ëª»í•¨: " + monsterId);
     }
 
     void ApplyPlayerDamage(int targetPlayerId, int damage)
@@ -707,7 +672,7 @@ public class NetworkClient : MonoBehaviour
 
         if (targetObject == null)
         {
-            Debug.LogWarning("µ¥¹ÌÁö Àû¿ë ´ë»ó ÇÃ·¹ÀÌ¾î ¿ÀºêÁ§Æ®¸¦ Ã£Áö ¸øÇÔ: " + targetPlayerId);
+            Debug.LogWarning("ë°ë¯¸ì§€ ì ìš© ëŒ€ìƒ í”Œë ˆì´ì–´ ì˜¤ë¸Œì íŠ¸ë¥¼ ì°¾ì§€ ëª»í•¨: " + targetPlayerId);
             return;
         }
 
@@ -715,7 +680,7 @@ public class NetworkClient : MonoBehaviour
 
         if (playerController == null)
         {
-            Debug.LogWarning("µ¥¹ÌÁö Àû¿ë ´ë»ó¿¡ PlayerController°¡ ¾øÀ½: " + targetObject.name);
+            Debug.LogWarning("ë°ë¯¸ì§€ ì ìš© ëŒ€ìƒì— PlayerControllerê°€ ì—†ìŒ: " + targetObject.name);
             return;
         }
 
@@ -739,7 +704,7 @@ public class NetworkClient : MonoBehaviour
             }
         }
 
-        Debug.Log("PLAYER_DAMAGE Àû¿ë ¿Ï·á / target: " + targetPlayerId + " / damage: " + damage);
+        Debug.Log("PLAYER_DAMAGE ì ìš© ì™„ë£Œ / target: " + targetPlayerId + " / damage: " + damage);
     }
 
     void ApplyPlayerRevive(int targetPlayerId)
@@ -753,7 +718,7 @@ public class NetworkClient : MonoBehaviour
 
         if (targetObject == null)
         {
-            Debug.LogWarning("ºÎÈ° ´ë»ó ÇÃ·¹ÀÌ¾î ¿ÀºêÁ§Æ®¸¦ Ã£Áö ¸øÇÔ: " + targetPlayerId);
+            Debug.LogWarning("ë¶€í™œ ëŒ€ìƒ í”Œë ˆì´ì–´ ì˜¤ë¸Œì íŠ¸ë¥¼ ì°¾ì§€ ëª»í•¨: " + targetPlayerId);
             return;
         }
 
@@ -761,13 +726,13 @@ public class NetworkClient : MonoBehaviour
 
         if (playerController == null)
         {
-            Debug.LogWarning("ºÎÈ° ´ë»ó¿¡ PlayerController°¡ ¾øÀ½: " + targetObject.name);
+            Debug.LogWarning("ë¶€í™œ ëŒ€ìƒì— PlayerControllerê°€ ì—†ìŒ: " + targetObject.name);
             return;
         }
 
         playerController.Revive();
 
-        Debug.Log("PLAYER_REVIVE Àû¿ë ¿Ï·á / target: " + targetPlayerId);
+        Debug.Log("PLAYER_REVIVE ì ìš© ì™„ë£Œ / target: " + targetPlayerId);
     }
 
     void OnApplicationQuit()

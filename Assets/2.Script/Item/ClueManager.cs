@@ -1,4 +1,4 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
@@ -11,7 +11,7 @@ public class ClueManager : MonoBehaviour
     public int needClueCount = 3;
 
     [Header("UI")]
-    public Image clueIcon; // ÀÎ½ºÆåÅÍ¿¡¼­ ´Ü¼­ ½ºÇÁ¶óÀÌÆ®°¡ ²À ¹Ì¸® µî·ÏµÇ¾î ÀÖ¾î¾ß ÇÕ´Ï´Ù!
+    public Image clueIcon;
     public TextMeshProUGUI clueCountText;
 
     [Header("Ending")]
@@ -23,65 +23,56 @@ public class ClueManager : MonoBehaviour
     {
         instance = this;
 
-        // ÀÌÁ¦ ½ÃÀÛÇÒ ¶§ ÀÌ¹ÌÁö¸¦ ²ôÁö ¾Ê½À´Ï´Ù! È­¸é¿¡ Ç×»ó ¶ç¿öµÓ´Ï´Ù.
         if (clueIcon != null)
         {
             clueIcon.enabled = true;
-
-            // [¿É¼Ç] ½ÃÀÛÇÒ ¶§´Â È¹µæ ÀüÀÌ¹Ç·Î ¹İÅõ¸íÇÏ°Ô ¼³Á¤ (¿øÄ¡ ¾ÊÀ¸½Ã¸é ÀÌ µÎ ÁÙÀº Áö¿ì¼Åµµ µË´Ï´Ù)
             Color color = clueIcon.color;
-            color.a = 0.4f; // 40% Åõ¸íµµ
+            color.a = 0.4f;
             clueIcon.color = color;
         }
 
-        // ½ÃÀÛÇÏÀÚ¸¶ÀÚ ¿øÇÏ´Â À§Ä¡¿¡ "0 / 3"ÀÌ Á¤»óÀûÀ¸·Î ¶å´Ï´Ù.
-        if (clueCountText != null)
-            clueCountText.text = clueCount + " / " + needClueCount;
+        RefreshClueUI();
 
         if (endingPanel != null)
             endingPanel.SetActive(false);
     }
 
+    public void SetClueCount(int count, int needCount)
+    {
+        clueCount = count;
+        needClueCount = needCount;
+
+        Debug.Log("ì„œë²„ ë‹¨ì„œ ê°œìˆ˜ ë°˜ì˜: " + clueCount + " / " + needClueCount);
+        RefreshClueUI();
+    }
+
+    private void RefreshClueUI()
+    {
+        if (clueIcon != null)
+        {
+            Color color = clueIcon.color;
+            color.a = clueCount > 0 ? 1.0f : 0.4f;
+            clueIcon.color = color;
+        }
+
+        if (clueCountText != null)
+            clueCountText.text = clueCount + " / " + needClueCount;
+    }
+
+    // ì„œë²„ê°€ ì—†ëŠ” ë‹¨ë… í…ŒìŠ¤íŠ¸ìš© fallback.
+    // ë©€í‹° ì„œë²„ ê¶Œí•œ êµ¬ì¡°ì—ì„œëŠ” ì„œë²„ì˜ S_CLUE_COUNT íŒ¨í‚·ìœ¼ë¡œ SetClueCountê°€ í˜¸ì¶œëœë‹¤.
     public void AddClue()
     {
         if (isEnding)
             return;
 
         clueCount++;
-        Debug.Log(" ClueManager :: ´Ü¼­ È¹µæ ¼º°ø! ÇöÀç °³¼ö: " + clueCount);
+        Debug.Log("ClueManager :: ë‹¨ì„œ íšë“ ì„±ê³µ! í˜„ì¬ ê°œìˆ˜: " + clueCount);
 
-        // ´Ü¼­¸¦ È¹µæÇÏ¸é ÀÌ¹ÌÁö¸¦ ¼±¸íÇÏ°Ô 100% Ã¤¿ó´Ï´Ù. (ÇÏ¾á ³×¸ğ ¹æÁö)
-        if (clueIcon != null)
-        {
-            Color color = clueIcon.color;
-            color.a = 1.0f; // 100% ºÒÅõ¸í
-            clueIcon.color = color;
-        }
-
-        // ´Ü¼­¸¦ ¸ÔÀ» ¶§¸¶´Ù ½Ç½Ã°£À¸·Î 1 / 3, 2 / 3 °»½Å
-        if (clueCountText != null)
-        {
-            clueCountText.text = clueCount + " / " + needClueCount;
-        }
+        RefreshClueUI();
 
         if (clueCount >= needClueCount)
-        {
-            RequestEnding();
-        }
-    }
-
-    private void RequestEnding()
-    {
-        if (isEnding)
-            return;
-
-        Debug.Log("´Ü¼­ 3°³ ¼öÁı ¿Ï·á. ¿£µù Ã³¸® ½ÃÀÛ");
-        ShowEnding();
-
-        if (NetworkClient.Instance != null)
-        {
-            NetworkClient.Instance.SendGameClear();
-        }
+            ShowEnding();
     }
 
     public void ShowEnding()
@@ -90,7 +81,7 @@ public class ClueManager : MonoBehaviour
             return;
 
         isEnding = true;
-        Debug.Log("¿£µù ÆĞ³Î È°¼ºÈ­");
+        Debug.Log("ì—”ë”© íŒ¨ë„ í™œì„±í™”");
 
         if (endingPanel != null)
             endingPanel.SetActive(true);

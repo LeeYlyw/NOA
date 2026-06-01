@@ -10,14 +10,7 @@
 #include <iomanip>
 #include <algorithm>
 #include <cstdlib>
-
-#ifdef min
-#undef min
-#endif
-
-#ifdef max
-#undef max
-#endif
+#include <map>
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -41,6 +34,25 @@ enum class MonsterAIState
     Chase,
     Attack,
     Return
+};
+
+
+enum class ItemType
+{
+    Unknown,
+    Teleport,
+    Stealth,
+    Heal,
+    Resurrection,
+    Clue
+};
+
+struct ItemState
+{
+    int itemId = 0;
+    ItemType type = ItemType::Unknown;
+    int pickedByPlayerId = 0;
+    bool isPicked = false;
 };
 
 struct PlayerState
@@ -143,6 +155,30 @@ float ToFloat(const std::string& value)
 int ToInt(const std::string& value)
 {
     return std::atoi(value.c_str());
+}
+
+
+ItemType StringToItemType(const std::string& value)
+{
+    if (value == "Teleport") return ItemType::Teleport;
+    if (value == "Stealth") return ItemType::Stealth;
+    if (value == "Heal") return ItemType::Heal;
+    if (value == "Resurrection") return ItemType::Resurrection;
+    if (value == "Clue") return ItemType::Clue;
+    return ItemType::Unknown;
+}
+
+std::string ItemTypeToString(ItemType type)
+{
+    switch (type)
+    {
+    case ItemType::Teleport: return "Teleport";
+    case ItemType::Stealth: return "Stealth";
+    case ItemType::Heal: return "Heal";
+    case ItemType::Resurrection: return "Resurrection";
+    case ItemType::Clue: return "Clue";
+    default: return "Unknown";
+    }
 }
 
 std::string MonsterTypeToString(MonsterType type)
@@ -325,27 +361,6 @@ PlayerState* FindNearestAttackTarget(MonsterState& monster, PlayerState players[
     return bestPlayer;
 }
 
-bool IsCurrentTargetDead(const MonsterState& monster, PlayerState players[])
-{
-    if (monster.targetPlayerId < 1 || monster.targetPlayerId > 2)
-        return false;
-
-    const PlayerState& target = players[monster.targetPlayerId];
-    return target.hasState && target.isDead;
-}
-
-void ClearDeadTargetAggro(MonsterState& monster)
-{
-    monster.targetPlayerId = 0;
-    monster.state = MonsterAIState::Return;
-    monster.targetPosition = monster.spawnPosition;
-    monster.lastKnownPosition = monster.position;
-    monster.lastHeardPosition = monster.position;
-    monster.isAttack = false;
-    monster.isWalk = false;
-    monster.currentSpeed = 0.0f;
-}
-
 void SendPlayerDamageIfPossible(
     MonsterState& monster,
     PlayerState& target,
@@ -393,12 +408,6 @@ void UpdateVisionMonster(
     double now)
 {
     monster.isAttack = false;
-
-    if (IsCurrentTargetDead(monster, players))
-    {
-        ClearDeadTargetAggro(monster);
-        return;
-    }
 
     PlayerState* visiblePlayer = FindVisiblePlayer(monster, players);
 
@@ -467,12 +476,6 @@ void UpdateSoundMonster(
     double now)
 {
     monster.isAttack = false;
-
-    if (IsCurrentTargetDead(monster, players))
-    {
-        ClearDeadTargetAggro(monster);
-        return;
-    }
 
     PlayerState* attackTarget = FindNearestAttackTarget(monster, players);
     if (attackTarget != nullptr)
@@ -560,19 +563,13 @@ void ProcessMovePacket(const std::vector<std::string>& parts, PlayerState player
     player.hasState = true;
 }
 
-void ProcessNoisePacket(const std::vector<std::string>& parts, PlayerState players[], MonsterState monsters[])
+void ProcessNoisePacket(const std::vector<std::string>& parts, MonsterState monsters[])
 {
     // C_NOISE|playerId|x|y|z|noiseAmount
     if (parts.size() != 6)
         return;
 
     int playerId = ToInt(parts[1]);
-
-    if (playerId < 1 || playerId > 2)
-        return;
-
-    if (players[playerId].hasState && players[playerId].isDead)
-        return;
 
     Vec3 noisePosition;
     noisePosition.x = ToFloat(parts[2]);
@@ -608,13 +605,108 @@ void ProcessNoisePacket(const std::vector<std::string>& parts, PlayerState playe
     }
 }
 
+
+void ProcessItemPickupPacket(
+    const std::vector<std::string>& parts,
+    int senderPlayerId,
+    SOCKET clientSocket1,
+    SOCKET clientSocket2,
+    PlayerState players[],
+    std::map<int, ItemState>& items,
+    int& clueCount,
+    int needClueCount)
+{
+    // C_ITEM_PICKUP|playerId|itemId|itemType
+    // legacy: ITEM_PICKUP|itemId|playerId
+    int playerId = senderPlayerId;
+    int itemId = 0;
+    ItemType itemType = ItemType::Unknown;
+
+    if (parts[0] == "C_ITEM_PICKUP")
+    {
+        if (parts.size() < 4)
+            return;
+
+        playerId = ToInt(parts[1]);
+        itemId = ToInt(parts[2]);
+        itemType = StringToItemType(parts[3]);
+    }
+    else
+    {
+        if (parts.size() < 3)
+            return;
+
+        itemId = ToInt(parts[1]);
+        playerId = ToInt(parts[2]);
+    }
+
+    if (playerId < 1 || playerId > 2)
+        return;
+
+    if (!players[playerId].hasState || players[playerId].isDead)
+    {
+        std::cout << "[ITEM DENY] invalid or dead player request. player " << playerId << std::endl;
+        return;
+    }
+
+    ItemState& item = items[itemId];
+    if (item.itemId == 0)
+    {
+        item.itemId = itemId;
+        item.type = itemType;
+    }
+
+    if (item.type == ItemType::Unknown && itemType != ItemType::Unknown)
+        item.type = itemType;
+
+    if (item.isPicked)
+    {
+        std::cout << "[ITEM DENY] already picked itemId " << itemId << std::endl;
+        return;
+    }
+
+    item.isPicked = true;
+    item.pickedByPlayerId = playerId;
+
+    if (item.type == ItemType::Clue)
+        clueCount++;
+
+    std::ostringstream oss;
+    oss << "S_ITEM_PICKUP|"
+        << item.itemId << "|"
+        << playerId << "|"
+        << ItemTypeToString(item.type) << "|"
+        << clueCount;
+
+    BroadcastPacket(clientSocket1, clientSocket2, oss.str());
+
+    if (item.type == ItemType::Clue)
+    {
+        std::ostringstream clueOss;
+        clueOss << "S_CLUE_COUNT|" << clueCount << "|" << needClueCount;
+        BroadcastPacket(clientSocket1, clientSocket2, clueOss.str());
+
+        if (clueCount >= needClueCount)
+            BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_CLEAR");
+    }
+
+    std::cout << "[ITEM PICKUP] item " << itemId
+        << " type " << ItemTypeToString(item.type)
+        << " player " << playerId
+        << " clue " << clueCount << "/" << needClueCount
+        << std::endl;
+}
+
 void ProcessClientPacket(
     int senderPlayerId,
     const std::string& packet,
     SOCKET clientSocket1,
     SOCKET clientSocket2,
     PlayerState players[],
-    MonsterState monsters[])
+    MonsterState monsters[],
+    std::map<int, ItemState>& items,
+    int& clueCount,
+    int needClueCount)
 {
     if (packet.empty())
         return;
@@ -638,7 +730,13 @@ void ProcessClientPacket(
 
     if (type == "C_NOISE")
     {
-        ProcessNoisePacket(parts, players, monsters);
+        ProcessNoisePacket(parts, monsters);
+        return;
+    }
+
+    if (type == "C_ITEM_PICKUP" || type == "ITEM_PICKUP")
+    {
+        ProcessItemPickupPacket(parts, senderPlayerId, clientSocket1, clientSocket2, players, items, clueCount, needClueCount);
         return;
     }
 
@@ -662,7 +760,10 @@ void ProcessReceiveBuffer(
     SOCKET clientSocket1,
     SOCKET clientSocket2,
     PlayerState players[],
-    MonsterState monsters[])
+    MonsterState monsters[],
+    std::map<int, ItemState>& items,
+    int& clueCount,
+    int needClueCount)
 {
     while (true)
     {
@@ -680,7 +781,7 @@ void ProcessReceiveBuffer(
         if (packet.empty())
             continue;
 
-        ProcessClientPacket(playerId, packet, clientSocket1, clientSocket2, players, monsters);
+        ProcessClientPacket(playerId, packet, clientSocket1, clientSocket2, players, monsters, items, clueCount, needClueCount);
     }
 }
 
@@ -834,6 +935,10 @@ int main()
     MonsterState monsters[2];
     InitializeMonsters(monsters);
 
+    std::map<int, ItemState> items;
+    int clueCount = 0;
+    int needClueCount = 3;
+
     std::string receiveBuffer1;
     std::string receiveBuffer2;
 
@@ -870,7 +975,7 @@ int main()
             {
                 buffer[recvLength] = '\0';
                 receiveBuffer1.append(buffer, recvLength);
-                ProcessReceiveBuffer(1, receiveBuffer1, clientSocket1, clientSocket2, players, monsters);
+                ProcessReceiveBuffer(1, receiveBuffer1, clientSocket1, clientSocket2, players, monsters, items, clueCount, needClueCount);
             }
             else
             {
@@ -887,7 +992,7 @@ int main()
             {
                 buffer[recvLength] = '\0';
                 receiveBuffer2.append(buffer, recvLength);
-                ProcessReceiveBuffer(2, receiveBuffer2, clientSocket1, clientSocket2, players, monsters);
+                ProcessReceiveBuffer(2, receiveBuffer2, clientSocket1, clientSocket2, players, monsters, items, clueCount, needClueCount);
             }
             else
             {

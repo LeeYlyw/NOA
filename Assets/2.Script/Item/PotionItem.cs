@@ -1,20 +1,21 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 public class PotionItem : MonoBehaviour
 {
     [Header("Network")]
     public int itemId = 1;
     private bool isPicked = false;
+    private bool isRequestingPickup = false;
 
     [Header("Item Data")]
     public ItemData itemData;
 
     private void OnTriggerEnter(Collider other)
     {
-        if (isPicked)
+        if (isPicked || isRequestingPickup)
             return;
 
-        Debug.Log("포션 충돌 감지: " + other.name);
+        Debug.Log("아이템 충돌 감지: " + other.name);
 
         if (!other.CompareTag("Player"))
             return;
@@ -28,18 +29,19 @@ public class PotionItem : MonoBehaviour
         if (player != null && !player.isLocalPlayer)
             return;
 
+        if (itemData == null)
+        {
+            Debug.LogError(gameObject.name + " itemData가 설정되지 않았습니다.");
+            return;
+        }
+
         PlayerRoleSetup role = other.GetComponent<PlayerRoleSetup>();
-        if (role == null) role = other.GetComponentInParent<PlayerRoleSetup>();
+        if (role == null)
+            role = other.GetComponentInParent<PlayerRoleSetup>();
 
         if (role != null)
         {
             // 단서는 탐색자만 획득 가능
-            if (itemData == null)
-            {
-                Debug.LogError(gameObject.name + " itemData가 설정되지 않았습니다.");
-                return;
-            }
-
             if (itemData.type == ItemData.ItemType.Clue && !role.IsExplorer)
             {
                 Debug.Log("탐색자만 단서를 획득할 수 있습니다!");
@@ -47,41 +49,73 @@ public class PotionItem : MonoBehaviour
             }
         }
 
-        InventoryManager inv = FindObjectOfType<InventoryManager>();
-
-        if (inv != null)
+        // 서버 권한 구조: 클라이언트는 획득을 확정하지 않고 서버에 요청만 보낸다.
+        if (NetworkClient.Instance != null)
         {
-            isPicked = true;
-
-            inv.AddItem(itemData);
-            if (itemData != null && itemData.type == ItemData.ItemType.Clue)
-            {
-                if (ClueManager.instance != null)
-                {
-                    ClueManager.instance.AddClue();
-                }
-                else
-                {
-                    Debug.LogError("ClueManager 인스턴스를 찾을 수 없습니다!");
-                }
-            }
-            if (NetworkClient.Instance != null)
-                NetworkClient.Instance.SendItemPickup(itemId);
-
-            gameObject.SetActive(false);
+            isRequestingPickup = true;
+            NetworkClient.Instance.SendItemPickupRequest(itemId, itemData);
+            return;
         }
-        else
-        {
-            Debug.LogWarning("InventoryManager를 찾지 못했습니다!");
-        }
+
+        // 서버가 없는 단독 테스트용 fallback
+        ApplyLocalPickup();
     }
 
-    public void ApplyRemotePickup()
+    private void ApplyLocalPickup()
     {
         if (isPicked)
             return;
 
         isPicked = true;
+        isRequestingPickup = false;
+
+        if (itemData != null && itemData.type != ItemData.ItemType.Clue)
+        {
+            InventoryManager inv = FindObjectOfType<InventoryManager>();
+            if (inv != null)
+                inv.AddItem(itemData);
+        }
+
+        if (itemData != null && itemData.type == ItemData.ItemType.Clue)
+        {
+            if (ClueManager.instance != null)
+                ClueManager.instance.AddClue();
+        }
+
         gameObject.SetActive(false);
+    }
+
+    public void ApplyServerPickup(int pickedPlayerId, int itemType, int clueCount)
+    {
+        if (isPicked)
+            return;
+
+        isPicked = true;
+        isRequestingPickup = false;
+
+        bool pickedByLocalPlayer = NetworkClient.Instance != null && pickedPlayerId == NetworkClient.Instance.playerId;
+
+        // 실제 아이템 지급은 서버가 획득을 확정한 뒤, 획득한 로컬 플레이어에게만 적용한다.
+        if (pickedByLocalPlayer && itemData != null && itemData.type != ItemData.ItemType.Clue)
+        {
+            InventoryManager inv = FindObjectOfType<InventoryManager>();
+            if (inv != null)
+            {
+                inv.AddItem(itemData);
+            }
+            else
+            {
+                Debug.LogWarning("InventoryManager를 찾지 못했습니다!");
+            }
+        }
+
+        // 단서 카운트는 서버의 S_CLUE_COUNT 패킷에서 ClueManager가 처리한다.
+        gameObject.SetActive(false);
+    }
+
+    // 구버전 ITEM_PICKUP 패킷 호환용
+    public void ApplyRemotePickup()
+    {
+        ApplyServerPickup(-1, -1, -1);
     }
 }
