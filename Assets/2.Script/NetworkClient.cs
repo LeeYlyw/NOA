@@ -318,6 +318,43 @@ public class NetworkClient : MonoBehaviour
         Debug.Log("플레이어 부활 전송: " + message);
     }
 
+
+
+    public void SendNoise(Vector3 position, float range)
+    {
+        string message = string.Format(
+            CultureInfo.InvariantCulture,
+            "NOISE|{0:F2}|{1:F2}|{2:F2}|{3:F2}|{4}\n",
+            position.x,
+            position.y,
+            position.z,
+            range,
+            playerId
+        );
+
+        SendMessageToServer(message, "소음 정보 전송 실패");
+        Debug.Log("소음 정보 전송: " + message);
+    }
+
+    public void SendItemPickupRequest(string itemId)
+    {
+        if (string.IsNullOrEmpty(itemId))
+        {
+            Debug.LogWarning("[NetworkClient] itemId is null or empty.");
+            return;
+        }
+
+        string message = string.Format(
+            CultureInfo.InvariantCulture,
+            "ITEM_PICKUP_REQUEST|{0}|{1}\n",
+            itemId,
+            playerId
+        );
+
+        SendMessageToServer(message, "아이템 획득 요청 전송 실패");
+        Debug.Log("아이템 획득 요청 전송: " + message);
+    }
+
     void SendMessageToServer(string message, string errorMessage)
     {
         if (!isConnected || stream == null)
@@ -743,4 +780,6 @@ public class NetworkClient : MonoBehaviour
         if (client != null)
             client.Close();
     }
+
+
 }
