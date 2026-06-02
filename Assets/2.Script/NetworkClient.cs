@@ -336,18 +336,21 @@ public class NetworkClient : MonoBehaviour
         Debug.Log("소음 정보 전송: " + message);
     }
 
-    public void SendItemPickupRequest(string itemId)
+    public void SendItemPickupRequest(int itemId, ItemData itemData)
     {
-        if (string.IsNullOrEmpty(itemId))
+        if (itemData == null)
         {
-            Debug.LogWarning("[NetworkClient] itemId is null or empty.");
+            Debug.LogWarning("[NetworkClient] itemData is null.");
             return;
         }
 
+        int itemType = (int)itemData.type;
+
         string message = string.Format(
             CultureInfo.InvariantCulture,
-            "ITEM_PICKUP_REQUEST|{0}|{1}\n",
+            "ITEM_PICKUP_REQUEST|{0}|{1}|{2}\n",
             itemId,
+            itemType,
             playerId
         );
 
