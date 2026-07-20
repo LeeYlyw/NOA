@@ -13,6 +13,7 @@ public class ItemData : ScriptableObject
         Stealth,
         Heal,
         Resurrection,
-        Clue
+        Clue,
+        flashlight
     }
 }
