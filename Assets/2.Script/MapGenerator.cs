@@ -165,14 +165,25 @@ public class MapGenerator : MonoBehaviour
                     int connections = (top ? 1 : 0) + (bottom ? 1 : 0) + (left ? 1 : 0) + (right ? 1 : 0);
 
                     // 3방향 이상이 나와도 무조건 ㄱ자 또는 일자로 강제 마감
-                    if ((top && bottom) || (left && right) || connections == 1)
+                    // 수정할 코드 (덮어쓰기)
+                    if (left && right)
+                    {
+                        selectedPrefab = prefabI;
+                        rot = Quaternion.Euler(0, 90, 0);
+                    }
+                    else if (top && bottom)
+                    {
+                        selectedPrefab = prefabI;
+                        rot = Quaternion.Euler(0, 0, 0);
+                    }
+                    else if (connections == 1)
                     {
                         selectedPrefab = prefabI;
                         if (left || right) rot = Quaternion.Euler(0, 90, 0);
+                        else rot = Quaternion.Euler(0, 0, 0);
                     }
                     else
                     {
-                        // 3, 4방향일 경우에도 2방향만 뚫린 ㄱ자를 배치해버림 (의도적인 막다른 길 생성)
                         selectedPrefab = prefabL;
                         if (top && right) rot = Quaternion.Euler(0, 0, 0);
                         else if (right && bottom) rot = Quaternion.Euler(0, 90, 0);
@@ -180,6 +191,7 @@ public class MapGenerator : MonoBehaviour
                         else if (left && top) rot = Quaternion.Euler(0, 270, 0);
                         else rot = Quaternion.Euler(0, 0, 0);
                     }
+                   
 
                     if (selectedPrefab != null)
                     {
