@@ -278,6 +278,17 @@ public class PlayerController : MonoBehaviour
         Debug.Log(gameObject.name + " 체력 전부 회복: " + currentHp);
     }
 
+    public void SetHp(int newHp)
+    {
+        currentHp = newHp;
+
+        if (currentHp > maxHealth)
+            currentHp = maxHealth;
+
+        UpdateUI();
+        Debug.Log($"[서버 동기화] {gameObject.name} 체력 갱신: {currentHp}");
+    }
+
     void Die()
     {
         if (isDead) return;
