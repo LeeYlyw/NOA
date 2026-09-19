@@ -8,6 +8,11 @@ public class NetworkClient : MonoBehaviour
 {
     public static NetworkClient Instance;
 
+    // [추가된 부분] 에디터에서 혼자 테스트할 때 체크하세요.
+    [Header("Testing Option")]
+    [Tooltip("체크 시 C++ 서버 연결 없이 유니티 에디터에서 바로 싱글 테스트를 수행합니다.")]
+    public bool offlineMode = false;
+
     [Header("Network")]
     public string serverIP = "127.0.0.1";
     public int serverPort = 7777;
@@ -23,34 +28,26 @@ public class NetworkClient : MonoBehaviour
     public GameObject player2Object;
 
     [Header("Sync")]
-    public float sendInterval = 0.1f;
-
-    [Header("Monster Sync")]
-    public float monsterSendInterval = 0.1f;
+    public float sendInterval = 0.05f;
 
     [Header("Item Sync")]
     public PotionItem[] potionItems;
 
+    private MonsterNetworkSetup[] monsterSetups;
     private TcpClient client;
     private NetworkStream stream;
     private bool isConnected = false;
 
     private float sendTimer = 0f;
-    private float monsterSendTimer = 0f;
-
     private string receiveBuffer = "";
-
     private PlayerController localPlayerController;
 
     private Vector3 targetRemotePosition;
     private Quaternion targetRemoteRotation;
     private bool hasRemoteState = false;
-
     private float targetRemoteSpeed;
     private bool targetRemoteIsRunning;
     private bool targetRemoteIsCrouching;
-
-    private MonsterNetworkSetup[] monsterSetups;
 
     void Awake()
     {
@@ -61,10 +58,15 @@ public class NetworkClient : MonoBehaviour
     void Start()
     {
         SetupPlayersByPlayerId();
-        SetupMonstersByPlayerId();
-
         monsterSetups = FindObjectsOfType<MonsterNetworkSetup>();
         potionItems = FindObjectsOfType<PotionItem>(true);
+
+        // [수정된 부분] 오프라인 모드면 서버 연결 패스
+        if (offlineMode)
+        {
+            Debug.Log("<color=yellow>[NetworkClient] 오프라인 싱글 테스트 모드로 실행됩니다. 서버 연결을 건너뜁니다.</color>");
+            return;
+        }
 
         ConnectToServer();
 
@@ -82,96 +84,43 @@ public class NetworkClient : MonoBehaviour
 
     void Update()
     {
-        if (!isConnected || stream == null)
-            return;
+        // [수정된 부분] 오프라인 모드면 수신/송신 루프 패스
+        if (offlineMode) return;
+
+        if (!isConnected || stream == null) return;
 
         SendLocalPlayerTransform();
-        SendMonsterTransforms();
-
         ReceivePackets();
-
         ApplyRemotePlayerTransform();
     }
 
     void SetupPlayersByPlayerId()
     {
-        if (!autoSetupPlayers)
-            return;
+        if (!autoSetupPlayers || player1Object == null) return;
 
-        if (player1Object == null || player2Object == null)
-        {
-            Debug.LogWarning("Player1 Object 또는 Player2 Object가 비어 있습니다.");
-            return;
-        }
-
-        bool isPlayer1Local = playerId == 1;
-        bool isPlayer2Local = playerId == 2;
+        // [수정된 부분] 오프라인 모드에서는 무조건 로컬 플레이어로 강제 셋업
+        bool isPlayer1Local = offlineMode || (playerId == 1);
 
         RemotePlayer player1Remote = player1Object.GetComponent<RemotePlayer>();
-        RemotePlayer player2Remote = player2Object.GetComponent<RemotePlayer>();
+        if (player1Remote != null) player1Remote.SetupPlayer(isPlayer1Local);
 
-        if (player1Remote != null)
-            player1Remote.SetupPlayer(isPlayer1Local);
+        if (player2Object != null)
+        {
+            RemotePlayer player2Remote = player2Object.GetComponent<RemotePlayer>();
+            if (player2Remote != null) player2Remote.SetupPlayer(!isPlayer1Local);
 
-        if (player2Remote != null)
-            player2Remote.SetupPlayer(isPlayer2Local);
+            // [추가된 부분] 싱글 플레이 시 시야를 가리는 더미(2P)를 꺼버림
+            if (offlineMode) player2Object.SetActive(false);
+        }
 
-        // Player1 = 감지자
-        // Player2 = 탐색자
         PlayerRoleSetup player1Role = player1Object.GetComponent<PlayerRoleSetup>();
-        PlayerRoleSetup player2Role = player2Object.GetComponent<PlayerRoleSetup>();
-
         if (player1Role != null)
-            player1Role.Setup(1, playerId, PlayerRole.Detector);
-
-        if (player2Role != null)
-            player2Role.Setup(2, playerId, PlayerRole.Explorer);
-
-        if (playerId == 1)
         {
-            localPlayerTransform = player1Object.transform;
-            remotePlayerTransform = player2Object.transform;
-        }
-        else if (playerId == 2)
-        {
-            localPlayerTransform = player2Object.transform;
-            remotePlayerTransform = player1Object.transform;
-        }
-    }
-
-    void SetupMonstersByPlayerId()
-    {
-        bool hasMonsterAuthority = playerId == 1;
-
-        MonsterNetworkSetup[] monsters = FindObjectsOfType<MonsterNetworkSetup>();
-
-        foreach (MonsterNetworkSetup monster in monsters)
-        {
-            monster.SetupMonster(hasMonsterAuthority);
+            player1Role.Setup(1, 1, PlayerRole.Explorer);
         }
 
-        Debug.Log("몬스터 권한 설정 완료 / PlayerId: " + playerId + " / Authority: " + hasMonsterAuthority);
-    }
-
-    public void SendItemPickup(int itemId)
-    {
-        string message = string.Format(
-            CultureInfo.InvariantCulture,
-            "ITEM_PICKUP|{0}|{1}\n",
-            itemId,
-            playerId
-        );
-
-        SendMessageToServer(message, "아이템 획득 전송 실패");
-        Debug.Log("아이템 획득 전송: " + message);
-    }
-
-    public void SendGameClear()
-    {
-        string msg = "GAME_CLEAR\n";
-        SendMessageToServer(msg, "게임 클리어 전송 실패");
-
-        Debug.Log("서버로 GAME_CLEAR 전송");
+        localPlayerTransform = player1Object.transform;
+        localPlayerController = localPlayerTransform.GetComponent<PlayerController>();
     }
 
     void ConnectToServer()
@@ -182,189 +131,120 @@ public class NetworkClient : MonoBehaviour
             client.Connect(serverIP, serverPort);
             stream = client.GetStream();
             isConnected = true;
-
-            Debug.Log("서버 연결 성공");
+            Debug.Log("[Network] 서버 연결 성공");
         }
         catch (Exception e)
         {
-            Debug.LogError("서버 연결 실패: " + e.Message);
+            Debug.LogError("[Network] 서버 연결 실패: " + e.Message);
         }
     }
 
     void SendLocalPlayerTransform()
     {
-        if (localPlayerTransform == null)
-            return;
-
+        if (localPlayerTransform == null) return;
         sendTimer += Time.deltaTime;
-
-        if (sendTimer < sendInterval)
-            return;
-
+        if (sendTimer < sendInterval) return;
         sendTimer = 0f;
 
         Vector3 pos = localPlayerTransform.position;
         float rotY = localPlayerTransform.eulerAngles.y;
-
-        float animSpeed = 0f;
-        bool isRunning = false;
-        bool isCrouching = false;
-
-        if (localPlayerController != null)
-        {
-            animSpeed = localPlayerController.CurrentAnimSpeed;
-            isRunning = localPlayerController.IsRunningState;
-            isCrouching = localPlayerController.IsCrouchingState;
-        }
+        float animSpeed = localPlayerController != null ? localPlayerController.CurrentAnimSpeed : 0f;
+        bool isRunning = localPlayerController != null && localPlayerController.IsRunningState;
+        bool isCrouching = localPlayerController != null && localPlayerController.IsCrouchingState;
 
         string message = string.Format(
             CultureInfo.InvariantCulture,
             "MOVE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6}|{7}\n",
-            playerId,
-            pos.x,
-            pos.y,
-            pos.z,
-            rotY,
-            animSpeed,
-            isRunning ? 1 : 0,
-            isCrouching ? 1 : 0
+            playerId, pos.x, pos.y, pos.z, rotY, animSpeed,
+            isRunning ? 1 : 0, isCrouching ? 1 : 0
         );
-
         SendMessageToServer(message, "플레이어 위치 전송 실패");
     }
 
-    void SendMonsterTransforms()
+    public void SendNoise(Vector3 position, float noiseAmount)
     {
-        if (playerId != 1)
-            return;
-
-        if (monsterSetups == null || monsterSetups.Length == 0)
-            return;
-
-        monsterSendTimer += Time.deltaTime;
-
-        if (monsterSendTimer < monsterSendInterval)
-            return;
-
-        monsterSendTimer = 0f;
-
-        foreach (MonsterNetworkSetup monster in monsterSetups)
-        {
-            if (monster == null)
-                continue;
-
-            Transform monsterTransform = monster.transform;
-
-            Vector3 pos = monsterTransform.position;
-            float rotY = monsterTransform.eulerAngles.y;
-
-            float speed = 0f;
-            bool isWalk = false;
-            bool isAttack = false;
-
-            Animator animator = monster.GetComponent<Animator>();
-
-            if (animator != null)
-            {
-                speed = animator.GetFloat("Speed");
-                isWalk = animator.GetBool("isWalk");
-                isAttack = animator.GetBool("isAttack");
-            }
-
-            string message = string.Format(
-                CultureInfo.InvariantCulture,
-                "MONSTER_MOVE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6}|{7}\n",
-                monster.monsterId,
-                pos.x,
-                pos.y,
-                pos.z,
-                rotY,
-                speed,
-                isWalk ? 1 : 0,
-                isAttack ? 1 : 0
-            );
-
-            SendMessageToServer(message, "몬스터 위치/애니메이션 전송 실패");
-        }
-    }
-
-    public void SendPlayerDamage(int targetPlayerId, int damage)
-    {
+        if (offlineMode) return;
         string message = string.Format(
             CultureInfo.InvariantCulture,
-            "PLAYER_DAMAGE|{0}|{1}\n",
-            targetPlayerId,
-            damage
+            "C_NOISE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}\n",
+            playerId, position.x, position.y, position.z, noiseAmount
         );
-
-        SendMessageToServer(message, "플레이어 데미지 전송 실패");
-        Debug.Log("플레이어 데미지 전송: " + message);
-
-        // 몬스터 권한을 가진 클라이언트에서도 즉시 데미지를 적용한다.
-        // 기존 코드는 targetPlayerId == playerId일 때 데미지를 적용하지 않아서
-        // 로컬 플레이어가 맞아도 체력이 줄지 않는 문제가 있었다.
-        ApplyPlayerDamage(targetPlayerId, damage);
-    }
-
-    public void SendPlayerRevive(int targetPlayerId)
-    {
-        string message = string.Format(
-            CultureInfo.InvariantCulture,
-            "PLAYER_REVIVE|{0}\n",
-            targetPlayerId
-        );
-
-        SendMessageToServer(message, "플레이어 부활 전송 실패");
-        Debug.Log("플레이어 부활 전송: " + message);
-    }
-
-
-
-    public void SendNoise(Vector3 position, float range)
-    {
-        string message = string.Format(
-            CultureInfo.InvariantCulture,
-            "NOISE|{0:F2}|{1:F2}|{2:F2}|{3:F2}|{4}\n",
-            position.x,
-            position.y,
-            position.z,
-            range,
-            playerId
-        );
-
         SendMessageToServer(message, "소음 정보 전송 실패");
-        Debug.Log("소음 정보 전송: " + message);
     }
 
     public void SendItemPickupRequest(int itemId, ItemData itemData)
     {
-        if (itemData == null)
+        if (offlineMode)
         {
-            Debug.LogWarning("[NetworkClient] itemData is null.");
+            // 오프라인 모드에서는 서버 응답 없이 로컬에서 즉시 획득 처리
+            ApplyOfflineItemPickup(itemId);
             return;
         }
 
-        int itemType = (int)itemData.type;
+        string itemType = itemData != null ? itemData.type.ToString() : "Unknown";
+        string message = string.Format(
+            CultureInfo.InvariantCulture,
+            "C_ITEM_PICKUP|{0}|{1}|{2}\n",
+            playerId, itemId, itemType
+        );
+        SendMessageToServer(message, "아이템 획득 요청 전송 실패");
+    }
+
+    public void SendItemUseRequest(string itemType)
+    {
+        if (offlineMode)
+        {
+            // 오프라인 모드에서는 서버 응답 없이 로컬에서 효과 즉시 적용
+            if (itemType == "Heal" && localPlayerController != null)
+            {
+                localPlayerController.SetHp(100);
+            }
+            else if (itemType == "Stealth" && player1Object != null)
+            {
+                PlayerStealth stealth = player1Object.GetComponent<PlayerStealth>();
+                if (stealth != null) stealth.ActivateStealth();
+            }
+            return;
+        }
 
         string message = string.Format(
             CultureInfo.InvariantCulture,
-            "ITEM_PICKUP_REQUEST|{0}|{1}|{2}\n",
-            itemId,
-            itemType,
-            playerId
+            "C_ITEM_USE|{0}|{1}\n",
+            playerId, itemType
         );
+        SendMessageToServer(message, "아이템 사용 요청 전송 실패");
+    }
 
-        SendMessageToServer(message, "아이템 획득 요청 전송 실패");
-        Debug.Log("아이템 획득 요청 전송: " + message);
+    public void SendPlayerReviveRequest(int targetPlayerId)
+    {
+        if (offlineMode) return;
+        string message = string.Format(
+            CultureInfo.InvariantCulture,
+            "C_PLAYER_REVIVE|{0}|{1}\n",
+            playerId, targetPlayerId
+        );
+        SendMessageToServer(message, "부활 요청 전송 실패");
+    }
+
+    void ApplyOfflineItemPickup(int itemId)
+    {
+        if (potionItems == null || potionItems.Length == 0)
+            potionItems = FindObjectsOfType<PotionItem>(true);
+
+        foreach (PotionItem item in potionItems)
+        {
+            if (item != null && item.itemId == itemId)
+            {
+                item.ApplyServerPickup(1);
+                return;
+            }
+        }
     }
 
     void SendMessageToServer(string message, string errorMessage)
     {
-        if (!isConnected || stream == null)
-            return;
-
+        if (!isConnected || stream == null) return;
         byte[] data = Encoding.UTF8.GetBytes(message);
-
         try
         {
             stream.Write(data, 0, data.Length);
@@ -382,20 +262,16 @@ public class NetworkClient : MonoBehaviour
         {
             while (stream.DataAvailable)
             {
-                byte[] buffer = new byte[512];
+                byte[] buffer = new byte[1024];
                 int length = stream.Read(buffer, 0, buffer.Length);
-
-                if (length <= 0)
-                    break;
-
+                if (length <= 0) break;
                 receiveBuffer += Encoding.UTF8.GetString(buffer, 0, length);
             }
-
             ProcessReceiveBuffer();
         }
         catch (Exception e)
         {
-            Debug.LogError("수신 실패: " + e.Message);
+            Debug.LogError("[Network] 수신 실패: " + e.Message);
             isConnected = false;
         }
     }
@@ -405,384 +281,196 @@ public class NetworkClient : MonoBehaviour
         while (true)
         {
             int newlineIndex = receiveBuffer.IndexOf('\n');
-
-            if (newlineIndex < 0)
-                break;
-
+            if (newlineIndex < 0) break;
             string packet = receiveBuffer.Substring(0, newlineIndex).Trim();
             receiveBuffer = receiveBuffer.Substring(newlineIndex + 1);
 
-            if (string.IsNullOrEmpty(packet))
-                continue;
-
-            ProcessPacket(packet);
+            if (!string.IsNullOrEmpty(packet)) ProcessPacket(packet);
         }
     }
 
     void ProcessPacket(string packet)
     {
-        Debug.Log("클라가 받은 패킷: " + packet);
+        string[] parts = packet.Split('|');
+        if (parts.Length < 1) return;
 
-        if (packet == "GAME_CLEAR")
+        switch (parts[0])
         {
-            Debug.Log("GAME_CLEAR 수신 / 엔딩 패널 표시");
+            case "MOVE": ProcessMovePacket(parts); break;
+            case "S_MONSTER_STATE": ProcessMonsterStatePacket(parts); break;
+            case "S_PLAYER_DAMAGE": ProcessPlayerDamagePacket(parts); break;
+            case "S_PLAYER_HP": ProcessPlayerHpPacket(parts); break;
+            case "S_ITEM_PICKUP": ProcessItemPickupPacket(parts); break;
+            case "S_CLUE_COUNT": ProcessClueCountPacket(parts); break;
+            case "S_PLAYER_REVIVE": ProcessPlayerRevivePacket(parts); break;
+            case "S_GAME_CLEAR":
+                if (ClueManager.instance != null) ClueManager.instance.ShowEnding();
+                break;
+            case "COUNT":
+                if (parts.Length >= 2 && int.TryParse(parts[1], out int count))
+                    if (LobbyManager.Instance != null) LobbyManager.Instance.SetPlayerCount(count);
+                break;
+        }
+    }
 
+    void ProcessMovePacket(string[] parts)
+    {
+        if (parts.Length < 9) return;
+        if (!int.TryParse(parts[1], out int receivedPlayerId) || receivedPlayerId == playerId) return;
+
+        if (float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
+            float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) &&
+            float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float z) &&
+            float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float rotY))
+        {
+            targetRemotePosition = new Vector3(x, y, z);
+            targetRemoteRotation = Quaternion.Euler(0f, rotY, 0f);
+            float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out targetRemoteSpeed);
+            targetRemoteIsRunning = parts[7] == "1";
+            targetRemoteIsCrouching = parts[8] == "1";
+            hasRemoteState = true;
+        }
+    }
+
+    void ProcessMonsterStatePacket(string[] parts)
+    {
+        if (parts.Length < 11) return;
+        if (!int.TryParse(parts[1], out int monsterId)) return;
+
+        if (float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
+            float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) &&
+            float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float z) &&
+            float.TryParse(parts[7], NumberStyles.Float, CultureInfo.InvariantCulture, out float rotY) &&
+            float.TryParse(parts[8], NumberStyles.Float, CultureInfo.InvariantCulture, out float speed))
+        {
+            bool isWalk = parts[9] == "1";
+            bool isAttack = parts[10] == "1";
+            ApplyRemoteMonsterTransform(monsterId, new Vector3(x, y, z), Quaternion.Euler(0f, rotY, 0f), speed, isWalk, isAttack);
+        }
+    }
+
+    void ProcessPlayerDamagePacket(string[] parts)
+    {
+        if (parts.Length < 3) return;
+        if (int.TryParse(parts[1], out int targetPlayerId) && int.TryParse(parts[2], out int damage))
+        {
+            ApplyPlayerDamage(targetPlayerId, damage);
+        }
+    }
+
+    void ProcessPlayerHpPacket(string[] parts)
+    {
+        if (parts.Length < 3) return;
+        if (int.TryParse(parts[1], out int targetPlayerId) && int.TryParse(parts[2], out int hp))
+        {
+            GameObject targetObject = (targetPlayerId == 1) ? player1Object : player2Object;
+            if (targetObject != null)
+            {
+                PlayerController controller = targetObject.GetComponent<PlayerController>();
+                if (controller != null) controller.SetHp(hp);
+            }
+        }
+    }
+
+    void ApplyPlayerDamage(int targetPlayerId, int damage)
+    {
+        GameObject targetObject = (targetPlayerId == 1) ? player1Object : player2Object;
+        if (targetObject == null) return;
+
+        PlayerController playerController = targetObject.GetComponent<PlayerController>();
+        if (playerController == null) return;
+
+        bool wasDead = playerController.IsDeadState;
+        playerController.TakeDamage(damage);
+        bool isDeadNow = playerController.IsDeadState;
+
+        RemotePlayer remotePlayer = targetObject.GetComponent<RemotePlayer>();
+        if (remotePlayer != null && !playerController.isLocalPlayer)
+        {
+            if (isDeadNow) remotePlayer.PlayDeathAnimation();
+            else if (!wasDead) remotePlayer.PlayHitAnimation();
+        }
+    }
+
+    void ProcessItemPickupPacket(string[] parts)
+    {
+        if (parts.Length < 3) return;
+        if (int.TryParse(parts[1], out int itemId) && int.TryParse(parts[2], out int pickedPlayerId))
+        {
+            if (potionItems == null || potionItems.Length == 0)
+                potionItems = FindObjectsOfType<PotionItem>(true);
+
+            foreach (PotionItem item in potionItems)
+            {
+                if (item != null && item.itemId == itemId)
+                {
+                    item.ApplyServerPickup(pickedPlayerId);
+                    return;
+                }
+            }
+        }
+    }
+
+    void ProcessClueCountPacket(string[] parts)
+    {
+        if (parts.Length < 3) return;
+        if (int.TryParse(parts[1], out int clueCount) && int.TryParse(parts[2], out int needCount))
+        {
             if (ClueManager.instance != null)
             {
-                ClueManager.instance.ShowEnding();
+                ClueManager.instance.SetClueCount(clueCount, needCount);
             }
-            else
+        }
+    }
+
+    void ProcessPlayerRevivePacket(string[] parts)
+    {
+        if (parts.Length < 2) return;
+        if (int.TryParse(parts[1], out int targetPlayerId))
+        {
+            GameObject targetObj = (targetPlayerId == 1) ? player1Object : player2Object;
+            if (targetObj != null)
             {
-                Debug.LogWarning("ClueManager instance를 찾지 못했습니다.");
+                PlayerController controller = targetObj.GetComponent<PlayerController>();
+                if (controller != null) controller.Revive();
             }
-
-            return;
         }
-
-        string[] parts = packet.Split('|');
-
-        if (parts.Length < 2)
-            return;
-
-        if (parts[0] == "COUNT")
-        {
-            if (int.TryParse(parts[1], out int count))
-            {
-                if (LobbyManager.Instance != null)
-                    LobbyManager.Instance.SetPlayerCount(count);
-            }
-
-            return;
-        }
-
-        if (parts[0] == "MOVE")
-        {
-            ProcessMovePacket(parts, packet);
-            return;
-        }
-
-        if (parts[0] == "MONSTER_MOVE")
-        {
-            ProcessMonsterMovePacket(parts, packet);
-            return;
-        }
-
-        if (parts[0] == "PLAYER_DAMAGE")
-        {
-            ProcessPlayerDamagePacket(parts, packet);
-            return;
-        }
-
-        if (parts[0] == "PLAYER_REVIVE")
-        {
-            ProcessPlayerRevivePacket(parts, packet);
-            return;
-        }
-
-        if (parts[0] == "ITEM_PICKUP")
-        {
-            ProcessItemPickupPacket(parts, packet);
-            return;
-        }
-    }
-
-    void ProcessGameClearPacket()
-    {
-        Debug.Log("GAME_CLEAR 수신 / 엔딩 패널 표시");
-
-        if (ClueManager.instance != null)
-        {
-            ClueManager.instance.ShowEnding();
-        }
-        else
-        {
-            Debug.LogWarning("ClueManager instance를 찾지 못했습니다.");
-        }
-    }
-
-    void ProcessMovePacket(string[] parts, string packet)
-    {
-        if (parts.Length != 9)
-        {
-            Debug.LogWarning("MOVE 패킷 형식이 맞지 않음: " + packet);
-            return;
-        }
-
-        if (!int.TryParse(parts[1], out int receivedPlayerId))
-            return;
-
-        if (receivedPlayerId == playerId)
-            return;
-
-        bool okX = float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float x);
-        bool okY = float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float y);
-        bool okZ = float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float z);
-        bool okRot = float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float rotY);
-        bool okSpeed = float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float speed);
-
-        bool okRunning = int.TryParse(parts[7], out int runningValue);
-        bool okCrouching = int.TryParse(parts[8], out int crouchingValue);
-
-        if (!okX || !okY || !okZ || !okRot || !okSpeed || !okRunning || !okCrouching)
-            return;
-
-        targetRemotePosition = new Vector3(x, y, z);
-        targetRemoteRotation = Quaternion.Euler(0f, rotY, 0f);
-
-        targetRemoteSpeed = speed;
-        targetRemoteIsRunning = runningValue == 1;
-        targetRemoteIsCrouching = crouchingValue == 1;
-
-        hasRemoteState = true;
-    }
-
-    void ProcessMonsterMovePacket(string[] parts, string packet)
-    {
-        if (parts.Length != 9)
-        {
-            Debug.LogWarning("MONSTER_MOVE 패킷 형식이 맞지 않음: " + packet);
-            return;
-        }
-
-        if (!int.TryParse(parts[1], out int receivedMonsterId))
-            return;
-
-        bool okX = float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float x);
-        bool okY = float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float y);
-        bool okZ = float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float z);
-        bool okRot = float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float rotY);
-        bool okSpeed = float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float speed);
-
-        bool okWalk = int.TryParse(parts[7], out int walkValue);
-        bool okAttack = int.TryParse(parts[8], out int attackValue);
-
-        if (!okX || !okY || !okZ || !okRot || !okSpeed || !okWalk || !okAttack)
-            return;
-
-        ApplyRemoteMonsterTransform(
-            receivedMonsterId,
-            new Vector3(x, y, z),
-            Quaternion.Euler(0f, rotY, 0f),
-            speed,
-            walkValue == 1,
-            attackValue == 1
-        );
-    }
-
-    void ProcessPlayerDamagePacket(string[] parts, string packet)
-    {
-        if (parts.Length != 3)
-        {
-            Debug.LogWarning("PLAYER_DAMAGE 패킷 형식이 맞지 않음: " + packet);
-            return;
-        }
-
-        if (!int.TryParse(parts[1], out int targetPlayerId))
-            return;
-
-        if (!int.TryParse(parts[2], out int damage))
-            return;
-
-        ApplyPlayerDamage(targetPlayerId, damage);
-    }
-
-    void ProcessPlayerRevivePacket(string[] parts, string packet)
-    {
-        if (parts.Length != 2)
-        {
-            Debug.LogWarning("PLAYER_REVIVE 패킷 형식이 맞지 않음: " + packet);
-            return;
-        }
-
-        if (!int.TryParse(parts[1], out int targetPlayerId))
-            return;
-
-        ApplyPlayerRevive(targetPlayerId);
-    }
-
-    void ProcessItemPickupPacket(string[] parts, string packet)
-    {
-        if (parts.Length != 3)
-        {
-            Debug.LogWarning("ITEM_PICKUP 패킷 형식이 맞지 않음: " + packet);
-            return;
-        }
-
-        if (!int.TryParse(parts[1], out int itemId))
-            return;
-
-        if (!int.TryParse(parts[2], out int pickedPlayerId))
-            return;
-
-        if (pickedPlayerId == playerId)
-            return;
-
-        if (potionItems == null || potionItems.Length == 0)
-            potionItems = FindObjectsOfType<PotionItem>(true);
-
-        foreach (PotionItem item in potionItems)
-        {
-            if (item == null)
-                continue;
-
-            if (item.itemId != itemId)
-                continue;
-
-            item.ApplyRemotePickup();
-            Debug.Log("상대 아이템 획득 반영 완료 / itemId: " + itemId);
-            return;
-        }
-
-        Debug.LogWarning("itemId에 해당하는 아이템을 찾지 못함: " + itemId);
     }
 
     void ApplyRemotePlayerTransform()
     {
-        if (!hasRemoteState || remotePlayerTransform == null)
-            return;
-
+        if (!hasRemoteState || remotePlayerTransform == null) return;
         RemotePlayer remotePlayer = remotePlayerTransform.GetComponent<RemotePlayer>();
-
         if (remotePlayer != null)
         {
             remotePlayer.SetState(targetRemotePosition, targetRemoteRotation);
-            remotePlayer.SetAnimationState(
-                targetRemoteSpeed,
-                targetRemoteIsRunning,
-                targetRemoteIsCrouching
-            );
-        }
-        else
-        {
-            remotePlayerTransform.position = targetRemotePosition;
-            remotePlayerTransform.rotation = targetRemoteRotation;
+            remotePlayer.SetAnimationState(targetRemoteSpeed, targetRemoteIsRunning, targetRemoteIsCrouching);
         }
     }
 
-    void ApplyRemoteMonsterTransform(
-        int monsterId,
-        Vector3 position,
-        Quaternion rotation,
-        float speed,
-        bool isWalk,
-        bool isAttack
-    )
+    void ApplyRemoteMonsterTransform(int monsterId, Vector3 pos, Quaternion rot, float speed, bool isWalk, bool isAttack)
     {
-        if (playerId == 1)
-            return;
-
         if (monsterSetups == null || monsterSetups.Length == 0)
             monsterSetups = FindObjectsOfType<MonsterNetworkSetup>();
 
         foreach (MonsterNetworkSetup monster in monsterSetups)
         {
-            if (monster == null)
-                continue;
-
-            if (monster.monsterId != monsterId)
-                continue;
-
-            RemoteMonster remoteMonster = monster.GetComponent<RemoteMonster>();
-
-            if (remoteMonster != null)
+            if (monster != null && monster.monsterId == monsterId)
             {
-                remoteMonster.SetState(position, rotation);
-                remoteMonster.SetAnimationState(speed, isWalk, isAttack);
+                RemoteMonster remoteMonster = monster.GetComponent<RemoteMonster>();
+                if (remoteMonster != null)
+                {
+                    remoteMonster.SetState(pos, rot);
+                    remoteMonster.SetAnimationState(speed, isWalk, isAttack);
+                }
+                return;
             }
-            else
-            {
-                monster.transform.position = position;
-                monster.transform.rotation = rotation;
-            }
-
-            return;
         }
-
-        Debug.LogWarning("monsterId에 해당하는 몬스터를 찾지 못함: " + monsterId);
     }
 
-    void ApplyPlayerDamage(int targetPlayerId, int damage)
+    private void OnApplicationQuit()
     {
-        GameObject targetObject = null;
-
-        if (targetPlayerId == 1)
-            targetObject = player1Object;
-        else if (targetPlayerId == 2)
-            targetObject = player2Object;
-
-        if (targetObject == null)
-        {
-            Debug.LogWarning("데미지 적용 대상 플레이어 오브젝트를 찾지 못함: " + targetPlayerId);
-            return;
-        }
-
-        PlayerController playerController = targetObject.GetComponent<PlayerController>();
-
-        if (playerController == null)
-        {
-            Debug.LogWarning("데미지 적용 대상에 PlayerController가 없음: " + targetObject.name);
-            return;
-        }
-
-        bool wasDead = playerController.IsDeadState;
-
-        playerController.TakeDamage(damage);
-
-        bool isDeadNow = playerController.IsDeadState;
-
-        RemotePlayer remotePlayer = targetObject.GetComponent<RemotePlayer>();
-
-        if (remotePlayer != null && !playerController.isLocalPlayer)
-        {
-            if (isDeadNow)
-            {
-                remotePlayer.PlayDeathAnimation();
-            }
-            else if (!wasDead)
-            {
-                remotePlayer.PlayHitAnimation();
-            }
-        }
-
-        Debug.Log("PLAYER_DAMAGE 적용 완료 / target: " + targetPlayerId + " / damage: " + damage);
+        if (stream != null) stream.Close();
+        if (client != null) client.Close();
     }
-
-    void ApplyPlayerRevive(int targetPlayerId)
-    {
-        GameObject targetObject = null;
-
-        if (targetPlayerId == 1)
-            targetObject = player1Object;
-        else if (targetPlayerId == 2)
-            targetObject = player2Object;
-
-        if (targetObject == null)
-        {
-            Debug.LogWarning("부활 대상 플레이어 오브젝트를 찾지 못함: " + targetPlayerId);
-            return;
-        }
-
-        PlayerController playerController = targetObject.GetComponent<PlayerController>();
-
-        if (playerController == null)
-        {
-            Debug.LogWarning("부활 대상에 PlayerController가 없음: " + targetObject.name);
-            return;
-        }
-
-        playerController.Revive();
-
-        Debug.Log("PLAYER_REVIVE 적용 완료 / target: " + targetPlayerId);
-    }
-
-    void OnApplicationQuit()
-    {
-        if (stream != null)
-            stream.Close();
-
-        if (client != null)
-            client.Close();
-    }
-
-
 }
