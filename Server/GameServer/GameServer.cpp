@@ -66,6 +66,10 @@ struct PlayerState
     bool isDead = false;
     int hp = 100;
     bool hasState = false;
+
+    // [추가] 은신 상태 및 지속 시간
+    bool isStealth = false;
+    double stealthEndTime = 0.0;
 };
 
 struct MonsterState
@@ -291,7 +295,8 @@ bool MoveToward(MonsterState& monster, const Vec3& target, float deltaTime)
 
 bool IsPlayerVisible(const MonsterState& monster, const PlayerState& player)
 {
-    if (!player.hasState || player.isDead)
+    // [수정] 은신 상태(isStealth)면 감지 불가
+    if (!player.hasState || player.isDead || player.isStealth)
         return false;
 
     float distance = Distance2D(monster.position, player.position);
@@ -318,7 +323,6 @@ bool IsPlayerVisible(const MonsterState& monster, const PlayerState& player)
     float angle = std::acos(dot) * 180.0f / PI;
     return angle <= monster.sightAngle * 0.5f;
 }
-
 PlayerState* FindVisiblePlayer(MonsterState& monster, PlayerState players[])
 {
     PlayerState* bestPlayer = nullptr;
@@ -382,6 +386,14 @@ void SendPlayerDamageIfPossible(
     monster.isAttack = true;
     monster.state = MonsterAIState::Attack;
 
+    // [수정된 부분] 서버 내부에서 직접 체력을 깎고 사망 여부를 확정합니다.
+    target.hp -= monster.damage;
+    if (target.hp <= 0)
+    {
+        target.hp = 0;
+        target.isDead = true;
+    }
+
     std::ostringstream oss;
     oss << "S_PLAYER_DAMAGE|"
         << target.playerId << "|"
@@ -396,6 +408,7 @@ void SendPlayerDamageIfPossible(
         << target.playerId
         << " damage "
         << monster.damage
+        << " (Current HP: " << target.hp << ")" // 추가된 로그
         << std::endl;
 }
 
@@ -534,10 +547,6 @@ void BroadcastMonsterState(SOCKET clientSocket1, SOCKET clientSocket2, const Mon
 
 void ProcessMovePacket(const std::vector<std::string>& parts, PlayerState players[])
 {
-    // 현재 Unity 클라이언트 형식:
-    // MOVE|playerId|x|y|z|rotY|speed|isRunning|isCrouching
-    // 향후 확장 형식:
-    // MOVE|playerId|x|y|z|rotY|speed|isRunning|isCrouching|isDead
     if (parts.size() < 9)
         return;
 
@@ -548,6 +557,10 @@ void ProcessMovePacket(const std::vector<std::string>& parts, PlayerState player
 
     PlayerState& player = players[playerId];
 
+    // [수정된 부분] 서버 판정으로 이미 죽은 상태면 클라이언트의 억지 이동 패킷을 무시합니다.
+    if (player.isDead)
+        return;
+
     player.playerId = playerId;
     player.position.x = ToFloat(parts[2]);
     player.position.y = ToFloat(parts[3]);
@@ -557,8 +570,7 @@ void ProcessMovePacket(const std::vector<std::string>& parts, PlayerState player
     player.isRunning = ToInt(parts[7]) == 1;
     player.isCrouching = ToInt(parts[8]) == 1;
 
-    if (parts.size() >= 10)
-        player.isDead = ToInt(parts[9]) == 1;
+    // [삭제된 부분] 클라이언트가 보내는 isDead(parts[9]) 값을 더 이상 신뢰하지 않음
 
     player.hasState = true;
 }
@@ -747,6 +759,36 @@ void ProcessClientPacket(
         return;
     }
 
+    if (type == "C_ITEM_USE")
+    {
+        if (parts.size() < 3) return;
+
+        int reqPlayerId = ToInt(parts[1]);
+        std::string itemType = parts[2];
+
+        if (reqPlayerId < 1 || reqPlayerId > 2) return;
+
+        if (itemType == "Heal")
+        {
+            players[reqPlayerId].hp = 100;
+            std::ostringstream oss;
+            oss << "S_PLAYER_HP|" << reqPlayerId << "|" << players[reqPlayerId].hp;
+            BroadcastPacket(clientSocket1, clientSocket2, oss.str());
+            std::cout << "[ITEM USE] Player " << reqPlayerId << " Heal." << std::endl;
+        }
+        else if (itemType == "Stealth")
+        {
+            players[reqPlayerId].isStealth = true;
+            players[reqPlayerId].stealthEndTime = GetTimeSeconds() + 5.0;
+
+            std::ostringstream oss;
+            oss << "S_PLAYER_STEALTH|" << reqPlayerId << "|1";
+            BroadcastPacket(clientSocket1, clientSocket2, oss.str());
+
+            std::cout << "[ITEM USE] Player " << reqPlayerId << " Stealth Started (5s)." << std::endl;
+        }
+        return;
+    }
     // 아이템, 부활, 게임 클리어 등 아직 서버 판정으로 옮기지 않은 패킷은
     // 기존 시연 기능 보존을 위해 임시로 상대 클라이언트에 전달한다.
     SOCKET otherSocket = GetOtherSocket(senderPlayerId, clientSocket1, clientSocket2);
@@ -1008,6 +1050,25 @@ int main()
         if (deltaTime > 0.2f)
             deltaTime = 0.2f;
 
+        // ========================================================
+        // [추가] 은신(Stealth) 지속 시간 체크 및 만료 시 자동 해제
+        // ========================================================
+        for (int i = 1; i <= 2; ++i)
+        {
+            if (players[i].isStealth && now >= players[i].stealthEndTime)
+            {
+                players[i].isStealth = false;
+
+                // 양쪽 클라이언트에 은신 종료 알림 방송 (S_PLAYER_STEALTH|playerId|0)
+                std::ostringstream oss;
+                oss << "S_PLAYER_STEALTH|" << i << "|0";
+                BroadcastPacket(clientSocket1, clientSocket2, oss.str());
+
+                std::cout << "[STEALTH END] Player " << i << " Stealth Expired." << std::endl;
+            }
+        }
+
+        // 몬스터 AI 판단 및 이동 (은신 여부가 반영된 상태로 시야 판정 진행)
         UpdateMonsters(monsters, players, clientSocket1, clientSocket2, deltaTime, now);
 
         if (now - lastMonsterBroadcastTime >= 0.1)

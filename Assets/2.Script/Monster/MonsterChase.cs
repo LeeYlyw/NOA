@@ -151,9 +151,11 @@ public class MonsterChase : MonoBehaviour
 
             if (targetPlayerId != -1)
             {
-                if (NetworkClient.Instance != null)
+                // [오프라인 모드 대응] 서버가 없을 때는 로컬 플레이어 체력을 즉시 깎음
+                if (NetworkClient.Instance != null && NetworkClient.Instance.offlineMode)
                 {
-                    NetworkClient.Instance.SendPlayerDamage(targetPlayerId, damage);
+                    PlayerController pc = player.GetComponent<PlayerController>();
+                    if (pc != null) pc.TakeDamage(damage);
                 }
 
                 lastAttackTime = Time.time;
