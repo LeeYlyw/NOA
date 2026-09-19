@@ -62,6 +62,16 @@ public class MonsterNetworkSetup : MonoBehaviour
 
     public void SetupMonster(bool isAuthority)
     {
-        SetupServerAuthoritativeMode();
+        // [수정] 매개변수를 무시하던 버그 수정
+        if (isAuthority)
+        {
+            // 권한이 있다면 내가 직접 AI를 굴림 (Master Client 역할)
+            SetupOfflineMode();
+        }
+        else
+        {
+            // 권한이 없다면 서버(또는 방장)가 보내는 Transform 데이터만 받음
+            SetupServerAuthoritativeMode();
+        }
     }
 }

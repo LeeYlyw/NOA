@@ -96,31 +96,47 @@ public class NetworkClient : MonoBehaviour
 
     void SetupPlayersByPlayerId()
     {
-        if (!autoSetupPlayers || player1Object == null) return;
+        if (!autoSetupPlayers || player1Object == null || player2Object == null) return;
 
-        // [수정된 부분] 오프라인 모드에서는 무조건 로컬 플레이어로 강제 셋업
+        // 내가 1번 플레이어인지 확인
         bool isPlayer1Local = offlineMode || (playerId == 1);
 
+        // [핵심 수정] 내 playerId에 따라 로컬 및 원격(Remote) 트랜스폼을 동적으로 교차 할당
+        if (isPlayer1Local)
+        {
+            localPlayerTransform = player1Object.transform;
+            remotePlayerTransform = player2Object.transform;
+        }
+        else
+        {
+            localPlayerTransform = player2Object.transform;
+            remotePlayerTransform = player1Object.transform;
+        }
+
+        localPlayerController = localPlayerTransform.GetComponent<PlayerController>();
+
+        // RemotePlayer 셋업
         RemotePlayer player1Remote = player1Object.GetComponent<RemotePlayer>();
         if (player1Remote != null) player1Remote.SetupPlayer(isPlayer1Local);
 
-        if (player2Object != null)
-        {
-            RemotePlayer player2Remote = player2Object.GetComponent<RemotePlayer>();
-            if (player2Remote != null) player2Remote.SetupPlayer(!isPlayer1Local);
+        RemotePlayer player2Remote = player2Object.GetComponent<RemotePlayer>();
+        if (player2Remote != null) player2Remote.SetupPlayer(!isPlayer1Local);
 
-            // [추가된 부분] 싱글 플레이 시 시야를 가리는 더미(2P)를 꺼버림
-            if (offlineMode) player2Object.SetActive(false);
-        }
+        if (offlineMode) player2Object.SetActive(false);
 
+        // [핵심 수정] Player 1, Player 2 모두 역할 셋업 처리 (하드코딩 방지)
         PlayerRoleSetup player1Role = player1Object.GetComponent<PlayerRoleSetup>();
         if (player1Role != null)
         {
-            player1Role.Setup(1, 1, PlayerRole.Explorer);
+            player1Role.Setup(1, playerId, PlayerRole.Explorer);
         }
 
-        localPlayerTransform = player1Object.transform;
-        localPlayerController = localPlayerTransform.GetComponent<PlayerController>();
+        PlayerRoleSetup player2Role = player2Object.GetComponent<PlayerRoleSetup>();
+        if (player2Role != null)
+        {
+            // 2번 플레이어에 맞는 역할(Detector 등) 부여
+            player2Role.Setup(2, playerId, PlayerRole.Detector);
+        }
     }
 
     void ConnectToServer()

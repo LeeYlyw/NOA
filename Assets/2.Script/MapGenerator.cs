@@ -22,9 +22,24 @@ public class MapGenerator : MonoBehaviour
     [Header("배치할 방 목록")]
     public List<RoomData> roomsToSpawn;
 
+    [Header("스폰할 프리팹 설정")]
+    public GameObject player1Prefab;
+    public GameObject player2Prefab;
+    public GameObject monsterPrefab;
+    public GameObject[] itemPrefabs;
+
+    [Header("스폰 설정")]
+    public float minMonsterDistance = 30f; // 몬스터가 플레이어로부터 떨어져야 하는 최소 거리
+    public int itemSpawnCount = 5;         // 생성할 아이템 개수
+
+    // 스폰 위치 저장을 위한 리스트
+    private List<Vector3> validSpawnPoints = new List<Vector3>();
+
     // 0: 빈공간, 1: 복도, 2: 방 본체, 3: 방 출입문(Door)
     private int[,] map;
     private List<Vector2Int> roomDoors = new List<Vector2Int>();
+
+
 
     void Start()
     {
@@ -53,6 +68,10 @@ public class MapGenerator : MonoBehaviour
         CleanUpMap();
 
         SpawnPrefabsSafely();
+
+        CollectValidSpawnPoints();
+        SpawnEntities();
+        
     }
 
     void PlaceRooms()
@@ -443,5 +462,102 @@ public class MapGenerator : MonoBehaviour
         if (neighbor == 2 && map[cx, cz] == 3) return true;
 
         return false;
+    }
+
+    // 1. 맵 내에서 걸어 다닐 수 있는(복도=1, 방=2) 바닥 좌표를 모두 수집합니다.
+    void CollectValidSpawnPoints()
+    {
+        validSpawnPoints.Clear();
+        float startOffset = -(mapSize * tileSize) / 2f + (tileSize / 2f);
+
+        for (int x = 0; x < mapSize; x++)
+        {
+            for (int z = 0; z < mapSize; z++)
+            {
+                if (map[x, z] == 1 || map[x, z] == 2)
+                {
+                    Vector3 pos = new Vector3(startOffset + (x * tileSize), 1f, startOffset + (z * tileSize));
+                    validSpawnPoints.Add(pos);
+                }
+            }
+        }
+    }
+
+    // 2. 플레이어, 몬스터, 아이템을 순서대로 스폰합니다.
+    void SpawnEntities()
+    {
+        if (validSpawnPoints.Count == 0)
+        {
+            Debug.LogError("[MapGenerator] 스폰할 수 있는 타일이 없습니다!");
+            return;
+        }
+
+        // --- 1. 플레이어 1 스폰 (랜덤 위치) ---
+        Vector3 p1Pos = GetRandomSpawnPoint(removePoint: true);
+        GameObject p1 = Instantiate(player1Prefab, p1Pos, Quaternion.identity);
+        p1.name = "Player1";
+
+        // --- 2. 플레이어 2 스폰 (플레이어 1 근처) ---
+        // 멀티플레이어 환경이므로 일단 p1과 같은 곳에 스폰시킵니다. (나중에 NetworkClient가 분리함)
+        Vector3 p2Pos = GetRandomSpawnPoint(removePoint: true);
+        GameObject p2 = Instantiate(player2Prefab, p2Pos, Quaternion.identity);
+        p2.name = "Player2";
+
+        // --- 3. 몬스터 스폰 (플레이어와 멀리 떨어진 곳) ---
+        Vector3 monsterPos = GetFarthestSpawnPoint(p1Pos, minMonsterDistance);
+        GameObject monster = Instantiate(monsterPrefab, monsterPos, Quaternion.identity);
+        monster.name = "Monster";
+
+        Debug.Log($"[MapGenerator] 플레이어({p1Pos})와 몬스터({monsterPos}) 스폰 완료. 거리: {Vector3.Distance(p1Pos, monsterPos)}");
+
+        // --- 4. 아이템 스폰 ---
+        if (itemPrefabs != null && itemPrefabs.Length > 0)
+        {
+            for (int i = 0; i < itemSpawnCount; i++)
+            {
+                Vector3 itemPos = GetRandomSpawnPoint(removePoint: true);
+                GameObject randomItemPrefab = itemPrefabs[Random.Range(0, itemPrefabs.Length)];
+                Instantiate(randomItemPrefab, itemPos, Quaternion.identity);
+            }
+        }
+    }
+
+    // 랜덤한 스폰 포인트를 하나 뽑아냅니다. 중복 배치를 막으려면 removePoint를 true로 줍니다.
+    Vector3 GetRandomSpawnPoint(bool removePoint)
+    {
+        int index = Random.Range(0, validSpawnPoints.Count);
+        Vector3 pos = validSpawnPoints[index];
+        if (removePoint) validSpawnPoints.RemoveAt(index);
+        return pos;
+    }
+
+    // 특정 위치(플레이어)로부터 최대한 멀리 떨어지거나, 최소 거리(minDist)를 만족하는 스폰 포인트를 찾습니다.
+    Vector3 GetFarthestSpawnPoint(Vector3 fromPosition, float minRequiredDistance)
+    {
+        Vector3 bestPos = validSpawnPoints[0];
+        float maxDist = -1f;
+        int bestIndex = 0;
+
+        for (int i = 0; i < validSpawnPoints.Count; i++)
+        {
+            float dist = Vector3.Distance(fromPosition, validSpawnPoints[i]);
+
+            // 가장 멀리 있는 점을 기록해 둠
+            if (dist > maxDist)
+            {
+                maxDist = dist;
+                bestPos = validSpawnPoints[i];
+                bestIndex = i;
+            }
+        }
+
+        // 만약 맵이 너무 작아서 최소 거리를 만족 못 시킨다면 경고를 띄우고 그냥 가장 먼 곳에 배치
+        if (maxDist < minRequiredDistance)
+        {
+            Debug.LogWarning($"[MapGenerator] 몬스터 최소 스폰 거리({minRequiredDistance})를 만족하는 공간이 없습니다. 가장 먼 곳({maxDist})에 스폰합니다.");
+        }
+
+        validSpawnPoints.RemoveAt(bestIndex);
+        return bestPos;
     }
 }
