@@ -57,29 +57,6 @@ public class NetworkClient : MonoBehaviour
 
     void Start()
     {
-        SetupPlayersByPlayerId();
-        monsterSetups = FindObjectsOfType<MonsterNetworkSetup>();
-        potionItems = FindObjectsOfType<PotionItem>(true);
-
-        // [수정된 부분] 오프라인 모드면 서버 연결 패스
-        if (offlineMode)
-        {
-            Debug.Log("<color=yellow>[NetworkClient] 오프라인 싱글 테스트 모드로 실행됩니다. 서버 연결을 건너뜁니다.</color>");
-            return;
-        }
-
-        ConnectToServer();
-
-        if (remotePlayerTransform != null)
-        {
-            targetRemotePosition = remotePlayerTransform.position;
-            targetRemoteRotation = remotePlayerTransform.rotation;
-        }
-
-        if (localPlayerTransform != null)
-        {
-            localPlayerController = localPlayerTransform.GetComponent<PlayerController>();
-        }
     }
 
     void Update()
@@ -92,51 +69,6 @@ public class NetworkClient : MonoBehaviour
         SendLocalPlayerTransform();
         ReceivePackets();
         ApplyRemotePlayerTransform();
-    }
-
-    void SetupPlayersByPlayerId()
-    {
-        if (!autoSetupPlayers || player1Object == null || player2Object == null) return;
-
-        // 내가 1번 플레이어인지 확인
-        bool isPlayer1Local = offlineMode || (playerId == 1);
-
-        // [핵심 수정] 내 playerId에 따라 로컬 및 원격(Remote) 트랜스폼을 동적으로 교차 할당
-        if (isPlayer1Local)
-        {
-            localPlayerTransform = player1Object.transform;
-            remotePlayerTransform = player2Object.transform;
-        }
-        else
-        {
-            localPlayerTransform = player2Object.transform;
-            remotePlayerTransform = player1Object.transform;
-        }
-
-        localPlayerController = localPlayerTransform.GetComponent<PlayerController>();
-
-        // RemotePlayer 셋업
-        RemotePlayer player1Remote = player1Object.GetComponent<RemotePlayer>();
-        if (player1Remote != null) player1Remote.SetupPlayer(isPlayer1Local);
-
-        RemotePlayer player2Remote = player2Object.GetComponent<RemotePlayer>();
-        if (player2Remote != null) player2Remote.SetupPlayer(!isPlayer1Local);
-
-        if (offlineMode) player2Object.SetActive(false);
-
-        // [핵심 수정] Player 1, Player 2 모두 역할 셋업 처리 (하드코딩 방지)
-        PlayerRoleSetup player1Role = player1Object.GetComponent<PlayerRoleSetup>();
-        if (player1Role != null)
-        {
-            player1Role.Setup(1, playerId, PlayerRole.Explorer);
-        }
-
-        PlayerRoleSetup player2Role = player2Object.GetComponent<PlayerRoleSetup>();
-        if (player2Role != null)
-        {
-            // 2번 플레이어에 맞는 역할(Detector 등) 부여
-            player2Role.Setup(2, playerId, PlayerRole.Detector);
-        }
     }
 
     void ConnectToServer()
@@ -488,5 +420,83 @@ public class NetworkClient : MonoBehaviour
     {
         if (stream != null) stream.Close();
         if (client != null) client.Close();
+    }
+
+    public void SetupNetworkEntities(GameObject p1, GameObject p2, GameObject[] spawnedMonsters, PotionItem[] spawnedItems)
+    {
+        // MapGenerator가 스폰한 객체들을 받아옴
+        player1Object = p1;
+        player2Object = p2;
+        potionItems = spawnedItems;
+
+        // 몬스터 배열 세팅 (지금은 1마리 기준이지만 나중을 위해 배열로 처리)
+        if (spawnedMonsters != null && spawnedMonsters.Length > 0)
+        {
+            monsterSetups = new MonsterNetworkSetup[spawnedMonsters.Length];
+            for (int i = 0; i < spawnedMonsters.Length; i++)
+            {
+                monsterSetups[i] = spawnedMonsters[i].GetComponent<MonsterNetworkSetup>();
+            }
+        }
+
+        // 접속한 playerId(1 또는 2)에 맞게 로컬/리모트 권한 분배
+        AssignPlayerRolesAndAuthority();
+
+        // 네트워크 연결 시작
+        if (!offlineMode)
+        {
+            ConnectToServer();
+        }
+    }
+
+    // 이전에 작성했던 하드코딩된 SetupPlayersByPlayerId를 대체하는 함수
+    private void AssignPlayerRolesAndAuthority()
+    {
+        if (player1Object == null || player2Object == null) return;
+
+        bool isPlayer1Local = offlineMode || (playerId == 1);
+
+        // [핵심] 내 playerId에 따라 로컬(내가 조종)과 원격(상대방) 트랜스폼을 동적으로 교차 할당
+        if (isPlayer1Local)
+        {
+            localPlayerTransform = player1Object.transform;
+            remotePlayerTransform = player2Object.transform;
+
+            if (remotePlayerTransform != null)
+            {
+                targetRemotePosition = remotePlayerTransform.position;
+                targetRemoteRotation = remotePlayerTransform.rotation;
+            }
+        }
+        else
+        {
+            localPlayerTransform = player2Object.transform;
+            remotePlayerTransform = player1Object.transform;
+
+            if (remotePlayerTransform != null)
+            {
+                targetRemotePosition = remotePlayerTransform.position;
+                targetRemoteRotation = remotePlayerTransform.rotation;
+            }
+        }
+
+        localPlayerController = localPlayerTransform.GetComponent<PlayerController>();
+
+        // RemotePlayer 스크립트에 누가 로컬인지 알려줌
+        RemotePlayer p1Remote = player1Object.GetComponent<RemotePlayer>();
+        if (p1Remote != null) p1Remote.SetupPlayer(isPlayer1Local);
+
+        RemotePlayer p2Remote = player2Object.GetComponent<RemotePlayer>();
+        if (p2Remote != null) p2Remote.SetupPlayer(!isPlayer1Local);
+
+        // 오프라인 모드면 다른 플레이어는 꺼버림
+        if (offlineMode) player2Object.SetActive(false);
+
+        // 역할 셋업
+        PlayerRoleSetup p1Role = player1Object.GetComponent<PlayerRoleSetup>();
+        if (p1Role != null) p1Role.Setup(1, playerId, PlayerRole.Explorer);
+
+        PlayerRoleSetup p2Role = player2Object.GetComponent<PlayerRoleSetup>();
+        if (p2Role != null) p2Role.Setup(2, playerId, PlayerRole.Detector);
     }
 }

@@ -10523,11 +10523,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   monsterId: 1
-  hasAuthority: 1
-  aiScripts:
-  - {fileID: 1735798968}
   navMeshAgent: {fileID: 1735798967}
   remoteMonster: {fileID: 1735798966}
+  aiScripts:
+  - {fileID: 1735798968}
 --- !u!114 &1735798966
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -11499,16 +11498,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7187ad5c9db323941bc75f0fa9f71b65, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  offlineMode: 0
   serverIP: 127.0.0.1
   serverPort: 7777
-  playerId: 1
+  playerId: 2
   localPlayerTransform: {fileID: 2014975748}
   remotePlayerTransform: {fileID: 1306263783}
   autoSetupPlayers: 1
   player1Object: {fileID: 2014975747}
   player2Object: {fileID: 1306263782}
   sendInterval: 0.1
-  monsterSendInterval: 0.1
   potionItems: []
 --- !u!4 &1939201763
 Transform:

@@ -15,9 +15,12 @@ public class MapGenerator : MonoBehaviour
     public int mapSize = 20;
     public float tileSize = 10f;
 
-    [Header("복도 모듈 프리팹 (단면 I벽, 모서리 L벽)")]
-    public GameObject prefabI;    // 일자 (단면 벽 1개)
-    public GameObject prefabL;    // ㄱ자 (코너 벽)
+    [Header("복도 모듈 프리팹 (1:1 매칭용)")]
+    public GameObject prefabI;
+    public GameObject prefabL;
+    public GameObject prefabU;
+    public GameObject prefabO;
+    // (prefabParallel은 이전 논의대로 사용하지 않고 prefabI 2개로 막습니다)
 
     [Header("배치할 방 목록")]
     public List<RoomData> roomsToSpawn;
@@ -29,17 +32,12 @@ public class MapGenerator : MonoBehaviour
     public GameObject[] itemPrefabs;
 
     [Header("스폰 설정")]
-    public float minMonsterDistance = 30f; // 몬스터가 플레이어로부터 떨어져야 하는 최소 거리
-    public int itemSpawnCount = 5;         // 생성할 아이템 개수
+    public float minMonsterDistance = 30f;
+    public int itemSpawnCount = 5;
 
-    // 스폰 위치 저장을 위한 리스트
     private List<Vector3> validSpawnPoints = new List<Vector3>();
-
-    // 0: 빈공간, 1: 복도, 2: 방 본체, 3: 방 출입문(Door)
     private int[,] map;
     private List<Vector2Int> roomDoors = new List<Vector2Int>();
-
-
 
     void Start()
     {
@@ -58,20 +56,21 @@ public class MapGenerator : MonoBehaviour
 
         PlaceRooms();
 
-        // 1. 방 사이를 연결하고 맵 전체로 복도를 뻗어냄
-        BuildNonLinearMaze();
+        // 1. 미로 생성 (가장자리 평행 이동 금지 규칙 적용)
+        BuildMaze();
 
-        // 2. 혹시라도 남은 3x3 이상의 큰 공터가 있다면 억지로 복도를 뚫어버림
-        ForceFillPockets();
+        // 2. 3x3 거대 벽 덩어리 분쇄
+        BreakThickWalls();
 
-        // 3. 맵 내부에 갇힌 1~2칸짜리 찌꺼기 빈 공간을 플러드 필로 완벽히 메움
-        CleanUpMap();
+        // 3. 고립된 섬 연결 (부자연스러운 직선 제거, 구불구불하게 연결)
+        EnsureGlobalConnectivity();
+
+        // 4. 막다른 길 순환로 만들기
+        LoopDeadEnds();
 
         SpawnPrefabsSafely();
-
         CollectValidSpawnPoints();
         SpawnEntities();
-        
     }
 
     void PlaceRooms()
@@ -133,239 +132,270 @@ public class MapGenerator : MonoBehaviour
         return true;
     }
 
-    void BuildNonLinearMaze()
+    void BuildMaze()
     {
-        if (roomDoors.Count < 2) return;
-
-        // 1. 출입구 연결
-        for (int i = 0; i < roomDoors.Count; i++)
+        foreach (var door in roomDoors)
         {
-            Vector2Int start = roomDoors[i];
-            Vector2Int end = roomDoors[(i + 1) % roomDoors.Count];
-            ConnectWithRandomTurn(start, end);
+            CarveMaze(door.x, door.y);
         }
 
-        // 2. 맵의 4개 외곽 모서리 끝까지 강제로 뼈대를 끌고 감 (외곽 빈공간 차단)
-        Vector2Int[] cornerPoints = new Vector2Int[]
-        {
-            new Vector2Int(1, 1),
-            new Vector2Int(mapSize - 2, 1),
-            new Vector2Int(1, mapSize - 2),
-            new Vector2Int(mapSize - 2, mapSize - 2)
-        };
-
-        foreach (var corner in cornerPoints)
-        {
-            if (map[corner.x, corner.y] == 0) // 모서리가 비어있다면 억지로 연결
-            {
-                Vector2Int nearest = FindNearestCorridor(corner);
-                if (nearest.x != -1) ConnectWithRandomTurn(nearest, corner);
-            }
-        }
-
-        // 3. 기존 15번 -> 300번으로 무한 증식시켜서 남는 잉여 공간을 꽉꽉 채움
-        GrowMazeBranches(300);
-    }
-
-    void ConnectWithRandomTurn(Vector2Int start, Vector2Int end)
-    {
-        Vector2Int mid = new Vector2Int(
-            Random.value > 0.5f ? start.x : end.x,
-            Random.value > 0.5f ? end.y : start.y
-        );
-
-        mid.x = Mathf.Clamp(mid.x, 0, mapSize - 1);
-        mid.y = Mathf.Clamp(mid.y, 0, mapSize - 1);
-
-        BFSConnect(start, mid);
-        BFSConnect(mid, end);
-    }
-
-    void GrowMazeBranches(int branchCount)
-    {
-        Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
-
-        for (int i = 0; i < branchCount; i++)
-        {
-            List<Vector2Int> corridors = new List<Vector2Int>();
-            for (int x = 0; x < mapSize; x++)
-            {
-                for (int z = 0; z < mapSize; z++)
-                {
-                    if (map[x, z] == 1) corridors.Add(new Vector2Int(x, z));
-                }
-            }
-
-            if (corridors.Count == 0) break;
-
-            Vector2Int curr = corridors[Random.Range(0, corridors.Count)];
-            int steps = Random.Range(5, 16); // 기존 3~7에서 길이를 늘려 구석까지 파고들게 함
-
-            for (int s = 0; s < steps; s++)
-            {
-                Vector2Int dir = dirs[Random.Range(0, 4)];
-                Vector2Int next = curr + dir;
-
-                if (next.x >= 0 && next.x < mapSize && next.y >= 0 && next.y < mapSize)
-                {
-                    if (map[next.x, next.y] == 0)
-                    {
-                        map[next.x, next.y] = 1;
-                        curr = next;
-                    }
-                    else break;
-                }
-                else break;
-            }
-        }
-    }
-
-    Vector2Int FindNearestCorridor(Vector2Int point)
-    {
-        Vector2Int nearest = new Vector2Int(-1, -1);
-        float minDist = float.MaxValue;
-
-        for (int x = 0; x < mapSize; x++)
-        {
-            for (int z = 0; z < mapSize; z++)
-            {
-                if (map[x, z] == 1)
-                {
-                    float dist = Vector2Int.Distance(point, new Vector2Int(x, z));
-                    if (dist < minDist)
-                    {
-                        minDist = dist;
-                        nearest = new Vector2Int(x, z);
-                    }
-                }
-            }
-        }
-        return nearest;
-    }
-
-    void BFSConnect(Vector2Int start, Vector2Int end)
-    {
-        Queue<Vector2Int> queue = new Queue<Vector2Int>();
-        Dictionary<Vector2Int, Vector2Int> cameFrom = new Dictionary<Vector2Int, Vector2Int>();
-
-        queue.Enqueue(start);
-        cameFrom[start] = start;
-
-        Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
-
-        while (queue.Count > 0)
-        {
-            Vector2Int curr = queue.Dequeue();
-            if (curr == end) break;
-
-            foreach (var dir in dirs)
-            {
-                Vector2Int next = curr + dir;
-                if (next.x >= 0 && next.x < mapSize && next.y >= 0 && next.y < mapSize)
-                {
-                    if (!cameFrom.ContainsKey(next))
-                    {
-                        if (map[next.x, next.y] != 2)
-                        {
-                            queue.Enqueue(next);
-                            cameFrom[next] = curr;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (cameFrom.ContainsKey(end))
-        {
-            Vector2Int curr = end;
-            while (curr != start)
-            {
-                if (map[curr.x, curr.y] == 0) map[curr.x, curr.y] = 1;
-                curr = cameFrom[curr];
-            }
-        }
-    }
-
-    // --- [신규 추가] 외곽의 남는 공터를 찾아내서 확정적으로 뚫어버림 ---
-    void ForceFillPockets()
-    {
         for (int x = 1; x < mapSize - 1; x++)
         {
             for (int z = 1; z < mapSize - 1; z++)
             {
+                if (map[x, z] == 0 && GetAdjacentPathCount(x, z) == 0)
+                {
+                    CarveMaze(x, z);
+                }
+            }
+        }
+    }
+
+    // ==========================================
+    // [핵심 수정 1] 1자형 외곽 도로 원천 차단
+    // ==========================================
+    void CarveMaze(int startX, int startZ)
+    {
+        Stack<Vector2Int> stack = new Stack<Vector2Int>();
+        stack.Push(new Vector2Int(startX, startZ));
+
+        if (map[startX, startZ] == 0) map[startX, startZ] = 1;
+
+        Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
+
+        while (stack.Count > 0)
+        {
+            Vector2Int curr = stack.Peek();
+
+            for (int i = 0; i < dirs.Length; i++)
+            {
+                Vector2Int temp = dirs[i];
+                int randomIndex = Random.Range(i, dirs.Length);
+                dirs[i] = dirs[randomIndex];
+                dirs[randomIndex] = temp;
+            }
+
+            bool moved = false;
+            foreach (var dir in dirs)
+            {
+                int nx = curr.x + dir.x;
+                int nz = curr.y + dir.y;
+
+                if (nx > 0 && nx < mapSize - 1 && nz > 0 && nz < mapSize - 1)
+                {
+                    // ★ 외곽 평행 이동 금지 규칙 ★
+                    // 현재 위치가 가장자리(x=1 or mapSize-2)인데, 다음 이동할 곳도 가장자리라면 이동 금지.
+                    // 이 규칙 덕분에 미로가 벽에 닿자마자 멈추고 막다른 길(내부 벽)을 형성합니다.
+                    bool currIsEdge = (curr.x == 1 || curr.x == mapSize - 2 || curr.y == 1 || curr.y == mapSize - 2);
+                    bool nextIsEdge = (nx == 1 || nx == mapSize - 2 || nz == 1 || nz == mapSize - 2);
+
+                    if (currIsEdge && nextIsEdge) continue;
+
+                    if (map[nx, nz] == 0)
+                    {
+                        if (GetAdjacentPathCount(nx, nz) <= 1)
+                        {
+                            map[nx, nz] = 1;
+                            stack.Push(new Vector2Int(nx, nz));
+                            moved = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!moved) stack.Pop();
+        }
+    }
+
+    int GetAdjacentPathCount(int x, int z)
+    {
+        int count = 0;
+        Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
+        foreach (var dir in dirs)
+        {
+            int nx = x + dir.x;
+            int nz = z + dir.y;
+            if (nx >= 0 && nx < mapSize && nz >= 0 && nz < mapSize)
+            {
+                if (map[nx, nz] != 0) count++;
+            }
+        }
+        return count;
+    }
+
+    void BreakThickWalls()
+    {
+        for (int x = 2; x < mapSize - 2; x++)
+        {
+            for (int z = 2; z < mapSize - 2; z++)
+            {
                 if (map[x, z] == 0)
                 {
-                    bool completelyEmpty = true;
+                    bool isThick = true;
                     for (int dx = -1; dx <= 1; dx++)
                     {
                         for (int dz = -1; dz <= 1; dz++)
                         {
-                            if (map[x + dx, z + dz] != 0) completelyEmpty = false;
+                            if (map[x + dx, z + dz] != 0) isThick = false;
                         }
                     }
 
-                    if (completelyEmpty)
+                    if (isThick)
                     {
                         map[x, z] = 1;
-                        Vector2Int nearest = FindNearestCorridor(new Vector2Int(x, z));
-                        if (nearest.x != -1) ConnectWithRandomTurn(new Vector2Int(x, z), nearest);
                     }
                 }
             }
         }
     }
 
-    // --- [신규 추가] 맵 내부에 갇힌 찌꺼기 구멍 완벽 제거 ---
-    void CleanUpMap()
+    // ==========================================
+    // [핵심 수정 2] 부자연스러운 직선 연결 방지
+    // ==========================================
+    void EnsureGlobalConnectivity()
     {
         bool[,] visited = new bool[mapSize, mapSize];
-        Queue<Vector2Int> queue = new Queue<Vector2Int>();
+        List<List<Vector2Int>> islands = new List<List<Vector2Int>>();
 
         for (int x = 0; x < mapSize; x++)
         {
             for (int z = 0; z < mapSize; z++)
             {
-                if (x == 0 || x == mapSize - 1 || z == 0 || z == mapSize - 1)
+                if (map[x, z] != 0 && !visited[x, z])
                 {
-                    if (map[x, z] == 0)
+                    List<Vector2Int> newIsland = new List<Vector2Int>();
+                    Queue<Vector2Int> queue = new Queue<Vector2Int>();
+                    queue.Enqueue(new Vector2Int(x, z));
+                    visited[x, z] = true;
+
+                    while (queue.Count > 0)
                     {
-                        queue.Enqueue(new Vector2Int(x, z));
-                        visited[x, z] = true;
+                        Vector2Int curr = queue.Dequeue();
+                        newIsland.Add(curr);
+
+                        Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
+                        foreach (var dir in dirs)
+                        {
+                            Vector2Int next = curr + dir;
+                            if (next.x >= 0 && next.x < mapSize && next.y >= 0 && next.y < mapSize)
+                            {
+                                if (map[next.x, next.y] != 0 && !visited[next.x, next.y])
+                                {
+                                    visited[next.x, next.y] = true;
+                                    queue.Enqueue(next);
+                                }
+                            }
+                        }
                     }
+                    islands.Add(newIsland);
                 }
             }
         }
 
+        if (islands.Count <= 1) return;
+
+        islands.Sort((a, b) => b.Count.CompareTo(a.Count));
+        List<Vector2Int> mainIsland = islands[0];
+
+        for (int i = 1; i < islands.Count; i++)
+        {
+            ConnectIslands(islands[i], mainIsland);
+        }
+    }
+
+    void ConnectIslands(List<Vector2Int> islandA, List<Vector2Int> islandB)
+    {
+        Vector2Int bestA = islandA[0];
+        Vector2Int bestB = islandB[0];
+        float minDist = float.MaxValue;
+
+        foreach (var a in islandA)
+        {
+            foreach (var b in islandB)
+            {
+                float dist = Vector2Int.Distance(a, b);
+                if (dist < minDist)
+                {
+                    minDist = dist;
+                    bestA = a;
+                    bestB = b;
+                }
+            }
+        }
+
+        Vector2Int curr = bestA;
+        while (curr != bestB)
+        {
+            // ★ 일직선(레이저)으로 뚫지 않고 무작위로 꺾어가며 길을 냄 ★
+            bool moveX = false;
+            if (curr.x != bestB.x && curr.y != bestB.y)
+                moveX = Random.value > 0.5f; // 대각선 방향일 땐 50% 확률로 X나 Z를 선택
+            else
+                moveX = (curr.x != bestB.x);
+
+            if (moveX)
+                curr.x += (curr.x < bestB.x) ? 1 : -1;
+            else
+                curr.y += (curr.y < bestB.y) ? 1 : -1;
+
+            if (map[curr.x, curr.y] == 0) map[curr.x, curr.y] = 1;
+        }
+    }
+
+    void LoopDeadEnds()
+    {
         Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
-        while (queue.Count > 0)
+
+        for (int x = 1; x < mapSize - 1; x++)
         {
-            Vector2Int curr = queue.Dequeue();
-            foreach (var dir in dirs)
+            for (int z = 1; z < mapSize - 1; z++)
             {
-                Vector2Int next = curr + dir;
-                if (next.x >= 0 && next.x < mapSize && next.y >= 0 && next.y < mapSize)
+                if (map[x, z] == 1)
                 {
-                    if (map[next.x, next.y] == 0 && !visited[next.x, next.y])
+                    int pathCount = 0;
+                    foreach (var dir in dirs)
                     {
-                        visited[next.x, next.y] = true;
-                        queue.Enqueue(next);
+                        int nx = x + dir.x;
+                        int nz = z + dir.y;
+                        if (map[nx, nz] == 1 || map[nx, nz] == 2 || map[nx, nz] == 3) pathCount++;
+                    }
+
+                    if (pathCount == 1)
+                    {
+                        List<Vector2Int> possibleSmashes = new List<Vector2Int>();
+
+                        foreach (var dir in dirs)
+                        {
+                            int nx = x + dir.x;
+                            int nz = z + dir.y;
+
+                            if (nx > 0 && nx < mapSize - 1 && nz > 0 && nz < mapSize - 1 && map[nx, nz] == 0)
+                            {
+                                int farX = nx + dir.x;
+                                int farZ = nz + dir.y;
+
+                                if (farX > 0 && farX < mapSize - 1 && farZ > 0 && farZ < mapSize - 1)
+                                {
+                                    if (map[farX, farZ] == 1 || map[farX, farZ] == 3)
+                                    {
+                                        possibleSmashes.Add(new Vector2Int(nx, nz));
+                                    }
+                                }
+                            }
+                        }
+
+                        if (possibleSmashes.Count > 0)
+                        {
+                            Vector2Int smashTarget = possibleSmashes[Random.Range(0, possibleSmashes.Count)];
+                            map[smashTarget.x, smashTarget.y] = 1;
+                        }
                     }
                 }
-            }
-        }
-
-        for (int x = 0; x < mapSize; x++)
-        {
-            for (int z = 0; z < mapSize; z++)
-            {
-                if (map[x, z] == 0 && !visited[x, z]) map[x, z] = 1;
             }
         }
     }
 
-    // =========================================================
-    // 비트마스크 + 미세 스케일 조정을 통한 겹침 방지 벽 생성 로직
-    // =========================================================
     void SpawnPrefabsSafely()
     {
         float startOffset = -(mapSize * tileSize) / 2f + (tileSize / 2f);
@@ -376,7 +406,6 @@ public class MapGenerator : MonoBehaviour
             {
                 if (map[x, z] == 1 || map[x, z] == 3)
                 {
-                    // 질문자님의 완벽한 IsPath 함수를 사용
                     bool wallTop = !IsPath(x, z, x, z + 1);
                     bool wallRight = !IsPath(x, z, x + 1, z);
                     bool wallBottom = !IsPath(x, z, x, z - 1);
@@ -390,7 +419,6 @@ public class MapGenerator : MonoBehaviour
 
                     Vector3 pos = new Vector3(startOffset + (x * tileSize), 0, startOffset + (z * tileSize));
 
-                    // 이가 빠진 벽이 없도록 16가지 완벽한 경우의 수 적용
                     switch (mask)
                     {
                         case 0: break;
@@ -399,6 +427,7 @@ public class MapGenerator : MonoBehaviour
                         case 4: SpawnWall(prefabI, pos, Quaternion.Euler(0, 180, 0)); break;
                         case 8: SpawnWall(prefabI, pos, Quaternion.Euler(0, 270, 0)); break;
 
+                        // prefabParallel 삭제 -> prefabI 2개로 양면 막기
                         case 5:
                             SpawnWall(prefabI, pos, Quaternion.Euler(0, 0, 0));
                             SpawnWall(prefabI, pos, Quaternion.Euler(0, 180, 0));
@@ -413,28 +442,13 @@ public class MapGenerator : MonoBehaviour
                         case 12: SpawnWall(prefabL, pos, Quaternion.Euler(0, 180, 0)); break;
                         case 9: SpawnWall(prefabL, pos, Quaternion.Euler(0, 270, 0)); break;
 
-                        case 7:
-                            SpawnWall(prefabL, pos, Quaternion.Euler(0, 0, 0));
-                            SpawnWall(prefabL, pos, Quaternion.Euler(0, 90, 0));
-                            break;
-                        case 14:
-                            SpawnWall(prefabL, pos, Quaternion.Euler(0, 90, 0));
-                            SpawnWall(prefabL, pos, Quaternion.Euler(0, 180, 0));
-                            break;
-                        case 13:
-                            SpawnWall(prefabL, pos, Quaternion.Euler(0, 180, 0));
-                            SpawnWall(prefabL, pos, Quaternion.Euler(0, 270, 0));
-                            break;
-                        case 11:
-                            SpawnWall(prefabL, pos, Quaternion.Euler(0, 270, 0));
-                            SpawnWall(prefabL, pos, Quaternion.Euler(0, 0, 0));
-                            break;
+                        case 7: SpawnWall(prefabU, pos, Quaternion.Euler(0, 0, 0)); break;
+                        case 14: SpawnWall(prefabU, pos, Quaternion.Euler(0, 90, 0)); break;
+                        case 13: SpawnWall(prefabU, pos, Quaternion.Euler(0, 180, 0)); break;
+                        case 11: SpawnWall(prefabU, pos, Quaternion.Euler(0, 270, 0)); break;
 
                         case 15:
-                            SpawnWall(prefabI, pos, Quaternion.Euler(0, 0, 0));
-                            SpawnWall(prefabI, pos, Quaternion.Euler(0, 90, 0));
-                            SpawnWall(prefabI, pos, Quaternion.Euler(0, 180, 0));
-                            SpawnWall(prefabI, pos, Quaternion.Euler(0, 270, 0));
+                            map[x, z] = 0;
                             break;
                     }
                 }
@@ -442,29 +456,25 @@ public class MapGenerator : MonoBehaviour
         }
     }
 
-    // --- [Z-fighting 해결의 핵심] 벽을 미세하게 작게 생성합니다 ---
     void SpawnWall(GameObject prefab, Vector3 pos, Quaternion rot)
     {
-        GameObject wall = Instantiate(prefab, pos, rot, transform);
-
-        // 두께를 99.5%로 줄여서 방 외벽(10)이나 외곽벽(100)과 위치가 같아도 면이 겹치지 않게 만듭니다!
-        Vector3 originalScale = prefab.transform.localScale;
-        wall.transform.localScale = new Vector3(originalScale.x * 0.995f, originalScale.y, originalScale.z * 0.995f);
+        if (prefab != null)
+        {
+            Instantiate(prefab, pos, rot, transform);
+        }
     }
 
-    // 질문자님의 원본 함수 그대로 사용
     bool IsPath(int cx, int cz, int nx, int nz)
     {
         if (nx < 0 || nx >= mapSize || nz < 0 || nz >= mapSize) return false;
 
         int neighbor = map[nx, nz];
         if (neighbor == 1 || neighbor == 3) return true;
-        if (neighbor == 2 && map[cx, cz] == 3) return true;
+        if (neighbor == 2) return true;
 
         return false;
     }
 
-    // 1. 맵 내에서 걸어 다닐 수 있는(복도=1, 방=2) 바닥 좌표를 모두 수집합니다.
     void CollectValidSpawnPoints()
     {
         validSpawnPoints.Clear();
@@ -483,46 +493,42 @@ public class MapGenerator : MonoBehaviour
         }
     }
 
-    // 2. 플레이어, 몬스터, 아이템을 순서대로 스폰합니다.
     void SpawnEntities()
     {
-        if (validSpawnPoints.Count == 0)
-        {
-            Debug.LogError("[MapGenerator] 스폰할 수 있는 타일이 없습니다!");
-            return;
-        }
-
-        // --- 1. 플레이어 1 스폰 (랜덤 위치) ---
         Vector3 p1Pos = GetRandomSpawnPoint(removePoint: true);
         GameObject p1 = Instantiate(player1Prefab, p1Pos, Quaternion.identity);
         p1.name = "Player1";
 
-        // --- 2. 플레이어 2 스폰 (플레이어 1 근처) ---
-        // 멀티플레이어 환경이므로 일단 p1과 같은 곳에 스폰시킵니다. (나중에 NetworkClient가 분리함)
         Vector3 p2Pos = GetRandomSpawnPoint(removePoint: true);
         GameObject p2 = Instantiate(player2Prefab, p2Pos, Quaternion.identity);
         p2.name = "Player2";
 
-        // --- 3. 몬스터 스폰 (플레이어와 멀리 떨어진 곳) ---
         Vector3 monsterPos = GetFarthestSpawnPoint(p1Pos, minMonsterDistance);
         GameObject monster = Instantiate(monsterPrefab, monsterPos, Quaternion.identity);
         monster.name = "Monster";
+        GameObject[] spawnedMonsters = new GameObject[] { monster };
 
-        Debug.Log($"[MapGenerator] 플레이어({p1Pos})와 몬스터({monsterPos}) 스폰 완료. 거리: {Vector3.Distance(p1Pos, monsterPos)}");
-
-        // --- 4. 아이템 스폰 ---
+        List<PotionItem> spawnedPotions = new List<PotionItem>();
         if (itemPrefabs != null && itemPrefabs.Length > 0)
         {
             for (int i = 0; i < itemSpawnCount; i++)
             {
                 Vector3 itemPos = GetRandomSpawnPoint(removePoint: true);
                 GameObject randomItemPrefab = itemPrefabs[Random.Range(0, itemPrefabs.Length)];
-                Instantiate(randomItemPrefab, itemPos, Quaternion.identity);
+                GameObject itemObj = Instantiate(randomItemPrefab, itemPos, Quaternion.identity);
+
+                PotionItem potion = itemObj.GetComponent<PotionItem>();
+                if (potion != null) spawnedPotions.Add(potion);
             }
+        }
+
+        if (NetworkClient.Instance != null)
+        {
+            NetworkClient.Instance.SetupNetworkEntities(p1, p2, spawnedMonsters, spawnedPotions.ToArray());
+            Debug.Log("[MapGenerator] 맵 생성 완료 및 네트워크 연동 완료");
         }
     }
 
-    // 랜덤한 스폰 포인트를 하나 뽑아냅니다. 중복 배치를 막으려면 removePoint를 true로 줍니다.
     Vector3 GetRandomSpawnPoint(bool removePoint)
     {
         int index = Random.Range(0, validSpawnPoints.Count);
@@ -531,7 +537,6 @@ public class MapGenerator : MonoBehaviour
         return pos;
     }
 
-    // 특정 위치(플레이어)로부터 최대한 멀리 떨어지거나, 최소 거리(minDist)를 만족하는 스폰 포인트를 찾습니다.
     Vector3 GetFarthestSpawnPoint(Vector3 fromPosition, float minRequiredDistance)
     {
         Vector3 bestPos = validSpawnPoints[0];
@@ -541,8 +546,6 @@ public class MapGenerator : MonoBehaviour
         for (int i = 0; i < validSpawnPoints.Count; i++)
         {
             float dist = Vector3.Distance(fromPosition, validSpawnPoints[i]);
-
-            // 가장 멀리 있는 점을 기록해 둠
             if (dist > maxDist)
             {
                 maxDist = dist;
@@ -551,10 +554,9 @@ public class MapGenerator : MonoBehaviour
             }
         }
 
-        // 만약 맵이 너무 작아서 최소 거리를 만족 못 시킨다면 경고를 띄우고 그냥 가장 먼 곳에 배치
         if (maxDist < minRequiredDistance)
         {
-            Debug.LogWarning($"[MapGenerator] 몬스터 최소 스폰 거리({minRequiredDistance})를 만족하는 공간이 없습니다. 가장 먼 곳({maxDist})에 스폰합니다.");
+            Debug.LogWarning($"최소 스폰 거리({minRequiredDistance}) 불만족. 가장 먼 곳에 스폰.");
         }
 
         validSpawnPoints.RemoveAt(bestIndex);
