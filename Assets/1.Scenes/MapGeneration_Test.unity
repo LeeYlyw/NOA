@@ -549,23 +549,50 @@ MonoBehaviour:
   prefabI: {fileID: 2253549534099689961, guid: 0089007512d368e449fbb428e153dc9a, type: 3}
   prefabL: {fileID: 7932732296494369207, guid: d494dca2cb0f52b4787db3c6cd1eca33, type: 3}
   roomsToSpawn:
-  - prefab: {fileID: 6930291377190832486, guid: 31e1b5e591e243f46882f5d6dee7b362, type: 3}
-    sizeX: 3
+  - prefab: {fileID: 2522525904655560596, guid: b7c521234c33bbf43a6190207914cc28, type: 3}
+    sizeX: 1
+    sizeZ: 1
+  - prefab: {fileID: 6414375858622541288, guid: d6d6b2a86793e864cbb70f7ef06087c9, type: 3}
+    sizeX: 2
+    sizeZ: 2
+  - prefab: {fileID: 5572377170519911995, guid: 9a72b901dd4ae654590b29e28734bbed, type: 3}
+    sizeX: 2
     sizeZ: 2
   - prefab: {fileID: 6930291377190832486, guid: 31e1b5e591e243f46882f5d6dee7b362, type: 3}
     sizeX: 3
     sizeZ: 2
-  - prefab: {fileID: 6930291377190832486, guid: 31e1b5e591e243f46882f5d6dee7b362, type: 3}
+  - prefab: {fileID: 3653695509905010144, guid: 4852a2f8047a6ad4bb0a47d4692568e4, type: 3}
     sizeX: 3
+    sizeZ: 3
+  - prefab: {fileID: 6414375858622541288, guid: d6d6b2a86793e864cbb70f7ef06087c9, type: 3}
+    sizeX: 2
+    sizeZ: 2
+  - prefab: {fileID: 5572377170519911995, guid: 9a72b901dd4ae654590b29e28734bbed, type: 3}
+    sizeX: 2
     sizeZ: 2
   - prefab: {fileID: 6930291377190832486, guid: 31e1b5e591e243f46882f5d6dee7b362, type: 3}
     sizeX: 3
     sizeZ: 2
-  - prefab: {fileID: 6930291377190832486, guid: 31e1b5e591e243f46882f5d6dee7b362, type: 3}
+  - prefab: {fileID: 3653695509905010144, guid: 4852a2f8047a6ad4bb0a47d4692568e4, type: 3}
     sizeX: 3
+    sizeZ: 3
+  - prefab: {fileID: 997383311300223072, guid: 06925af95f56ac941a57d93978124a73, type: 3}
+    sizeX: 3
+    sizeZ: 3
+  - prefab: {fileID: 997383311300223072, guid: 06925af95f56ac941a57d93978124a73, type: 3}
+    sizeX: 3
+    sizeZ: 3
+  - prefab: {fileID: 5572377170519911995, guid: 9a72b901dd4ae654590b29e28734bbed, type: 3}
+    sizeX: 2
     sizeZ: 2
-  - prefab: {fileID: 6930291377190832486, guid: 31e1b5e591e243f46882f5d6dee7b362, type: 3}
-    sizeX: 3
+  - prefab: {fileID: 5572377170519911995, guid: 9a72b901dd4ae654590b29e28734bbed, type: 3}
+    sizeX: 2
+    sizeZ: 2
+  - prefab: {fileID: 5572377170519911995, guid: 9a72b901dd4ae654590b29e28734bbed, type: 3}
+    sizeX: 2
+    sizeZ: 2
+  - prefab: {fileID: 5572377170519911995, guid: 9a72b901dd4ae654590b29e28734bbed, type: 3}
+    sizeX: 2
     sizeZ: 2
 --- !u!4 &1503130391
 Transform:
