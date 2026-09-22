@@ -55,15 +55,17 @@ public class PotionItem : MonoBehaviour
         isRequestingPickup = false;
 
         bool isLocal = (NetworkClient.Instance != null && pickedPlayerId == NetworkClient.Instance.playerId);
+        Debug.Log($"[PickupDebug] isLocal={isLocal}, pickedPlayerId={pickedPlayerId}, itemData={itemData?.itemName}");
 
-        // 내가 습득한 아이템이고, 단서가 아니면 인벤토리에 추가
         if (isLocal && itemData != null && itemData.type != ItemData.ItemType.Clue)
         {
             InventoryManager inv = FindObjectOfType<InventoryManager>();
+            Debug.Log($"[PickupDebug] InventoryManager found={inv != null}");
             if (inv != null) inv.AddItem(itemData);
         }
 
-        // 씬에서 오브젝트 비활성화 (모든 클라이언트 공통)
         gameObject.SetActive(false);
     }
+
+
 }

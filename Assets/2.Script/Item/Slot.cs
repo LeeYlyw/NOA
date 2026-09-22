@@ -9,21 +9,30 @@ public class Slot : MonoBehaviour
     public void SetItem(ItemData newItem)
     {
         item = newItem;
-        iconImage.sprite = item.icon;
-        iconImage.enabled = true;
+        if (iconImage != null && item != null && item.icon != null)
+        {
+            iconImage.sprite = item.icon;
+            iconImage.enabled = true;
+        }
     }
 
     public void ClearSlot()
     {
         item = null;
-        iconImage.sprite = null;
-        iconImage.enabled = false;
+        if (iconImage != null)
+        {
+            iconImage.sprite = null;
+            iconImage.enabled = false;
+        }
     }
 
+    // 기존 if-else if 구조 유지 [cite: 12]
     public void OnClickSlot()
     {
         if (item == null)
             return;
+
+        Debug.Log($"[Slot] 클릭 감지됨: {item.itemName} (Type: {item.type}) [cite: 12]");
 
         if (item.type == ItemData.ItemType.Heal)
         {
@@ -43,136 +52,128 @@ public class Slot : MonoBehaviour
         }
     }
 
-    private Transform GetLocalPlayer()
+    #region Helper Methods (공통 중복 정리)
+    private Transform GetPlayerTransform(bool isRemote)
     {
         if (NetworkClient.Instance == null)
         {
-            Debug.LogError("NetworkClient.Instance가 없습니다.");
+            Debug.LogError("NetworkClient.Instance가 없습니다. [cite: 12]");
             return null;
         }
 
-        if (NetworkClient.Instance.localPlayerTransform == null)
+        Transform target = isRemote
+            ? NetworkClient.Instance.remotePlayerTransform
+            : NetworkClient.Instance.localPlayerTransform;
+
+        if (target == null)
         {
-            Debug.LogError("NetworkClient.localPlayerTransform이 설정되지 않았습니다.");
-            return null;
+            Debug.LogError(isRemote
+                ? "NetworkClient.remotePlayerTransform이 설정되지 않았습니다. [cite: 12]"
+                : "NetworkClient.localPlayerTransform이 설정되지 않았습니다. [cite: 12]");
         }
-
-        return NetworkClient.Instance.localPlayerTransform;
+        return target;
     }
 
-    private Transform GetRemotePlayer()
+    private Transform GetLocalPlayer() => GetPlayerTransform(false);
+    private Transform GetRemotePlayer() => GetPlayerTransform(true);
+
+    private bool IsOfflineMode()
     {
-        if (NetworkClient.Instance == null)
-        {
-            Debug.LogError("NetworkClient.Instance가 없습니다.");
-            return null;
-        }
-
-        if (NetworkClient.Instance.remotePlayerTransform == null)
-        {
-            Debug.LogError("NetworkClient.remotePlayerTransform이 설정되지 않았습니다.");
-            return null;
-        }
-
-        return NetworkClient.Instance.remotePlayerTransform;
+        return NetworkClient.Instance != null && NetworkClient.Instance.offlineMode;
     }
+    #endregion
 
     private void UseHealItem()
     {
         Transform localPlayer = GetLocalPlayer();
-        if (localPlayer == null)
-            return;
+        if (localPlayer == null) return;
 
-        // 시각적 이펙트는 즉시 재생하여 조작감 유지
         if (ItemEffectManager.Instance != null)
         {
             ItemEffectManager.Instance.PlayHealEffect(localPlayer.position);
         }
 
-        // 로컬 체력 회복 로직 제거 (서버 권한 구조)
-        // player.HealToFull(); 
-
-        // 서버로 힐 아이템 사용 요청 전송
-        if (NetworkClient.Instance != null)
+        if (IsOfflineMode())
+        {
+            var pc = localPlayer.GetComponent<PlayerController>();
+            if (pc != null) pc.HealToFull();
+        }
+        else if (NetworkClient.Instance != null)
         {
             NetworkClient.Instance.SendItemUseRequest("Heal");
         }
 
-        Debug.Log("[아이템] 회복 아이템 사용 요청 전송");
+        Debug.Log("[아이템] 회복 아이템 사용 완료 [cite: 12]");
         ClearSlot();
     }
 
     private void UseStealthItem()
     {
         Transform localPlayer = GetLocalPlayer();
-        if (localPlayer == null)
-            return;
+        if (localPlayer == null) return;
 
-        // 시각 이펙트는 즉시 실행
         if (ItemEffectManager.Instance != null)
         {
             ItemEffectManager.Instance.PlayStealthEffect(localPlayer.position);
         }
 
-        // [수정] 로컬 직접 호출 제거 -> 서버 권한 요청 전송
-        // stealth.ActivateStealth();
-        if (NetworkClient.Instance != null)
+        if (IsOfflineMode())
+        {
+            var stealth = localPlayer.GetComponent<PlayerStealth>();
+            if (stealth != null) stealth.ActivateStealth();
+        }
+        else if (NetworkClient.Instance != null)
         {
             NetworkClient.Instance.SendItemUseRequest("Stealth");
         }
 
-        Debug.Log("[아이템] 은신 아이템 사용 요청 전송");
+        Debug.Log("[아이템] 은신 아이템 사용 완료 [cite: 12]");
         ClearSlot();
     }
 
     private void UseTeleportItem()
     {
         Transform localPlayer = GetLocalPlayer();
-        if (localPlayer == null)
-            return;
+        if (localPlayer == null) return;
 
         GameObject targetPoint = GameObject.FindGameObjectWithTag("TeleportPoint");
         if (targetPoint == null)
         {
-            Debug.LogError("맵에 TeleportPoint 태그를 가진 오브젝트가 없습니다.");
+            Debug.LogError("맵에 TeleportPoint 태그를 가진 오브젝트가 없습니다. [cite: 12]");
             return;
         }
 
         CharacterController cc = localPlayer.GetComponent<CharacterController>();
-
         Vector3 originPos = localPlayer.position;
+
         if (ItemEffectManager.Instance != null)
         {
             ItemEffectManager.Instance.PlayTeleportEffect(originPos);
         }
 
-        if (cc != null)
-            cc.enabled = false;
-
+        if (cc != null) cc.enabled = false;
         localPlayer.position = targetPoint.transform.position;
-
-        if (cc != null)
-            cc.enabled = true;
+        if (cc != null) cc.enabled = true;
 
         if (ItemEffectManager.Instance != null)
         {
             ItemEffectManager.Instance.PlayTeleportEffect(targetPoint.transform.position);
         }
 
-        Debug.Log("텔레포트 아이템 사용 완료");
+        Debug.Log("텔레포트 아이템 사용 완료 [cite: 12]");
         ClearSlot();
     }
 
-    // Slot.cs 내의 UseResurrectionItem() 메서드 부분 수정
     private void UseResurrectionItem()
     {
+    RemotePlayerCheck:
         Transform remotePlayer = GetRemotePlayer();
         if (remotePlayer == null) return;
 
         PlayerController teammateController = remotePlayer.GetComponent<PlayerController>();
         if (teammateController == null || !teammateController.IsDead())
         {
-            Debug.Log("동료가 살아있어서 부활 아이템을 사용할 수 없습니다.");
+            Debug.Log("동료가 살아있어서 부활 아이템을 사용할 수 없습니다. [cite: 12]");
             return;
         }
 
@@ -182,11 +183,12 @@ public class Slot : MonoBehaviour
         }
 
         int targetPlayerId = (NetworkClient.Instance.playerId == 1) ? 2 : 1;
+        if (NetworkClient.Instance != null)
+        {
+            NetworkClient.Instance.SendPlayerReviveRequest(targetPlayerId);
+        }
 
-        // STEP 1: 즉시 부활 대신 서버에 부활 요청만 송신
-        NetworkClient.Instance.SendPlayerReviveRequest(targetPlayerId);
-
-        Debug.Log($"[부활 요청 송신] Target PlayerId: {targetPlayerId}");
+        Debug.Log($"[부활 요청 송신] Target PlayerId: {targetPlayerId} [cite: 12]");
         ClearSlot();
     }
 }

@@ -20,24 +20,40 @@ public class ItemEffectManager : MonoBehaviour
     // 1. 힐 이펙트 재생
     public void PlayHealEffect(Vector3 position)
     {
-        if (healEffectPrefab != null) Instantiate(healEffectPrefab, position, Quaternion.identity);
+        if (healEffectPrefab != null)
+        {
+            GameObject effect = Instantiate(healEffectPrefab, position, Quaternion.identity);
+            Destroy(effect, 0.1f); // 2초 뒤 삭제
+        }
     }
 
     // 2. 은신 이펙트 재생
     public void PlayStealthEffect(Vector3 position)
     {
-        if (stealthEffectPrefab != null) Instantiate(stealthEffectPrefab, position, Quaternion.identity);
+        if (stealthEffectPrefab != null)
+        {
+            GameObject effect = Instantiate(stealthEffectPrefab, position, Quaternion.identity);
+            Destroy(effect, 0.1f); // 2초 뒤 삭제
+        }
     }
 
     // 3. 텔레포트 이펙트 재생
     public void PlayTeleportEffect(Vector3 position)
     {
-        if (teleportEffectPrefab != null) Instantiate(teleportEffectPrefab, position, Quaternion.identity);
+        if (teleportEffectPrefab != null)
+        {
+            GameObject effect = Instantiate(teleportEffectPrefab, position, Quaternion.identity);
+            Destroy(effect, 0.1f); // 2초 뒤 삭제
+        }
     }
 
     // 4. 부활 이펙트 재생
     public void PlayResurrectionEffect(Vector3 position)
     {
-        if (resurrectionEffectPrefab != null) Instantiate(resurrectionEffectPrefab, position, Quaternion.identity);
+        if (resurrectionEffectPrefab != null)
+        {
+            GameObject effect = Instantiate(resurrectionEffectPrefab, position, Quaternion.identity);
+            Destroy(effect, 0.1f); // 2초 뒤 삭제
+        }
     }
 }

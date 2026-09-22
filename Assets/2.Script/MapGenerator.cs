@@ -523,7 +523,12 @@ public class MapGenerator : MonoBehaviour
                 GameObject itemObj = Instantiate(randomItemPrefab, itemPos, Quaternion.identity);
 
                 PotionItem potion = itemObj.GetComponent<PotionItem>();
-                if (potion != null) spawnedPotions.Add(potion);
+                if (potion != null)
+                {
+                    // ★ [추가된 핵심 코드] 복제된 아이템에 1번부터 순차적으로 고유 식별자 부여
+                    potion.itemId = i + 1;
+                    spawnedPotions.Add(potion);
+                }
             }
         }
 
