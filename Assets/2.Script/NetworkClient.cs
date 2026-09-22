@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Net.Sockets;
 using System.Text;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class NetworkClient : MonoBehaviour
 {
@@ -498,5 +499,25 @@ public class NetworkClient : MonoBehaviour
 
         PlayerRoleSetup p2Role = player2Object.GetComponent<PlayerRoleSetup>();
         if (p2Role != null) p2Role.Setup(2, playerId, PlayerRole.Detector);
+
+        // 카메라 바인딩
+        if (Camera.main != null && localPlayerTransform != null)
+        {
+            Camera.main.transform.position = localPlayerTransform.position + new Vector3(0, 3f, -4f);
+            Camera.main.transform.rotation = Quaternion.Euler(20f, 0f, 0f);
+            Camera.main.transform.SetParent(localPlayerTransform);
+        }
+
+        // ⟵ [추가할 곳] UI 바인딩 로직
+        if (localPlayerTransform != null)
+        {
+            PlayerController localController = localPlayerTransform.GetComponent<PlayerController>();
+            if (localController != null)
+            {
+                Slider hpSl = GameObject.Find("HPBar")?.GetComponent<Slider>();
+                Slider stSl = GameObject.Find("StaminaBar")?.GetComponent<Slider>();
+                localController.BindUI(hpSl, stSl);
+            }
+        }
     }
 }

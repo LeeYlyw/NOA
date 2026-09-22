@@ -344,4 +344,24 @@ public class PlayerController : MonoBehaviour
 
         Debug.Log(gameObject.name + "이(가) 완전히 부활하여 다시 움직일 수 있습니다!");
     }
+
+    public void BindUI(Slider newHpSlider, Slider newStaminaSlider)
+    {
+        hpSlider = newHpSlider;
+        staminaSlider = newStaminaSlider;
+
+        if (hpSlider != null)
+        {
+            hpSlider.maxValue = maxHealth;
+            hpSlider.value = currentHp;
+        }
+
+        if (staminaSlider != null)
+        {
+            staminaSlider.maxValue = maxStamina;
+            staminaSlider.value = currentStamina;
+        }
+
+        UpdateUI();
+    }
 }

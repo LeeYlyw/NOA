@@ -20,7 +20,6 @@ public class MapGenerator : MonoBehaviour
     public GameObject prefabL;
     public GameObject prefabU;
     public GameObject prefabO;
-    // (prefabParallel은 이전 논의대로 사용하지 않고 prefabI 2개로 막습니다)
 
     [Header("배치할 방 목록")]
     public List<RoomData> roomsToSpawn;
@@ -33,18 +32,20 @@ public class MapGenerator : MonoBehaviour
 
     [Header("스폰 설정")]
     public float minMonsterDistance = 30f;
-    public int itemSpawnCount = 5;
+    public int itemSpawnCount = 20;
 
-    private List<Vector3> validSpawnPoints = new List<Vector3>();
+    // 맵 상태: 0 = 벽/빈공간, 1 = 복도, 2 = 방 내부, 3 = 방 문
     private int[,] map;
     private List<Vector2Int> roomDoors = new List<Vector2Int>();
+    private List<Vector3> validSpawnPoints = new List<Vector3>();
 
     void Start()
     {
         GenerateMap();
     }
 
-    void GenerateMap()
+    [ContextMenu("Generate Map")]
+    public void GenerateMap()
     {
         for (int i = transform.childCount - 1; i >= 0; i--)
         {
@@ -53,23 +54,27 @@ public class MapGenerator : MonoBehaviour
 
         map = new int[mapSize, mapSize];
         roomDoors.Clear();
+        validSpawnPoints.Clear();
 
+        // 1. 방 배치
         PlaceRooms();
 
-        // 1. 미로 생성 (가장자리 평행 이동 금지 규칙 적용)
-        BuildMaze();
+        // 2. 맵 전체를 빽빽하게 채우는 미로 생성
+        BuildFullMaze();
 
-        // 2. 3x3 거대 벽 덩어리 분쇄
-        BreakThickWalls();
-
-        // 3. 고립된 섬 연결 (부자연스러운 직선 제거, 구불구불하게 연결)
+        // 3. 고립된 섬들을 최소 경로로 자연스럽게 합류 (1자 도로 방지)
         EnsureGlobalConnectivity();
 
-        // 4. 막다른 길 순환로 만들기
+        // 5. 막다른 길 순환로(Loop) 생성
         LoopDeadEnds();
 
+        // 6. 벽 프리팹 배치
         SpawnPrefabsSafely();
-        CollectValidSpawnPoints();
+
+        // 7. 시작 방에서 실제 도달 가능한 타일만 BFS로 안전하게 수집
+        CollectReachableSpawnPoints();
+
+        // 8. 엔티티 스폰
         SpawnEntities();
     }
 
@@ -132,13 +137,16 @@ public class MapGenerator : MonoBehaviour
         return true;
     }
 
-    void BuildMaze()
+    // 맵 전체를 빈틈없이 채우는 완전 미로 생성
+    void BuildFullMaze()
     {
+        // 방 문에서 출발하여 미로 확장
         foreach (var door in roomDoors)
         {
             CarveMaze(door.x, door.y);
         }
 
+        // 미로가 도달하지 못한 빈 공간들도 남김없이 채움
         for (int x = 1; x < mapSize - 1; x++)
         {
             for (int z = 1; z < mapSize - 1; z++)
@@ -151,9 +159,6 @@ public class MapGenerator : MonoBehaviour
         }
     }
 
-    // ==========================================
-    // [핵심 수정 1] 1자형 외곽 도로 원천 차단
-    // ==========================================
     void CarveMaze(int startX, int startZ)
     {
         Stack<Vector2Int> stack = new Stack<Vector2Int>();
@@ -167,6 +172,7 @@ public class MapGenerator : MonoBehaviour
         {
             Vector2Int curr = stack.Peek();
 
+            // 방향 셔플
             for (int i = 0; i < dirs.Length; i++)
             {
                 Vector2Int temp = dirs[i];
@@ -181,18 +187,12 @@ public class MapGenerator : MonoBehaviour
                 int nx = curr.x + dir.x;
                 int nz = curr.y + dir.y;
 
+                // 외곽 테두리(0, mapSize-1)는 벽으로 보존
                 if (nx > 0 && nx < mapSize - 1 && nz > 0 && nz < mapSize - 1)
                 {
-                    // ★ 외곽 평행 이동 금지 규칙 ★
-                    // 현재 위치가 가장자리(x=1 or mapSize-2)인데, 다음 이동할 곳도 가장자리라면 이동 금지.
-                    // 이 규칙 덕분에 미로가 벽에 닿자마자 멈추고 막다른 길(내부 벽)을 형성합니다.
-                    bool currIsEdge = (curr.x == 1 || curr.x == mapSize - 2 || curr.y == 1 || curr.y == mapSize - 2);
-                    bool nextIsEdge = (nx == 1 || nx == mapSize - 2 || nz == 1 || nz == mapSize - 2);
-
-                    if (currIsEdge && nextIsEdge) continue;
-
                     if (map[nx, nz] == 0)
                     {
+                        // 인접한 길이 1개 이하일 때만 파서 자연스러운 미로 형성
                         if (GetAdjacentPathCount(nx, nz) <= 1)
                         {
                             map[nx, nz] = 1;
@@ -224,35 +224,7 @@ public class MapGenerator : MonoBehaviour
         return count;
     }
 
-    void BreakThickWalls()
-    {
-        for (int x = 2; x < mapSize - 2; x++)
-        {
-            for (int z = 2; z < mapSize - 2; z++)
-            {
-                if (map[x, z] == 0)
-                {
-                    bool isThick = true;
-                    for (int dx = -1; dx <= 1; dx++)
-                    {
-                        for (int dz = -1; dz <= 1; dz++)
-                        {
-                            if (map[x + dx, z + dz] != 0) isThick = false;
-                        }
-                    }
-
-                    if (isThick)
-                    {
-                        map[x, z] = 1;
-                    }
-                }
-            }
-        }
-    }
-
-    // ==========================================
-    // [핵심 수정 2] 부자연스러운 직선 연결 방지
-    // ==========================================
+    // [개선] 1자 도로 없이 최소 거리로만 자연스럽게 섬 연결
     void EnsureGlobalConnectivity()
     {
         bool[,] visited = new bool[mapSize, mapSize];
@@ -295,16 +267,18 @@ public class MapGenerator : MonoBehaviour
 
         if (islands.Count <= 1) return;
 
+        // 가장 큰 메인 섬에 작은 섬들을 하나씩 연결
         islands.Sort((a, b) => b.Count.CompareTo(a.Count));
         List<Vector2Int> mainIsland = islands[0];
 
         for (int i = 1; i < islands.Count; i++)
         {
-            ConnectIslands(islands[i], mainIsland);
+            ConnectIslandsShortest(islands[i], mainIsland);
         }
     }
 
-    void ConnectIslands(List<Vector2Int> islandA, List<Vector2Int> islandB)
+    // 무식하게 직진하지 않고 가장 가까운 벽 1~2칸만 허물어 합류
+    void ConnectIslandsShortest(List<Vector2Int> islandA, List<Vector2Int> islandB)
     {
         Vector2Int bestA = islandA[0];
         Vector2Int bestB = islandB[0];
@@ -314,7 +288,7 @@ public class MapGenerator : MonoBehaviour
         {
             foreach (var b in islandB)
             {
-                float dist = Vector2Int.Distance(a, b);
+                float dist = Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y);
                 if (dist < minDist)
                 {
                     minDist = dist;
@@ -327,22 +301,17 @@ public class MapGenerator : MonoBehaviour
         Vector2Int curr = bestA;
         while (curr != bestB)
         {
-            // ★ 일직선(레이저)으로 뚫지 않고 무작위로 꺾어가며 길을 냄 ★
-            bool moveX = false;
-            if (curr.x != bestB.x && curr.y != bestB.y)
-                moveX = Random.value > 0.5f; // 대각선 방향일 땐 50% 확률로 X나 Z를 선택
-            else
-                moveX = (curr.x != bestB.x);
-
-            if (moveX)
+            if (curr.x != bestB.x)
                 curr.x += (curr.x < bestB.x) ? 1 : -1;
-            else
+            else if (curr.y != bestB.y)
                 curr.y += (curr.y < bestB.y) ? 1 : -1;
 
-            if (map[curr.x, curr.y] == 0) map[curr.x, curr.y] = 1;
+            if (curr.x > 0 && curr.x < mapSize - 1 && curr.y > 0 && curr.y < mapSize - 1)
+            {
+                if (map[curr.x, curr.y] == 0) map[curr.x, curr.y] = 1;
+            }
         }
     }
-
     void LoopDeadEnds()
     {
         Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
@@ -427,7 +396,6 @@ public class MapGenerator : MonoBehaviour
                         case 4: SpawnWall(prefabI, pos, Quaternion.Euler(0, 180, 0)); break;
                         case 8: SpawnWall(prefabI, pos, Quaternion.Euler(0, 270, 0)); break;
 
-                        // prefabParallel 삭제 -> prefabI 2개로 양면 막기
                         case 5:
                             SpawnWall(prefabI, pos, Quaternion.Euler(0, 0, 0));
                             SpawnWall(prefabI, pos, Quaternion.Euler(0, 180, 0));
@@ -475,19 +443,48 @@ public class MapGenerator : MonoBehaviour
         return false;
     }
 
-    void CollectValidSpawnPoints()
+    // 시작점에서 도달 가능한 타일만 BFS로 수집 (갇힌 공간 스폰 원천 차단)
+    void CollectReachableSpawnPoints()
     {
         validSpawnPoints.Clear();
         float startOffset = -(mapSize * tileSize) / 2f + (tileSize / 2f);
 
-        for (int x = 0; x < mapSize; x++)
+        Vector2Int root = new Vector2Int(mapSize / 2, mapSize / 2);
+        if (roomDoors.Count > 0)
         {
-            for (int z = 0; z < mapSize; z++)
+            root = roomDoors[0];
+        }
+
+        bool[,] visited = new bool[mapSize, mapSize];
+        Queue<Vector2Int> queue = new Queue<Vector2Int>();
+
+        queue.Enqueue(root);
+        visited[root.x, root.y] = true;
+
+        Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
+
+        while (queue.Count > 0)
+        {
+            Vector2Int curr = queue.Dequeue();
+
+            if (map[curr.x, curr.y] == 1 || map[curr.x, curr.y] == 2)
             {
-                if (map[x, z] == 1 || map[x, z] == 2)
+                Vector3 worldPos = new Vector3(startOffset + (curr.x * tileSize), 1f, startOffset + (curr.y * tileSize));
+                validSpawnPoints.Add(worldPos);
+            }
+
+            foreach (var dir in dirs)
+            {
+                int nx = curr.x + dir.x;
+                int nz = curr.y + dir.y;
+
+                if (nx >= 0 && nx < mapSize && nz >= 0 && nz < mapSize)
                 {
-                    Vector3 pos = new Vector3(startOffset + (x * tileSize), 1f, startOffset + (z * tileSize));
-                    validSpawnPoints.Add(pos);
+                    if (map[nx, nz] != 0 && !visited[nx, nz])
+                    {
+                        visited[nx, nz] = true;
+                        queue.Enqueue(new Vector2Int(nx, nz));
+                    }
                 }
             }
         }
@@ -495,6 +492,12 @@ public class MapGenerator : MonoBehaviour
 
     void SpawnEntities()
     {
+        if (validSpawnPoints.Count < 3)
+        {
+            Debug.LogError("[MapGenerator] 유효한 스폰 포인트가 부족합니다.");
+            return;
+        }
+
         Vector3 p1Pos = GetRandomSpawnPoint(removePoint: true);
         GameObject p1 = Instantiate(player1Prefab, p1Pos, Quaternion.identity);
         p1.name = "Player1";
@@ -513,6 +516,8 @@ public class MapGenerator : MonoBehaviour
         {
             for (int i = 0; i < itemSpawnCount; i++)
             {
+                if (validSpawnPoints.Count == 0) break;
+
                 Vector3 itemPos = GetRandomSpawnPoint(removePoint: true);
                 GameObject randomItemPrefab = itemPrefabs[Random.Range(0, itemPrefabs.Length)];
                 GameObject itemObj = Instantiate(randomItemPrefab, itemPos, Quaternion.identity);
