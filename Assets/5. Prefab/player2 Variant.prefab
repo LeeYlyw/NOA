@@ -399,8 +399,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   isLocalPlayer: 1
-  walkSpeed: 3
-  runSpeed: 6
+  walkSpeed: 10
+  runSpeed: 15
   jumpHeight: 1.5
   gravity: -9.81
   coyoteTime: 0.1

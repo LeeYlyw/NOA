@@ -159,8 +159,16 @@ PrefabInstance:
       value: 0.7
       objectReference: {fileID: 0}
     - target: {fileID: 6470452632123069680, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
+      propertyPath: runSpeed
+      value: 15
+      objectReference: {fileID: 0}
+    - target: {fileID: 6470452632123069680, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
       propertyPath: m_Enabled
       value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 6470452632123069680, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
+      propertyPath: walkSpeed
+      value: 10
       objectReference: {fileID: 0}
     - target: {fileID: 6470452632123069680, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
       propertyPath: isLocalPlayer
