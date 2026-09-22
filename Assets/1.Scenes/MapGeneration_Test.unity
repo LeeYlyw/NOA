@@ -1069,7 +1069,7 @@ MonoBehaviour:
     sizeZ: 1
   player1Prefab: {fileID: 7591597519033843459, guid: 9d195bbb3f484bb4195372bd4cc331e4, type: 3}
   player2Prefab: {fileID: 4091962786130940608, guid: 93b99b8c5eb6b614b93cc23f94867341, type: 3}
-  monsterPrefab: {fileID: 919132149155446097, guid: bf887d356646af94e861368c58a47428, type: 3}
+  monsterPrefab: {fileID: 4942356607274114158, guid: a679e6e11fe139943a77428ead951d0d, type: 3}
   itemPrefabs:
   - {fileID: 4832760428938681718, guid: 321a4e35d9ba4a6428285358f46781b0, type: 3}
   - {fileID: 460592124010102966, guid: f64df20e10e002540b32b1edf698bec2, type: 3}

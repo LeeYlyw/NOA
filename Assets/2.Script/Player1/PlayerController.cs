@@ -285,6 +285,9 @@ public class PlayerController : MonoBehaviour
         if (currentHp > maxHealth)
             currentHp = maxHealth;
 
+        if (currentHp <= 0)
+            Die();
+
         UpdateUI();
         Debug.Log($"[서버 동기화] {gameObject.name} 체력 갱신: {currentHp}");
     }

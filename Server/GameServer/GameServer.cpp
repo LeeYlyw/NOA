@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <map>
+#include <random>
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -789,6 +790,25 @@ void ProcessClientPacket(
         }
         return;
     }
+
+    if (type == "C_PLAYER_REVIVE")
+    {
+        if (parts.size() < 3) return;
+        int reqPlayerId = ToInt(parts[1]);
+        int targetPlayerId = ToInt(parts[2]);
+
+        // 1. 서버 메모리에서 대상 플레이어를 부활시키고 체력을 100으로 리셋! (가장 중요)
+        players[targetPlayerId].hp = 100;
+        players[targetPlayerId].isDead = false;
+
+        // 2. 부활시킨 사람과 부활한 사람 양쪽 화면 모두에 S_PLAYER_REVIVE 방송
+        std::ostringstream oss;
+        oss << "S_PLAYER_REVIVE|" << targetPlayerId;
+        BroadcastPacket(clientSocket1, clientSocket2, oss.str());
+
+        std::cout << "[REVIVE] Player " << reqPlayerId << " revived Player " << targetPlayerId << std::endl;
+        return;
+    }
     // 아이템, 부활, 게임 클리어 등 아직 서버 판정으로 옮기지 않은 패킷은
     // 기존 시연 기능 보존을 위해 임시로 상대 클라이언트에 전달한다.
     SOCKET otherSocket = GetOtherSocket(senderPlayerId, clientSocket1, clientSocket2);
@@ -968,6 +988,17 @@ int main()
     SendPacket(clientSocket2, "ID:2");
 
     BroadcastPacket(clientSocket1, clientSocket2, "COUNT|2");
+    // ▼ 수정된 부분: 랜덤 시드를 생성하여 START와 함께 전송 ▼
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> distrib(1, 999999);
+    int mapSeed = distrib(gen);
+
+    std::ostringstream startOss;
+    startOss << "START|" << mapSeed;
+    BroadcastPacket(clientSocket1, clientSocket2, startOss.str());
+    // ▲ 수정된 부분 끝 ▲
+
     BroadcastPacket(clientSocket1, clientSocket2, "START");
 
     PlayerState players[3];

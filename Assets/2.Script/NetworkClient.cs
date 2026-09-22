@@ -58,6 +58,10 @@ public class NetworkClient : MonoBehaviour
 
     void Start()
     {
+        if (!offlineMode)
+        {
+            ConnectToServer();
+        }
     }
 
     void Update()
@@ -245,6 +249,14 @@ public class NetworkClient : MonoBehaviour
 
         switch (parts[0])
         {
+            case "START":
+                // 서버로부터 "START|시드번호" 를 받으면 맵 생성기에 전달
+                if (parts.Length >= 2 && int.TryParse(parts[1], out int seed))
+                {
+                    MapGenerator mg = FindObjectOfType<MapGenerator>();
+                    if (mg != null) mg.GenerateMap(seed);
+                }
+                break;
             case "MOVE": ProcessMovePacket(parts); break;
             case "S_MONSTER_STATE": ProcessMonsterStatePacket(parts); break;
             case "S_PLAYER_DAMAGE": ProcessPlayerDamagePacket(parts); break;
@@ -444,10 +456,10 @@ public class NetworkClient : MonoBehaviour
         AssignPlayerRolesAndAuthority();
 
         // 네트워크 연결 시작
-        if (!offlineMode)
+/*        if (!offlineMode)
         {
             ConnectToServer();
-        }
+        }*/
     }
 
     // 이전에 작성했던 하드코딩된 SetupPlayersByPlayerId를 대체하는 함수

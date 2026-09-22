@@ -41,12 +41,20 @@ public class MapGenerator : MonoBehaviour
 
     void Start()
     {
-        GenerateMap();
+        if (NetworkClient.Instance != null && NetworkClient.Instance.offlineMode)
+        {
+            GenerateMap(Random.Range(1, 999999));
+        }
     }
 
     [ContextMenu("Generate Map")]
-    public void GenerateMap()
+    public void GenerateMap(int seed)
     {
+        // 서버에서 넘겨준 시드로 난수표 고정
+        Random.InitState(seed);
+        Debug.Log($"[MapGenerator] 서버 시드({seed})로 동기화 맵 생성 시작");
+
+        // 맵 초기화
         for (int i = transform.childCount - 1; i >= 0; i--)
         {
             DestroyImmediate(transform.GetChild(i).gameObject);
@@ -56,25 +64,13 @@ public class MapGenerator : MonoBehaviour
         roomDoors.Clear();
         validSpawnPoints.Clear();
 
-        // 1. 방 배치
+        // 1. 방 배치 ~ 8. 엔티티 스폰 (기존 로직 그대로 유지)
         PlaceRooms();
-
-        // 2. 맵 전체를 빽빽하게 채우는 미로 생성
         BuildFullMaze();
-
-        // 3. 고립된 섬들을 최소 경로로 자연스럽게 합류 (1자 도로 방지)
         EnsureGlobalConnectivity();
-
-        // 5. 막다른 길 순환로(Loop) 생성
         LoopDeadEnds();
-
-        // 6. 벽 프리팹 배치
         SpawnPrefabsSafely();
-
-        // 7. 시작 방에서 실제 도달 가능한 타일만 BFS로 안전하게 수집
         CollectReachableSpawnPoints();
-
-        // 8. 엔티티 스폰
         SpawnEntities();
     }
 
