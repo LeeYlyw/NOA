@@ -1585,7 +1585,8 @@ PrefabInstance:
       value: wardrobe (3)
       objectReference: {fileID: 0}
     m_RemovedComponents: []
-    m_RemovedGameObjects: []
+    m_RemovedGameObjects:
+    - {fileID: -2845779275431937956, guid: 64468d83189fd3d45887a79a2cea1fa5, type: 3}
     m_AddedGameObjects:
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 64468d83189fd3d45887a79a2cea1fa5, type: 3}
       insertIndex: -1
@@ -2174,7 +2175,8 @@ PrefabInstance:
       value: wardrobe (2)
       objectReference: {fileID: 0}
     m_RemovedComponents: []
-    m_RemovedGameObjects: []
+    m_RemovedGameObjects:
+    - {fileID: -2845779275431937956, guid: 64468d83189fd3d45887a79a2cea1fa5, type: 3}
     m_AddedGameObjects:
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 64468d83189fd3d45887a79a2cea1fa5, type: 3}
       insertIndex: -1
