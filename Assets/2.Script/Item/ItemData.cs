@@ -14,6 +14,6 @@ public class ItemData : ScriptableObject
         Heal,
         Resurrection,
         Clue,
-        flashlight
+        Flashlight
     }
 }
