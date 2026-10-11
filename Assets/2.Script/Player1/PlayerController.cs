@@ -136,7 +136,7 @@ public class PlayerController : MonoBehaviour
 
         isRunning = runInput && hasInput && canRun && currentStamina > 0f && !isCrouching;
 
-        float speed = isRunning ? runSpeed : walkSpeed;
+        float speed = isRunning ? runSpeed : walkSpeed * (isCrouching ? 0.8f : 1f);
 
         //  [수정] 여기서 직접 Move하지 않고, 속도만 계산해서 저장합니다.
         horizontalMove = move * speed;
@@ -205,7 +205,7 @@ public class PlayerController : MonoBehaviour
         }
 
         // 점프 입력
-        if (isLocalPlayer && Input.GetKeyDown(KeyCode.Space) && coyoteTimer > 0f)
+        if (isLocalPlayer && !isDead && Input.GetKeyDown(KeyCode.Space) && coyoteTimer > 0f)
         {
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
             coyoteTimer = 0f;
@@ -366,5 +366,23 @@ public class PlayerController : MonoBehaviour
         }
 
         UpdateUI();
+    }
+
+    // 이 함수는 PlayerRoleSetup 후 호출되도록 연동합니다.
+    public void InitializeStatsByRole(PlayerRole role)
+    {
+        if (role == PlayerRole.Runner)
+        {
+            // 런너 전용 스탯으로 덮어쓰기
+            walkSpeed = 4.5f;       // 기본(3f)보다 빠름
+            runSpeed = 9f;          // 기본(6f)보다 빠름
+            maxStamina = 150f;      // 기본(100f)보다 많음
+            staminaRecoveryPerSecond = 25f; // 회복 속도 증가
+            maxHealth = 80;         // 밸런스를 위한 체력 페널티
+
+            currentHp = maxHealth;
+            currentStamina = maxStamina;
+            UpdateUI();
+        }
     }
 }

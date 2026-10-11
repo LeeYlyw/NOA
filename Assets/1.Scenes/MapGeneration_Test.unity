@@ -1083,21 +1083,6 @@ MonoBehaviour:
   - prefab: {fileID: 5572377170519911995, guid: 9a72b901dd4ae654590b29e28734bbed, type: 3}
     sizeX: 2
     sizeZ: 2
-  - prefab: {fileID: 2522525904655560596, guid: b7c521234c33bbf43a6190207914cc28, type: 3}
-    sizeX: 1
-    sizeZ: 1
-  - prefab: {fileID: 2522525904655560596, guid: b7c521234c33bbf43a6190207914cc28, type: 3}
-    sizeX: 1
-    sizeZ: 1
-  - prefab: {fileID: 2522525904655560596, guid: b7c521234c33bbf43a6190207914cc28, type: 3}
-    sizeX: 1
-    sizeZ: 1
-  - prefab: {fileID: 2522525904655560596, guid: b7c521234c33bbf43a6190207914cc28, type: 3}
-    sizeX: 1
-    sizeZ: 1
-  - prefab: {fileID: 2522525904655560596, guid: b7c521234c33bbf43a6190207914cc28, type: 3}
-    sizeX: 1
-    sizeZ: 1
   player1Prefab: {fileID: 7591597519033843459, guid: 9d195bbb3f484bb4195372bd4cc331e4, type: 3}
   player2Prefab: {fileID: 4091962786130940608, guid: 93b99b8c5eb6b614b93cc23f94867341, type: 3}
   monsterPrefab: {fileID: 4942356607274114158, guid: a679e6e11fe139943a77428ead951d0d, type: 3}

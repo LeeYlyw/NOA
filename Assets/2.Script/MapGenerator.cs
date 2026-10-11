@@ -34,10 +34,16 @@ public class MapGenerator : MonoBehaviour
     public float minMonsterDistance = 30f;
     public int itemSpawnCount = 20;
 
+    [Header("Spawn Clearance")]
+    [Min(0.1f)] public float spawnRadius = 0.45f;
+    [Min(0.5f)] public float spawnHeight = 1.8f;
+    [Range(1, 50)] public int maxGenerationAttempts = 12;
+
     // 맵 상태: 0 = 벽/빈공간, 1 = 복도, 2 = 방 내부, 3 = 방 문
     private int[,] map;
     private List<Vector2Int> roomDoors = new List<Vector2Int>();
     private List<Vector3> validSpawnPoints = new List<Vector3>();
+    private readonly List<GameObject> spawnedEntities = new List<GameObject>();
 
     void Start()
     {
@@ -50,38 +56,91 @@ public class MapGenerator : MonoBehaviour
     [ContextMenu("Generate Map")]
     public void GenerateMap(int seed)
     {
-        // 서버에서 넘겨준 시드로 난수표 고정
-        Random.InitState(seed);
-        Debug.Log($"[MapGenerator] 서버 시드({seed})로 동기화 맵 생성 시작");
-
-        // 맵 초기화
-        for (int i = transform.childCount - 1; i >= 0; i--)
+        if (mapSize < 5 || tileSize <= 0f || roomsToSpawn == null || roomsToSpawn.Count == 0)
         {
-            DestroyImmediate(transform.GetChild(i).gameObject);
+            Debug.LogError("[MapGenerator] Map size, tile size, and room prefabs must be configured.");
+            return;
         }
 
-        map = new int[mapSize, mapSize];
-        roomDoors.Clear();
-        validSpawnPoints.Clear();
+        foreach (GameObject entity in spawnedEntities)
+            DisposeGeneratedObject(entity);
+        spawnedEntities.Clear();
 
-        // 1. 방 배치 ~ 8. 엔티티 스폰 (기존 로직 그대로 유지)
-        PlaceRooms();
-        BuildFullMaze();
-        EnsureGlobalConnectivity();
-        LoopDeadEnds();
+        bool generated = false;
+        int selectedSeed = seed;
+        for (int attempt = 0; attempt < maxGenerationAttempts; attempt++)
+        {
+            ClearMapChildren();
+            selectedSeed = seed + attempt;
+            Random.InitState(selectedSeed);
+            map = new int[mapSize, mapSize];
+            roomDoors.Clear();
+            validSpawnPoints.Clear();
+
+            if (!PlaceRooms()) continue;
+            BuildFullMaze();
+            EnsureGlobalConnectivity();
+            LoopDeadEnds();
+            if (FindConnectedAreas().Count == 1)
+            {
+                generated = true;
+                break;
+            }
+        }
+
+        if (!generated)
+        {
+            ClearMapChildren();
+            Debug.LogError($"[MapGenerator] Seed {seed}: all {maxGenerationAttempts} layout attempts failed.");
+            return;
+        }
+
         SpawnPrefabsSafely();
+        Physics.SyncTransforms();
         CollectReachableSpawnPoints();
+        Debug.Log($"[MapGenerator] Seed {selectedSeed}: {roomDoors.Count} rooms, {validSpawnPoints.Count} safe spawn points.");
         SpawnEntities();
     }
 
-    void PlaceRooms()
+    void DisposeGeneratedObject(GameObject obj)
+    {
+        if (obj == null) return;
+        if (Application.isPlaying)
+        {
+            obj.SetActive(false);
+            obj.transform.SetParent(null);
+            Destroy(obj);
+        }
+        else
+        {
+            DestroyImmediate(obj);
+        }
+    }
+
+    void ClearMapChildren()
+    {
+        for (int i = transform.childCount - 1; i >= 0; i--)
+            DisposeGeneratedObject(transform.GetChild(i).gameObject);
+    }
+
+    bool PlaceRooms()
     {
         float startOffset = -(mapSize * tileSize) / 2f + (tileSize / 2f);
 
         for (int i = 0; i < roomsToSpawn.Count; i++)
         {
             var room = roomsToSpawn[i];
-            if (room.prefab == null) continue;
+            if (room == null || room.prefab == null)
+            {
+                Debug.LogWarning($"[MapGenerator] Room entry {i} has a missing prefab; check the scene reference.");
+                continue;
+            }
+            if (room.sizeX < 1 || room.sizeZ < 1 ||
+                mapSize - room.sizeX - 1 <= 1 || mapSize - room.sizeZ - 1 <= 2)
+            {
+                Debug.LogError($"[MapGenerator] Room entry {i} ({room.prefab.name}) does not fit the map.");
+                return false;
+            }
 
             bool placed = false;
             int attempts = 0;
@@ -117,7 +176,13 @@ public class MapGenerator : MonoBehaviour
                 }
                 attempts++;
             }
+            if (!placed)
+            {
+                Debug.LogWarning($"[MapGenerator] Could not place room {i} ({room.prefab.name}) in this layout.");
+                return false;
+            }
         }
+        return roomDoors.Count > 0;
     }
 
     bool IsAreaClear(int startX, int startZ, int sizeX, int sizeZ)
@@ -221,93 +286,110 @@ public class MapGenerator : MonoBehaviour
     }
 
     // [개선] 1자 도로 없이 최소 거리로만 자연스럽게 섬 연결
-    void EnsureGlobalConnectivity()
+    // Rooms connect to corridors only through their south door cell.
+    bool IsConnectedEdge(Vector2Int from, Vector2Int to)
+    {
+        if (to.x < 0 || to.x >= mapSize || to.y < 0 || to.y >= mapSize)
+            return false;
+
+        int current = map[from.x, from.y];
+        int neighbor = map[to.x, to.y];
+        if (current == 0 || neighbor == 0) return false;
+        if (current == 2 || neighbor == 2)
+        {
+            if (current == 2 && neighbor == 2) return true;
+            return (current == 3 && neighbor == 2 && to == from + Vector2Int.up) ||
+                   (current == 2 && neighbor == 3 && to == from + Vector2Int.down);
+        }
+        return true;
+    }
+
+    List<List<Vector2Int>> FindConnectedAreas()
     {
         bool[,] visited = new bool[mapSize, mapSize];
-        List<List<Vector2Int>> islands = new List<List<Vector2Int>>();
+        List<List<Vector2Int>> areas = new List<List<Vector2Int>>();
+        Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
 
         for (int x = 0; x < mapSize; x++)
         {
             for (int z = 0; z < mapSize; z++)
             {
-                if (map[x, z] != 0 && !visited[x, z])
+                if (map[x, z] == 0 || visited[x, z]) continue;
+                List<Vector2Int> area = new List<Vector2Int>();
+                Queue<Vector2Int> queue = new Queue<Vector2Int>();
+                queue.Enqueue(new Vector2Int(x, z));
+                visited[x, z] = true;
+                while (queue.Count > 0)
                 {
-                    List<Vector2Int> newIsland = new List<Vector2Int>();
-                    Queue<Vector2Int> queue = new Queue<Vector2Int>();
-                    queue.Enqueue(new Vector2Int(x, z));
-                    visited[x, z] = true;
-
-                    while (queue.Count > 0)
+                    Vector2Int current = queue.Dequeue();
+                    area.Add(current);
+                    foreach (var dir in dirs)
                     {
-                        Vector2Int curr = queue.Dequeue();
-                        newIsland.Add(curr);
-
-                        Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
-                        foreach (var dir in dirs)
-                        {
-                            Vector2Int next = curr + dir;
-                            if (next.x >= 0 && next.x < mapSize && next.y >= 0 && next.y < mapSize)
-                            {
-                                if (map[next.x, next.y] != 0 && !visited[next.x, next.y])
-                                {
-                                    visited[next.x, next.y] = true;
-                                    queue.Enqueue(next);
-                                }
-                            }
-                        }
+                        Vector2Int next = current + dir;
+                        if (!IsConnectedEdge(current, next) || visited[next.x, next.y]) continue;
+                        visited[next.x, next.y] = true;
+                        queue.Enqueue(next);
                     }
-                    islands.Add(newIsland);
                 }
+                areas.Add(area);
             }
         }
-
-        if (islands.Count <= 1) return;
-
-        // 가장 큰 메인 섬에 작은 섬들을 하나씩 연결
-        islands.Sort((a, b) => b.Count.CompareTo(a.Count));
-        List<Vector2Int> mainIsland = islands[0];
-
-        for (int i = 1; i < islands.Count; i++)
-        {
-            ConnectIslandsShortest(islands[i], mainIsland);
-        }
+        return areas;
     }
 
-    // 무식하게 직진하지 않고 가장 가까운 벽 1~2칸만 허물어 합류
-    void ConnectIslandsShortest(List<Vector2Int> islandA, List<Vector2Int> islandB)
+    // Connect maze components without tunnelling through room prefabs.
+    void EnsureGlobalConnectivity()
     {
-        Vector2Int bestA = islandA[0];
-        Vector2Int bestB = islandB[0];
-        float minDist = float.MaxValue;
-
-        foreach (var a in islandA)
+        for (int attempt = 0; attempt < mapSize * mapSize; attempt++)
         {
-            foreach (var b in islandB)
-            {
-                float dist = Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y);
-                if (dist < minDist)
-                {
-                    minDist = dist;
-                    bestA = a;
-                    bestB = b;
-                }
-            }
-        }
-
-        Vector2Int curr = bestA;
-        while (curr != bestB)
-        {
-            if (curr.x != bestB.x)
-                curr.x += (curr.x < bestB.x) ? 1 : -1;
-            else if (curr.y != bestB.y)
-                curr.y += (curr.y < bestB.y) ? 1 : -1;
-
-            if (curr.x > 0 && curr.x < mapSize - 1 && curr.y > 0 && curr.y < mapSize - 1)
-            {
-                if (map[curr.x, curr.y] == 0) map[curr.x, curr.y] = 1;
-            }
+            List<List<Vector2Int>> areas = FindConnectedAreas();
+            if (areas.Count <= 1) return;
+            areas.Sort((a, b) => b.Count.CompareTo(a.Count));
+            if (!ConnectAreasThroughCorridor(areas[0], areas[1])) return;
         }
     }
+
+    bool ConnectAreasThroughCorridor(List<Vector2Int> mainArea, List<Vector2Int> otherArea)
+    {
+        HashSet<Vector2Int> targets = new HashSet<Vector2Int>();
+        foreach (var cell in mainArea)
+            if (map[cell.x, cell.y] == 1 || map[cell.x, cell.y] == 3) targets.Add(cell);
+
+        Queue<Vector2Int> queue = new Queue<Vector2Int>();
+        Dictionary<Vector2Int, Vector2Int> parent = new Dictionary<Vector2Int, Vector2Int>();
+        foreach (var cell in otherArea)
+        {
+            if (map[cell.x, cell.y] != 1 && map[cell.x, cell.y] != 3) continue;
+            queue.Enqueue(cell);
+            parent[cell] = cell;
+        }
+
+        Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
+        while (queue.Count > 0)
+        {
+            Vector2Int current = queue.Dequeue();
+            if (targets.Contains(current))
+            {
+                while (parent[current] != current)
+                {
+                    if (map[current.x, current.y] == 0) map[current.x, current.y] = 1;
+                    current = parent[current];
+                }
+                return true;
+            }
+
+            foreach (var dir in dirs)
+            {
+                Vector2Int next = current + dir;
+                if (next.x <= 0 || next.x >= mapSize - 1 || next.y <= 0 || next.y >= mapSize - 1) continue;
+                if (map[next.x, next.y] == 2 || parent.ContainsKey(next)) continue;
+                parent[next] = current;
+                queue.Enqueue(next);
+            }
+        }
+        return false;
+    }
+
     void LoopDeadEnds()
     {
         Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
@@ -412,7 +494,7 @@ public class MapGenerator : MonoBehaviour
                         case 11: SpawnWall(prefabU, pos, Quaternion.Euler(0, 270, 0)); break;
 
                         case 15:
-                            map[x, z] = 0;
+                            SpawnWall(prefabO, pos, Quaternion.identity);
                             break;
                     }
                 }
@@ -430,13 +512,7 @@ public class MapGenerator : MonoBehaviour
 
     bool IsPath(int cx, int cz, int nx, int nz)
     {
-        if (nx < 0 || nx >= mapSize || nz < 0 || nz >= mapSize) return false;
-
-        int neighbor = map[nx, nz];
-        if (neighbor == 1 || neighbor == 3) return true;
-        if (neighbor == 2) return true;
-
-        return false;
+        return IsConnectedEdge(new Vector2Int(cx, cz), new Vector2Int(nx, nz));
     }
 
     // 시작점에서 도달 가능한 타일만 BFS로 수집 (갇힌 공간 스폰 원천 차단)
@@ -466,7 +542,7 @@ public class MapGenerator : MonoBehaviour
             if (map[curr.x, curr.y] == 1 || map[curr.x, curr.y] == 2)
             {
                 Vector3 worldPos = new Vector3(startOffset + (curr.x * tileSize), 1f, startOffset + (curr.y * tileSize));
-                validSpawnPoints.Add(worldPos);
+                if (IsSpawnClear(worldPos)) validSpawnPoints.Add(worldPos);
             }
 
             foreach (var dir in dirs)
@@ -476,7 +552,7 @@ public class MapGenerator : MonoBehaviour
 
                 if (nx >= 0 && nx < mapSize && nz >= 0 && nz < mapSize)
                 {
-                    if (map[nx, nz] != 0 && !visited[nx, nz])
+                    if (IsConnectedEdge(curr, new Vector2Int(nx, nz)) && !visited[nx, nz])
                     {
                         visited[nx, nz] = true;
                         queue.Enqueue(new Vector2Int(nx, nz));
@@ -484,6 +560,15 @@ public class MapGenerator : MonoBehaviour
                 }
             }
         }
+    }
+
+    bool IsSpawnClear(Vector3 position)
+    {
+        float radius = Mathf.Max(0.1f, spawnRadius);
+        float height = Mathf.Max(spawnHeight, radius * 2f);
+        Vector3 bottom = position + Vector3.up * radius;
+        Vector3 top = position + Vector3.up * (height - radius);
+        return !Physics.CheckCapsule(bottom, top, radius, ~0, QueryTriggerInteraction.Ignore);
     }
 
     void SpawnEntities()
@@ -497,14 +582,17 @@ public class MapGenerator : MonoBehaviour
         Vector3 p1Pos = GetRandomSpawnPoint(removePoint: true);
         GameObject p1 = Instantiate(player1Prefab, p1Pos, Quaternion.identity);
         p1.name = "Player1";
+        spawnedEntities.Add(p1);
 
         Vector3 p2Pos = GetRandomSpawnPoint(removePoint: true);
         GameObject p2 = Instantiate(player2Prefab, p2Pos, Quaternion.identity);
         p2.name = "Player2";
+        spawnedEntities.Add(p2);
 
         Vector3 monsterPos = GetFarthestSpawnPoint(p1Pos, minMonsterDistance);
         GameObject monster = Instantiate(monsterPrefab, monsterPos, Quaternion.identity);
         monster.name = "Monster";
+        spawnedEntities.Add(monster);
         GameObject[] spawnedMonsters = new GameObject[] { monster };
 
         List<PotionItem> spawnedPotions = new List<PotionItem>();
@@ -512,11 +600,16 @@ public class MapGenerator : MonoBehaviour
         {
             for (int i = 0; i < itemSpawnCount; i++)
             {
-                if (validSpawnPoints.Count == 0) break;
+                if (validSpawnPoints.Count == 0)
+                {
+                    Debug.LogWarning($"[MapGenerator] Only {i} of {itemSpawnCount} items could be placed safely.");
+                    break;
+                }
 
                 Vector3 itemPos = GetRandomSpawnPoint(removePoint: true);
                 GameObject randomItemPrefab = itemPrefabs[Random.Range(0, itemPrefabs.Length)];
                 GameObject itemObj = Instantiate(randomItemPrefab, itemPos, Quaternion.identity);
+                spawnedEntities.Add(itemObj);
 
                 PotionItem potion = itemObj.GetComponent<PotionItem>();
                 if (potion != null)
@@ -530,7 +623,7 @@ public class MapGenerator : MonoBehaviour
 
         if (NetworkClient.Instance != null)
         {
-            NetworkClient.Instance.SetupNetworkEntities(p1, p2, spawnedMonsters, spawnedPotions.ToArray());
+            NetworkClient.Instance.SetupNetworkEntities(p1, p2, spawnedMonsters, spawnedPotions.ToArray(), PlayerRole.Healer, PlayerRole.Runner);
             Debug.Log("[MapGenerator] 맵 생성 완료 및 네트워크 연동 완료");
         }
     }
