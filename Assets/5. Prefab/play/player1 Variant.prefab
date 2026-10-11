@@ -353,6 +353,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 207852677691400858, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
       insertIndex: -1
       addedObject: {fileID: 7398651939320861656}
+    - targetCorrespondingSourceObject: {fileID: 207852677691400858, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 777000000000000001}
   m_SourcePrefab: {fileID: 100100000, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
 --- !u!4 &655800773818633615 stripped
 Transform:
@@ -389,6 +392,21 @@ MonoBehaviour:
   ownerClientId: 0
   myClientId: 0
   role: 0
+--- !u!114 &777000000000000001
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7591597519033843459}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0c100bef37ebf5b4abe99626fcb61fe5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  healRadius: 5
+  healAmount: 30
+  skillCooldown: 10
 --- !u!114 &6559373799377515313
 MonoBehaviour:
   m_ObjectHideFlags: 0
