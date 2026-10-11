@@ -66,7 +66,7 @@ public class NetworkClient : MonoBehaviour
 
     void Update()
     {
-        // [수정된 부분] 오프라인 모드면 수신/송신 루프 패스
+        // 오프라인 모드면 수신/송신 루프 패스
         if (offlineMode) return;
 
         if (!isConnected || stream == null) return;
@@ -177,6 +177,33 @@ public class NetworkClient : MonoBehaviour
             playerId, targetPlayerId
         );
         SendMessageToServer(message, "부활 요청 전송 실패");
+    }
+
+    // [추가] 힐러 스킬: 서버로 특정 플레이어의 체력 회복을 요청합니다.
+    public void SendPlayerHealRequest(int targetPlayerId, int healAmount)
+    {
+        if (offlineMode)
+        {
+            // 오프라인 모드에서는 서버 없이 즉시 로컬 적용
+            GameObject targetObj = (targetPlayerId == 1) ? player1Object : player2Object;
+            if (targetObj != null)
+            {
+                PlayerController controller = targetObj.GetComponent<PlayerController>();
+                if (controller != null)
+                {
+                    controller.SetHp(controller.CurrentHp + healAmount);
+                }
+            }
+            return;
+        }
+
+        // C_PLAYER_HEAL | 시전자ID | 대상ID | 회복량
+        string message = string.Format(
+            CultureInfo.InvariantCulture,
+            "C_PLAYER_HEAL|{0}|{1}|{2}\n",
+            playerId, targetPlayerId, healAmount
+        );
+        SendMessageToServer(message, "힐 요청 전송 실패");
     }
 
     void ApplyOfflineItemPickup(int itemId)
@@ -435,14 +462,13 @@ public class NetworkClient : MonoBehaviour
         if (client != null) client.Close();
     }
 
-    public void SetupNetworkEntities(GameObject p1, GameObject p2, GameObject[] spawnedMonsters, PotionItem[] spawnedItems)
+    // [수정] 외부(로비/맵생성기)에서 호출할 때 PlayerRole도 함께 전달받도록 수정
+    public void SetupNetworkEntities(GameObject p1, GameObject p2, GameObject[] spawnedMonsters, PotionItem[] spawnedItems, PlayerRole p1Role, PlayerRole p2Role)
     {
-        // MapGenerator가 스폰한 객체들을 받아옴
         player1Object = p1;
         player2Object = p2;
         potionItems = spawnedItems;
 
-        // 몬스터 배열 세팅 (지금은 1마리 기준이지만 나중을 위해 배열로 처리)
         if (spawnedMonsters != null && spawnedMonsters.Length > 0)
         {
             monsterSetups = new MonsterNetworkSetup[spawnedMonsters.Length];
@@ -452,24 +478,16 @@ public class NetworkClient : MonoBehaviour
             }
         }
 
-        // 접속한 playerId(1 또는 2)에 맞게 로컬/리모트 권한 분배
-        AssignPlayerRolesAndAuthority();
-
-        // 네트워크 연결 시작
-/*        if (!offlineMode)
-        {
-            ConnectToServer();
-        }*/
+        AssignPlayerRolesAndAuthority(p1Role, p2Role);
     }
 
-    // 이전에 작성했던 하드코딩된 SetupPlayersByPlayerId를 대체하는 함수
-    private void AssignPlayerRolesAndAuthority()
+    // [수정] 매개변수로 역할을 전달받아 동적으로 할당하고 스탯을 초기화
+    private void AssignPlayerRolesAndAuthority(PlayerRole role1, PlayerRole role2)
     {
         if (player1Object == null || player2Object == null) return;
 
         bool isPlayer1Local = offlineMode || (playerId == 1);
 
-        // [핵심] 내 playerId에 따라 로컬(내가 조종)과 원격(상대방) 트랜스폼을 동적으로 교차 할당
         if (isPlayer1Local)
         {
             localPlayerTransform = player1Object.transform;
@@ -495,22 +513,27 @@ public class NetworkClient : MonoBehaviour
 
         localPlayerController = localPlayerTransform.GetComponent<PlayerController>();
 
-        // RemotePlayer 스크립트에 누가 로컬인지 알려줌
         RemotePlayer p1Remote = player1Object.GetComponent<RemotePlayer>();
         if (p1Remote != null) p1Remote.SetupPlayer(isPlayer1Local);
 
         RemotePlayer p2Remote = player2Object.GetComponent<RemotePlayer>();
         if (p2Remote != null) p2Remote.SetupPlayer(!isPlayer1Local);
 
-        // 오프라인 모드면 다른 플레이어는 꺼버림
         if (offlineMode) player2Object.SetActive(false);
 
-        // 역할 셋업
-        PlayerRoleSetup p1Role = player1Object.GetComponent<PlayerRoleSetup>();
-        if (p1Role != null) p1Role.Setup(1, playerId, PlayerRole.Explorer);
+        // [수정] 동적으로 역할 셋업
+        PlayerRoleSetup p1RoleSetup = player1Object.GetComponent<PlayerRoleSetup>();
+        if (p1RoleSetup != null) p1RoleSetup.Setup(1, playerId, role1);
 
-        PlayerRoleSetup p2Role = player2Object.GetComponent<PlayerRoleSetup>();
-        if (p2Role != null) p2Role.Setup(2, playerId, PlayerRole.Detector);
+        PlayerRoleSetup p2RoleSetup = player2Object.GetComponent<PlayerRoleSetup>();
+        if (p2RoleSetup != null) p2RoleSetup.Setup(2, playerId, role2);
+
+        // [추가] 각 캐릭터의 직업(역할)에 따른 스탯 적용 (러너 스탯 등)
+        PlayerController p1Controller = player1Object.GetComponent<PlayerController>();
+        if (p1Controller != null) p1Controller.InitializeStatsByRole(role1);
+
+        PlayerController p2Controller = player2Object.GetComponent<PlayerController>();
+        if (p2Controller != null) p2Controller.InitializeStatsByRole(role2);
 
         // 카메라 바인딩
         if (Camera.main != null && localPlayerTransform != null)
@@ -520,7 +543,7 @@ public class NetworkClient : MonoBehaviour
             Camera.main.transform.SetParent(localPlayerTransform);
         }
 
-        // ⟵ [추가할 곳] UI 바인딩 로직
+        // UI 바인딩
         if (localPlayerTransform != null)
         {
             PlayerController localController = localPlayerTransform.GetComponent<PlayerController>();

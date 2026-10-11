@@ -10,6 +10,8 @@
 #include <iomanip>
 #include <algorithm>
 #include <cstdlib>
+#include <cerrno>
+#include <climits>
 #include <map>
 #include <random>
 
@@ -66,6 +68,7 @@ struct PlayerState
     bool isCrouching = false;
     bool isDead = false;
     int hp = 100;
+    int maxHp = 100;
     bool hasState = false;
 
     // [추가] 은신 상태 및 지속 시간
@@ -152,14 +155,28 @@ bool StartsWith(const std::string& text, const std::string& prefix)
     return text.rfind(prefix, 0) == 0;
 }
 
-float ToFloat(const std::string& value)
+bool TryParseFloat(const std::string& value, float& result)
 {
-    return std::strtof(value.c_str(), nullptr);
+    if (value.empty()) return false;
+    char* end = nullptr;
+    errno = 0;
+    float parsed = std::strtof(value.c_str(), &end);
+    if (errno == ERANGE || end == value.c_str() || *end != '\0' || !std::isfinite(parsed))
+        return false;
+    result = parsed;
+    return true;
 }
 
-int ToInt(const std::string& value)
+bool TryParseInt(const std::string& value, int& result)
 {
-    return std::atoi(value.c_str());
+    if (value.empty()) return false;
+    char* end = nullptr;
+    errno = 0;
+    long parsed = std::strtol(value.c_str(), &end, 10);
+    if (errno == ERANGE || end == value.c_str() || *end != '\0' || parsed < INT_MIN || parsed > INT_MAX)
+        return false;
+    result = static_cast<int>(parsed);
+    return true;
 }
 
 
@@ -220,7 +237,17 @@ void SendPacket(SOCKET socket, const std::string& packet)
     if (message.empty() || message.back() != '\n')
         message += "\n";
 
-    send(socket, message.c_str(), static_cast<int>(message.size()), 0);
+    size_t sent = 0;
+    while (sent < message.size())
+    {
+        int result = send(socket, message.c_str() + sent, static_cast<int>(message.size() - sent), 0);
+        if (result <= 0)
+        {
+            std::cout << "[SEND FAILED] error " << WSAGetLastError() << std::endl;
+            return;
+        }
+        sent += static_cast<size_t>(result);
+    }
 }
 
 void BroadcastPacket(SOCKET clientSocket1, SOCKET clientSocket2, const std::string& packet)
@@ -546,50 +573,62 @@ void BroadcastMonsterState(SOCKET clientSocket1, SOCKET clientSocket2, const Mon
     BroadcastPacket(clientSocket1, clientSocket2, oss.str());
 }
 
-void ProcessMovePacket(const std::vector<std::string>& parts, PlayerState players[])
+bool ProcessMovePacket(const std::vector<std::string>& parts, int senderPlayerId, PlayerState players[])
 {
     if (parts.size() < 9)
-        return;
+        return false;
 
-    int playerId = ToInt(parts[1]);
-
-    if (playerId < 1 || playerId > 2)
-        return;
+    int playerId = 0;
+    if (!TryParseInt(parts[1], playerId) || playerId != senderPlayerId)
+        return false;
 
     PlayerState& player = players[playerId];
 
     // [수정된 부분] 서버 판정으로 이미 죽은 상태면 클라이언트의 억지 이동 패킷을 무시합니다.
     if (player.isDead)
-        return;
+        return false;
+
+    Vec3 position;
+    float rotY = 0.0f;
+    float speed = 0.0f;
+    int running = 0;
+    int crouching = 0;
+    if (!TryParseFloat(parts[2], position.x) || !TryParseFloat(parts[3], position.y) ||
+        !TryParseFloat(parts[4], position.z) || !TryParseFloat(parts[5], rotY) ||
+        !TryParseFloat(parts[6], speed) || !TryParseInt(parts[7], running) ||
+        !TryParseInt(parts[8], crouching) || speed < 0.0f ||
+        (running != 0 && running != 1) || (crouching != 0 && crouching != 1))
+        return false;
 
     player.playerId = playerId;
-    player.position.x = ToFloat(parts[2]);
-    player.position.y = ToFloat(parts[3]);
-    player.position.z = ToFloat(parts[4]);
-    player.rotY = ToFloat(parts[5]);
-    player.speed = ToFloat(parts[6]);
-    player.isRunning = ToInt(parts[7]) == 1;
-    player.isCrouching = ToInt(parts[8]) == 1;
+    player.position = position;
+    player.rotY = rotY;
+    player.speed = speed;
+    player.isRunning = running == 1;
+    player.isCrouching = crouching == 1;
 
     // [삭제된 부분] 클라이언트가 보내는 isDead(parts[9]) 값을 더 이상 신뢰하지 않음
 
     player.hasState = true;
+    return true;
 }
 
-void ProcessNoisePacket(const std::vector<std::string>& parts, MonsterState monsters[])
+void ProcessNoisePacket(const std::vector<std::string>& parts, int senderPlayerId, PlayerState players[], MonsterState monsters[])
 {
     // C_NOISE|playerId|x|y|z|noiseAmount
     if (parts.size() != 6)
         return;
 
-    int playerId = ToInt(parts[1]);
+    int playerId = 0;
+    if (!TryParseInt(parts[1], playerId) || playerId != senderPlayerId || players[playerId].isDead)
+        return;
 
     Vec3 noisePosition;
-    noisePosition.x = ToFloat(parts[2]);
-    noisePosition.y = ToFloat(parts[3]);
-    noisePosition.z = ToFloat(parts[4]);
-
-    float noiseAmount = ToFloat(parts[5]);
+    float noiseAmount = 0.0f;
+    if (!TryParseFloat(parts[2], noisePosition.x) || !TryParseFloat(parts[3], noisePosition.y) ||
+        !TryParseFloat(parts[4], noisePosition.z) || !TryParseFloat(parts[5], noiseAmount) ||
+        noiseAmount < 0.0f)
+        return;
 
     for (int i = 0; i < 2; ++i)
     {
@@ -640,8 +679,8 @@ void ProcessItemPickupPacket(
         if (parts.size() < 4)
             return;
 
-        playerId = ToInt(parts[1]);
-        itemId = ToInt(parts[2]);
+        if (!TryParseInt(parts[1], playerId) || !TryParseInt(parts[2], itemId))
+            return;
         itemType = StringToItemType(parts[3]);
     }
     else
@@ -649,11 +688,11 @@ void ProcessItemPickupPacket(
         if (parts.size() < 3)
             return;
 
-        itemId = ToInt(parts[1]);
-        playerId = ToInt(parts[2]);
+        if (!TryParseInt(parts[1], itemId) || !TryParseInt(parts[2], playerId))
+            return;
     }
 
-    if (playerId < 1 || playerId > 2)
+    if (playerId != senderPlayerId || itemId <= 0)
         return;
 
     if (!players[playerId].hasState || players[playerId].isDead)
@@ -732,7 +771,8 @@ void ProcessClientPacket(
 
     if (type == "MOVE")
     {
-        ProcessMovePacket(parts, players);
+        if (!ProcessMovePacket(parts, senderPlayerId, players))
+            return;
 
         SOCKET otherSocket = GetOtherSocket(senderPlayerId, clientSocket1, clientSocket2);
         if (otherSocket != INVALID_SOCKET)
@@ -743,7 +783,7 @@ void ProcessClientPacket(
 
     if (type == "C_NOISE")
     {
-        ProcessNoisePacket(parts, monsters);
+        ProcessNoisePacket(parts, senderPlayerId, players, monsters);
         return;
     }
 
@@ -764,14 +804,14 @@ void ProcessClientPacket(
     {
         if (parts.size() < 3) return;
 
-        int reqPlayerId = ToInt(parts[1]);
+        int reqPlayerId = 0;
         std::string itemType = parts[2];
 
-        if (reqPlayerId < 1 || reqPlayerId > 2) return;
+        if (!TryParseInt(parts[1], reqPlayerId) || reqPlayerId != senderPlayerId) return;
 
         if (itemType == "Heal")
         {
-            players[reqPlayerId].hp = 100;
+            players[reqPlayerId].hp = players[reqPlayerId].maxHp;
             std::ostringstream oss;
             oss << "S_PLAYER_HP|" << reqPlayerId << "|" << players[reqPlayerId].hp;
             BroadcastPacket(clientSocket1, clientSocket2, oss.str());
@@ -791,14 +831,52 @@ void ProcessClientPacket(
         return;
     }
 
+    if (type == "C_PLAYER_HEAL")
+    {
+        if (parts.size() < 4) return;
+
+        int reqPlayerId = 0;
+        int targetPlayerId = 0;
+        int healAmount = 0;
+
+        if (!TryParseInt(parts[1], reqPlayerId) || reqPlayerId != senderPlayerId ||
+            !TryParseInt(parts[2], targetPlayerId) || targetPlayerId < 1 || targetPlayerId > 2 ||
+            !TryParseInt(parts[3], healAmount) || healAmount <= 0 || healAmount > 100)
+            return;
+
+        if (players[targetPlayerId].isDead)
+        {
+            std::cout << "[HEAL DENY] Target player " << targetPlayerId << " is dead." << std::endl;
+            return;
+        }
+
+        players[targetPlayerId].hp += healAmount;
+        if (players[targetPlayerId].hp > players[targetPlayerId].maxHp)
+        {
+            players[targetPlayerId].hp = players[targetPlayerId].maxHp;
+        }
+
+        std::ostringstream oss;
+        oss << "S_PLAYER_HP|" << targetPlayerId << "|" << players[targetPlayerId].hp;
+        BroadcastPacket(clientSocket1, clientSocket2, oss.str());
+
+        std::cout << "[SKILL HEAL] Player " << reqPlayerId << " healed Player " << targetPlayerId
+            << " (Amount: " << healAmount << ", Current HP: " << players[targetPlayerId].hp << ")" << std::endl;
+
+        return;
+    }
+
     if (type == "C_PLAYER_REVIVE")
     {
         if (parts.size() < 3) return;
-        int reqPlayerId = ToInt(parts[1]);
-        int targetPlayerId = ToInt(parts[2]);
+        int reqPlayerId = 0;
+        int targetPlayerId = 0;
+        if (!TryParseInt(parts[1], reqPlayerId) || reqPlayerId != senderPlayerId ||
+            !TryParseInt(parts[2], targetPlayerId) || targetPlayerId < 1 || targetPlayerId > 2)
+            return;
 
         // 1. 서버 메모리에서 대상 플레이어를 부활시키고 체력을 100으로 리셋! (가장 중요)
-        players[targetPlayerId].hp = 100;
+        players[targetPlayerId].hp = players[targetPlayerId].maxHp;
         players[targetPlayerId].isDead = false;
 
         // 2. 부활시킨 사람과 부활한 사람 양쪽 화면 모두에 S_PLAYER_REVIVE 방송
@@ -827,12 +905,27 @@ void ProcessReceiveBuffer(
     int& clueCount,
     int needClueCount)
 {
+    constexpr size_t maxPacketLength = 4096;
     while (true)
     {
         size_t newlineIndex = receiveBuffer.find('\n');
 
         if (newlineIndex == std::string::npos)
+        {
+            if (receiveBuffer.size() > maxPacketLength)
+            {
+                std::cout << "[PACKET DROPPED] line too long" << std::endl;
+                receiveBuffer.clear();
+            }
             break;
+        }
+
+        if (newlineIndex > maxPacketLength)
+        {
+            std::cout << "[PACKET DROPPED] line too long" << std::endl;
+            receiveBuffer.erase(0, newlineIndex + 1);
+            continue;
+        }
 
         std::string packet = receiveBuffer.substr(0, newlineIndex);
         receiveBuffer.erase(0, newlineIndex + 1);
@@ -1004,6 +1097,9 @@ int main()
     PlayerState players[3];
     players[1].playerId = 1;
     players[2].playerId = 2;
+    // The current two-player layout assigns Runner to player 2.
+    players[2].maxHp = 80;
+    players[2].hp = players[2].maxHp;
 
     MonsterState monsters[2];
     InitializeMonsters(monsters);
