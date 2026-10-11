@@ -3,9 +3,7 @@ using UnityEngine;
 public enum PlayerRole
 {
     Detector, // 감지자
-    Explorer, // 탐색자
-    Healer,   // 힐러 [추가]
-    Runner    // 러너 [추가]
+    Explorer  // 탐색자
 }
 
 public class PlayerRoleSetup : MonoBehaviour
