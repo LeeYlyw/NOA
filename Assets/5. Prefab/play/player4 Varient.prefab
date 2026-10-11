@@ -181,7 +181,7 @@ Transform:
   m_GameObject: {fileID: 6257795114130505613}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0.027675672, z: -0, w: 0.999617}
-  m_LocalPosition: {x: -0.008, y: 1.8140069, z: 0.141}
+  m_LocalPosition: {x: -0.01, y: 1.8140069, z: 0.179}
   m_LocalScale: {x: 1.295718, y: 1.295718, z: 1.295718}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -531,8 +531,8 @@ Rigidbody:
     m_Bits: 0
   m_ImplicitCom: 1
   m_ImplicitTensor: 1
-  m_UseGravity: 1
-  m_IsKinematic: 0
+  m_UseGravity: 0
+  m_IsKinematic: 1
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0
