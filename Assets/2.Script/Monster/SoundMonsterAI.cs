@@ -8,13 +8,13 @@ public class SoundMonsterAI : MonoBehaviour
         Idle,
         Investigate,
         Chase,
-        Attack, // °ø°İ »óÅÂ Ãß°¡
+        Attack, // ê³µê²© ìƒíƒœ ì¶”ê°€
         Return
     }
 
     public NavMeshAgent agent;
     public Transform player;
-    private Animator animator; // ¾Ö´Ï¸ŞÀÌÅÍ Ãß°¡
+    private Animator animator; // ì• ë‹ˆë©”ì´í„° ì¶”ê°€
 
     [Header("Hearing")]
     public float hearingMultiplier = 2f;
@@ -40,6 +40,10 @@ public class SoundMonsterAI : MonoBehaviour
     private Vector3 investigatePosition;
     private float investigateTimer;
     private float lostSightTimer;
+
+    public float NetworkSpeed { get; private set; }
+    public bool NetworkIsWalking { get; private set; }
+    public bool NetworkIsAttacking { get; private set; }
 
     void OnEnable()
     {
@@ -129,7 +133,7 @@ public class SoundMonsterAI : MonoBehaviour
 
         float distance = Vector3.Distance(transform.position, player.position);
 
-        // °ø°İ ¹üÀ§ ³» ÁøÀÔ ½Ã °ø°İ »óÅÂ·Î ÀüÈ¯
+        // ê³µê²© ë²”ìœ„ ë‚´ ì§„ì… ì‹œ ê³µê²© ìƒíƒœë¡œ ì „í™˜
         if (distance <= attackRange)
         {
             currentState = State.Attack;
@@ -180,7 +184,7 @@ public class SoundMonsterAI : MonoBehaviour
             agent.isStopped = true;
         }
 
-        // ÇÃ·¹ÀÌ¾î¸¦ ÇâÇØ ºÎµå·´°Ô È¸Àü
+        // í”Œë ˆì´ì–´ë¥¼ í–¥í•´ ë¶€ë“œëŸ½ê²Œ íšŒì „
         Vector3 dir = player.position - transform.position;
         dir.y = 0f;
         if (dir != Vector3.zero)
@@ -189,7 +193,7 @@ public class SoundMonsterAI : MonoBehaviour
             transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * rotateSpeed);
         }
 
-        // °ø°İ ¾Ö´Ï¸ŞÀÌ¼Ç
+        // ê³µê²© ì• ë‹ˆë©”ì´ì…˜
         if (animator != null)
         {
             animator.SetFloat("Speed", 0f);
@@ -203,7 +207,11 @@ public class SoundMonsterAI : MonoBehaviour
             }
         }
 
-        // °ø°İ Äğ´Ù¿î ¹× µ¥¹ÌÁö ·ÎÁ÷ (¿ÀÇÁ¶óÀÎ ¸ğµå ´ëÀÀ Æ÷ÇÔ)
+        NetworkSpeed = 0f;
+        NetworkIsWalking = false;
+        NetworkIsAttacking = true;
+
+        // ê³µê²© ì¿¨ë‹¤ìš´ ë° ë°ë¯¸ì§€ ë¡œì§ (ì˜¤í”„ë¼ì¸ ëª¨ë“œ ëŒ€ì‘ í¬í•¨)
         if (Time.time >= lastAttackTime + attackCooldown)
         {
             PlayerRoleSetup roleSetup = player.GetComponent<PlayerRoleSetup>();
@@ -260,11 +268,16 @@ public class SoundMonsterAI : MonoBehaviour
             currentState = State.Investigate;
     }
 
+    public void HearNetworkNoise(Vector3 noisePos, float noiseAmount, GameObject source)
+    {
+        OnNoiseHeard(noisePos, noiseAmount, source);
+    }
+
     bool CanSeePlayer()
     {
         if (player == null) return false;
 
-        // Àº½Å ÁßÀÎ ÇÃ·¹ÀÌ¾î´Â º¸Áö ¸øÇÑ °ÍÀ¸·Î Ã³¸®
+        // ì€ì‹  ì¤‘ì¸ í”Œë ˆì´ì–´ëŠ” ë³´ì§€ ëª»í•œ ê²ƒìœ¼ë¡œ ì²˜ë¦¬
         PlayerStealth stealth = player.GetComponent<PlayerStealth>();
         if (stealth != null && stealth.isStealth)
         {
@@ -288,6 +301,9 @@ public class SoundMonsterAI : MonoBehaviour
     void SetAnimationState(float speed, bool isWalk, bool isAttack)
     {
         wasAttacking = false;
+        NetworkSpeed = speed;
+        NetworkIsWalking = isWalk;
+        NetworkIsAttacking = isAttack;
         if (animator != null)
         {
             animator.SetFloat("Speed", speed);
@@ -299,9 +315,9 @@ public class SoundMonsterAI : MonoBehaviour
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.yellow;
-        Gizmos.DrawWireSphere(transform.position, sightRange); // ½Ã¾ß ¹üÀ§
+        Gizmos.DrawWireSphere(transform.position, sightRange); // ì‹œì•¼ ë²”ìœ„
 
         Gizmos.color = Color.red;
-        Gizmos.DrawWireSphere(transform.position, attackRange); // °ø°İ ¹üÀ§
+        Gizmos.DrawWireSphere(transform.position, attackRange); // ê³µê²© ë²”ìœ„
     }
 }

@@ -11,9 +11,11 @@ public class MonsterNetworkSetup : MonoBehaviour
     public RemoteMonster remoteMonster;
     public MonoBehaviour[] aiScripts;
 
+    public bool IsAuthority { get; private set; }
+
     void Start()
     {
-        // NetworkClientÀÇ offlineMode È®ÀÎ
+        // NetworkClientì˜ offlineMode í™•ì¸
         bool isOffline = (NetworkClient.Instance != null && NetworkClient.Instance.offlineMode);
 
         if (isOffline)
@@ -26,9 +28,10 @@ public class MonsterNetworkSetup : MonoBehaviour
         }
     }
 
-    // ½Ì±Û Å×½ºÆ® ½Ã: À¯´ÏÆ¼ ÀÚÃ¼ AI ±¸µ¿
+    // ì‹±ê¸€ í…ŒìŠ¤íŠ¸ ì‹œ: ìœ ë‹ˆí‹° ìì²´ AI êµ¬ë™
     void SetupOfflineMode()
     {
+        IsAuthority = true;
         if (aiScripts != null)
         {
             foreach (MonoBehaviour ai in aiScripts)
@@ -40,12 +43,13 @@ public class MonsterNetworkSetup : MonoBehaviour
         if (navMeshAgent != null) navMeshAgent.enabled = true;
         if (remoteMonster != null) remoteMonster.enabled = false;
 
-        Debug.Log($"[MonsterNetworkSetup] ¸ó½ºÅÍ ID({monsterId}) :: ½Ì±Û Å×½ºÆ®¿ë ·ÎÄÃ AI ¸ğµå È°¼ºÈ­");
+        Debug.Log($"[MonsterNetworkSetup] ëª¬ìŠ¤í„° ID({monsterId}) :: ì‹±ê¸€ í…ŒìŠ¤íŠ¸ìš© ë¡œì»¬ AI ëª¨ë“œ í™œì„±í™”");
     }
 
-    // ¸ÖÆ¼ÇÃ·¹ÀÌ ½Ã: C++ ¼­¹ö µ¥ÀÌÅÍ ¼ö½Å Àü¿ë ¸ğµå
+    // ë©€í‹°í”Œë ˆì´ ì‹œ: C++ ì„œë²„ ë°ì´í„° ìˆ˜ì‹  ì „ìš© ëª¨ë“œ
     void SetupServerAuthoritativeMode()
     {
+        IsAuthority = false;
         if (aiScripts != null)
         {
             foreach (MonoBehaviour ai in aiScripts)
@@ -57,20 +61,20 @@ public class MonsterNetworkSetup : MonoBehaviour
         if (navMeshAgent != null) navMeshAgent.enabled = false;
         if (remoteMonster != null) remoteMonster.enabled = true;
 
-        Debug.Log($"[MonsterNetworkSetup] ¸ó½ºÅÍ ID({monsterId}) :: C++ ¼­¹ö ÁÖµµ ¸ğµå ¼³Á¤ ¿Ï·á");
+        Debug.Log($"[MonsterNetworkSetup] ëª¬ìŠ¤í„° ID({monsterId}) :: C++ ì„œë²„ ì£¼ë„ ëª¨ë“œ ì„¤ì • ì™„ë£Œ");
     }
 
     public void SetupMonster(bool isAuthority)
     {
-        // [¼öÁ¤] ¸Å°³º¯¼ö¸¦ ¹«½ÃÇÏ´ø ¹ö±× ¼öÁ¤
+        // [ìˆ˜ì •] ë§¤ê°œë³€ìˆ˜ë¥¼ ë¬´ì‹œí•˜ë˜ ë²„ê·¸ ìˆ˜ì •
         if (isAuthority)
         {
-            // ±ÇÇÑÀÌ ÀÖ´Ù¸é ³»°¡ Á÷Á¢ AI¸¦ ±¼¸² (Master Client ¿ªÇÒ)
+            // ê¶Œí•œì´ ìˆë‹¤ë©´ ë‚´ê°€ ì§ì ‘ AIë¥¼ êµ´ë¦¼ (Master Client ì—­í• )
             SetupOfflineMode();
         }
         else
         {
-            // ±ÇÇÑÀÌ ¾ø´Ù¸é ¼­¹ö(¶Ç´Â ¹æÀå)°¡ º¸³»´Â Transform µ¥ÀÌÅÍ¸¸ ¹ŞÀ½
+            // ê¶Œí•œì´ ì—†ë‹¤ë©´ ì„œë²„(ë˜ëŠ” ë°©ì¥)ê°€ ë³´ë‚´ëŠ” Transform ë°ì´í„°ë§Œ ë°›ìŒ
             SetupServerAuthoritativeMode();
         }
     }

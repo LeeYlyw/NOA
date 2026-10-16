@@ -1765,24 +1765,25 @@ MonoBehaviour:
   - prefab: {fileID: 5572377170519911995, guid: 9a72b901dd4ae654590b29e28734bbed, type: 3}
     sizeX: 2
     sizeZ: 2
-  - prefab: {fileID: 2522525904655560596, guid: b7c521234c33bbf43a6190207914cc28, type: 3}
+  - prefab: {fileID: 5605321157441385858, guid: 41e536d9634642c4895666daa609d372, type: 3}
     sizeX: 1
     sizeZ: 1
-  - prefab: {fileID: 2522525904655560596, guid: b7c521234c33bbf43a6190207914cc28, type: 3}
+  - prefab: {fileID: 5605321157441385858, guid: 41e536d9634642c4895666daa609d372, type: 3}
     sizeX: 1
     sizeZ: 1
-  - prefab: {fileID: 2522525904655560596, guid: b7c521234c33bbf43a6190207914cc28, type: 3}
+  - prefab: {fileID: 5605321157441385858, guid: 41e536d9634642c4895666daa609d372, type: 3}
     sizeX: 1
     sizeZ: 1
-  - prefab: {fileID: 2522525904655560596, guid: b7c521234c33bbf43a6190207914cc28, type: 3}
+  - prefab: {fileID: 5605321157441385858, guid: 41e536d9634642c4895666daa609d372, type: 3}
     sizeX: 1
     sizeZ: 1
-  - prefab: {fileID: 2522525904655560596, guid: b7c521234c33bbf43a6190207914cc28, type: 3}
+  - prefab: {fileID: 5605321157441385858, guid: 41e536d9634642c4895666daa609d372, type: 3}
     sizeX: 1
     sizeZ: 1
   player1Prefab: {fileID: 7591597519033843459, guid: 9d195bbb3f484bb4195372bd4cc331e4, type: 3}
   player2Prefab: {fileID: 4091962786130940608, guid: 93b99b8c5eb6b614b93cc23f94867341, type: 3}
   monsterPrefab: {fileID: 4942356607274114158, guid: a679e6e11fe139943a77428ead951d0d, type: 3}
+  monster2Prefab: {fileID: 1194915530965120890, guid: 939b111c95217f0458c2c1094b19fffd, type: 3}
   itemPrefabs:
   - {fileID: 4832760428938681718, guid: 321a4e35d9ba4a6428285358f46781b0, type: 3}
   - {fileID: 460592124010102966, guid: f64df20e10e002540b32b1edf698bec2, type: 3}
@@ -1791,6 +1792,10 @@ MonoBehaviour:
   - {fileID: 708434949352904805, guid: 5a4d3fba75269b44e9ca53fa94516388, type: 3}
   minMonsterDistance: 30
   itemSpawnCount: 40
+  spawnRadius: 0.45
+  spawnHeight: 1.8
+  maxGenerationAttempts: 12
+  navMeshSurface: {fileID: 0}
 --- !u!4 &1503130391
 Transform:
   m_ObjectHideFlags: 0
@@ -2429,7 +2434,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7187ad5c9db323941bc75f0fa9f71b65, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  offlineMode: 1
+  offlineMode: 0
   serverIP: 192.168.71.221
   serverPort: 7777
   playerId: 1

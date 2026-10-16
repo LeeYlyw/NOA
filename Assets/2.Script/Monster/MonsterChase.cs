@@ -10,6 +10,11 @@ public class MonsterChase : MonoBehaviour
     public float detectRange = 10f;
     public float attackRange = 2f;
 
+    [Header("Vision")]
+    [Range(0f, 360f)] public float sightAngle = 120f;
+    public float eyeHeight = 1.5f;
+    public LayerMask sightMask = ~0;
+
     [Header("Attack")]
     public int damage = 10;
     public float attackCooldown = 1.5f;
@@ -22,6 +27,10 @@ public class MonsterChase : MonoBehaviour
     private Animator animator;
 
     private bool wasAttacking = false;
+
+    public float NetworkSpeed { get; private set; }
+    public bool NetworkIsWalking { get; private set; }
+    public bool NetworkIsAttacking { get; private set; }
 
     void Start()
     {
@@ -58,6 +67,30 @@ public class MonsterChase : MonoBehaviour
         }
     }
 
+    bool CanSeePlayer(Transform target)
+    {
+        if (target == null) return false;
+
+        PlayerStealth stealth = target.GetComponent<PlayerStealth>();
+        if (stealth != null && stealth.isStealth) return false;
+
+        Vector3 origin = transform.position + Vector3.up * eyeHeight;
+        Vector3 targetPoint = target.position + Vector3.up * eyeHeight;
+        Vector3 direction = targetPoint - origin;
+        float distance = direction.magnitude;
+        if (distance > detectRange || distance <= 0.001f) return false;
+
+        Vector3 planarDirection = Vector3.ProjectOnPlane(direction, Vector3.up);
+        if (planarDirection.sqrMagnitude > 0.001f &&
+            Vector3.Angle(transform.forward, planarDirection) > sightAngle * 0.5f)
+            return false;
+
+        if (!Physics.Raycast(origin, direction.normalized, out RaycastHit hit, distance, sightMask, QueryTriggerInteraction.Ignore))
+            return false;
+
+        return hit.transform == target || hit.transform.IsChildOf(target);
+    }
+
     Transform FindNearestPlayer()
     {
         GameObject[] players = GameObject.FindGameObjectsWithTag("Player");
@@ -77,6 +110,11 @@ public class MonsterChase : MonoBehaviour
             PlayerStealth stealth = playerObject.GetComponent<PlayerStealth>();
 
             if (stealth != null && stealth.isStealth)
+            {
+                continue;
+            }
+
+            if (!CanSeePlayer(playerObject.transform))
             {
                 continue;
             }
@@ -102,6 +140,10 @@ public class MonsterChase : MonoBehaviour
         agent.SetDestination(player.position);
 
         wasAttacking = false;
+
+        NetworkSpeed = agent.velocity.magnitude;
+        NetworkIsWalking = true;
+        NetworkIsAttacking = false;
 
         if (animator != null)
         {
@@ -145,13 +187,17 @@ public class MonsterChase : MonoBehaviour
             }
         }
 
+        NetworkSpeed = 0f;
+        NetworkIsWalking = false;
+        NetworkIsAttacking = true;
+
         if (Time.time >= lastAttackTime + attackCooldown)
         {
             int targetPlayerId = GetPlayerIdFromTarget(player);
 
             if (targetPlayerId != -1)
             {
-                // [¿ÀÇÁ¶óÀÎ ¸ğµå ´ëÀÀ] ¼­¹ö°¡ ¾øÀ» ¶§´Â ·ÎÄÃ ÇÃ·¹ÀÌ¾î Ã¼·ÂÀ» Áï½Ã ±ğÀ½
+                // [ì˜¤í”„ë¼ì¸ ëª¨ë“œ ëŒ€ì‘] ì„œë²„ê°€ ì—†ì„ ë•ŒëŠ” ë¡œì»¬ í”Œë ˆì´ì–´ ì²´ë ¥ì„ ì¦‰ì‹œ ê¹ìŒ
                 if (NetworkClient.Instance != null && NetworkClient.Instance.offlineMode)
                 {
                     PlayerController pc = player.GetComponent<PlayerController>();
@@ -175,7 +221,7 @@ public class MonsterChase : MonoBehaviour
             return roleSetup.ownerClientId;
         }
 
-        Debug.LogWarning("°ø°İ ´ë»ó¿¡¼­ PlayerRoleSetupÀ» Ã£Áö ¸øÇß½À´Ï´Ù: " + target.name);
+        Debug.LogWarning("ê³µê²© ëŒ€ìƒì—ì„œ PlayerRoleSetupì„ ì°¾ì§€ ëª»í–ˆìŠµë‹ˆë‹¤: " + target.name);
         return -1;
     }
 
@@ -187,6 +233,10 @@ public class MonsterChase : MonoBehaviour
         }
 
         wasAttacking = false;
+
+        NetworkSpeed = 0f;
+        NetworkIsWalking = false;
+        NetworkIsAttacking = false;
 
         if (animator != null)
         {

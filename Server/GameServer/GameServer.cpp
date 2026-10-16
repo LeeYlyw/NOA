@@ -105,6 +105,9 @@ struct MonsterState
 
     bool isWalk = false;
     bool isAttack = false;
+    bool clientNavigated = false;
+    bool hasClientState = false;
+    double lastClientStateTime = 0.0;
 };
 
 static const float PI = 3.1415926535f;
@@ -620,7 +623,8 @@ void ProcessNoisePacket(const std::vector<std::string>& parts, int senderPlayerI
         return;
 
     int playerId = 0;
-    if (!TryParseInt(parts[1], playerId) || playerId != senderPlayerId || players[playerId].isDead)
+    if (!TryParseInt(parts[1], playerId) || playerId < 1 || playerId > 2 ||
+        playerId != senderPlayerId || players[playerId].isDead)
         return;
 
     Vec3 noisePosition;
@@ -655,6 +659,62 @@ void ProcessNoisePacket(const std::vector<std::string>& parts, int senderPlayerI
                 << std::endl;
         }
     }
+}
+
+bool ProcessMonsterStatePacket(const std::vector<std::string>& parts, int senderPlayerId, MonsterState monsters[])
+{
+    // Unity owns the generated NavMesh, so player 1 provides navigation state.
+    // The server still validates movement and remains authoritative for damage.
+    // C_MONSTER_STATE|playerId|monsterId|x|y|z|rotY|speed|isWalk|isAttack
+    if (senderPlayerId != 1 || parts.size() != 10)
+        return false;
+
+    int packetPlayerId = 0;
+    int monsterId = 0;
+    Vec3 position;
+    float rotY = 0.0f;
+    float speed = 0.0f;
+    int isWalk = 0;
+    int isAttack = 0;
+
+    if (!TryParseInt(parts[1], packetPlayerId) || packetPlayerId != senderPlayerId ||
+        !TryParseInt(parts[2], monsterId) || monsterId < 1 || monsterId > 2 ||
+        !TryParseFloat(parts[3], position.x) || !TryParseFloat(parts[4], position.y) ||
+        !TryParseFloat(parts[5], position.z) || !TryParseFloat(parts[6], rotY) ||
+        !TryParseFloat(parts[7], speed) || !TryParseInt(parts[8], isWalk) ||
+        !TryParseInt(parts[9], isAttack))
+        return false;
+
+    MonsterState& monster = monsters[monsterId - 1];
+    double now = GetTimeSeconds();
+    if (monster.hasClientState)
+    {
+        double elapsed = Clamp(static_cast<float>(now - monster.lastClientStateTime), 0.0f, 0.5f);
+        float maxDistance = 8.0f * static_cast<float>(elapsed) + 0.35f;
+        if (Distance2D(monster.position, position) > maxDistance)
+            return false;
+    }
+
+    if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z) ||
+        !std::isfinite(rotY) || !std::isfinite(speed))
+        return false;
+
+    monster.position = position;
+    monster.rotY = rotY;
+    monster.currentSpeed = Clamp(speed, 0.0f, 8.0f);
+    monster.isWalk = isWalk != 0;
+    monster.isAttack = isAttack != 0;
+    monster.state = monster.isAttack ? MonsterAIState::Attack :
+        (monster.isWalk ? MonsterAIState::Chase : MonsterAIState::Idle);
+    monster.lastClientStateTime = now;
+
+    if (!monster.hasClientState)
+    {
+        monster.spawnPosition = position;
+        monster.hasClientState = true;
+    }
+
+    return true;
 }
 
 
@@ -784,6 +844,19 @@ void ProcessClientPacket(
     if (type == "C_NOISE")
     {
         ProcessNoisePacket(parts, senderPlayerId, players, monsters);
+        if (senderPlayerId == 2 && parts.size() == 6)
+        {
+            std::ostringstream noiseOss;
+            noiseOss << "S_NOISE|" << parts[1] << "|" << parts[2] << "|"
+                << parts[3] << "|" << parts[4] << "|" << parts[5];
+            SendPacket(clientSocket1, noiseOss.str());
+        }
+        return;
+    }
+
+    if (type == "C_MONSTER_STATE")
+    {
+        ProcessMonsterStatePacket(parts, senderPlayerId, monsters);
         return;
     }
 
@@ -960,6 +1033,7 @@ void InitializeMonsters(MonsterState monsters[])
     monsters[0].attackRange = 2.0f;
     monsters[0].attackCooldown = 1.5;
     monsters[0].damage = 10;
+    monsters[0].clientNavigated = true;
 
     monsters[1].monsterId = 2;
     monsters[1].type = MonsterType::Sound;
@@ -974,6 +1048,7 @@ void InitializeMonsters(MonsterState monsters[])
     monsters[1].attackRange = 2.0f;
     monsters[1].attackCooldown = 1.5;
     monsters[1].damage = 10;
+    monsters[1].clientNavigated = true;
 }
 
 void UpdateMonsters(
@@ -986,7 +1061,16 @@ void UpdateMonsters(
 {
     for (int i = 0; i < 2; ++i)
     {
-        if (monsters[i].type == MonsterType::Vision)
+        if (monsters[i].clientNavigated)
+        {
+            if (!monsters[i].hasClientState)
+                continue;
+
+            PlayerState* attackTarget = FindNearestAttackTarget(monsters[i], players);
+            if (attackTarget != nullptr && monsters[i].isAttack)
+                SendPlayerDamageIfPossible(monsters[i], *attackTarget, clientSocket1, clientSocket2, now);
+        }
+        else if (monsters[i].type == MonsterType::Vision)
         {
             UpdateVisionMonster(monsters[i], players, clientSocket1, clientSocket2, deltaTime, now);
         }
@@ -1000,7 +1084,12 @@ void UpdateMonsters(
 void BroadcastAllMonsterStates(SOCKET clientSocket1, SOCKET clientSocket2, MonsterState monsters[])
 {
     for (int i = 0; i < 2; ++i)
+    {
+        if (monsters[i].clientNavigated && !monsters[i].hasClientState)
+            continue;
+
         BroadcastMonsterState(clientSocket1, clientSocket2, monsters[i]);
+    }
 }
 
 int main()
@@ -1063,7 +1152,7 @@ int main()
     }
 
     std::cout << "Client 1 connected!" << std::endl;
-    SendPacket(clientSocket1, "ID:1");
+    SendPacket(clientSocket1, "ID|1");
     SendPacket(clientSocket1, "COUNT|1");
 
     std::cout << "Waiting for client 2..." << std::endl;
@@ -1078,7 +1167,7 @@ int main()
     }
 
     std::cout << "Client 2 connected!" << std::endl;
-    SendPacket(clientSocket2, "ID:2");
+    SendPacket(clientSocket2, "ID|2");
 
     BroadcastPacket(clientSocket1, clientSocket2, "COUNT|2");
     // ▼ 수정된 부분: 랜덤 시드를 생성하여 START와 함께 전송 ▼
@@ -1091,8 +1180,6 @@ int main()
     startOss << "START|" << mapSeed;
     BroadcastPacket(clientSocket1, clientSocket2, startOss.str());
     // ▲ 수정된 부분 끝 ▲
-
-    BroadcastPacket(clientSocket1, clientSocket2, "START");
 
     PlayerState players[3];
     players[1].playerId = 1;

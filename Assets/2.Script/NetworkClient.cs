@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.Net.Sockets;
 using System.Text;
@@ -40,6 +40,7 @@ public class NetworkClient : MonoBehaviour
     private bool isConnected = false;
 
     private float sendTimer = 0f;
+    private float monsterSendTimer = 0f;
     private string receiveBuffer = "";
     private PlayerController localPlayerController;
 
@@ -72,8 +73,39 @@ public class NetworkClient : MonoBehaviour
         if (!isConnected || stream == null) return;
 
         SendLocalPlayerTransform();
+        SendAuthoritativeMonsterStates();
         ReceivePackets();
         ApplyRemotePlayerTransform();
+    }
+
+    void SendAuthoritativeMonsterStates()
+    {
+        if (monsterSetups == null) return;
+        monsterSendTimer += Time.deltaTime;
+        if (monsterSendTimer < sendInterval) return;
+        monsterSendTimer = 0f;
+
+        foreach (MonsterNetworkSetup setup in monsterSetups)
+        {
+            if (setup == null || !setup.IsAuthority) continue;
+
+            MonsterChase ai = setup.GetComponent<MonsterChase>();
+            SoundMonsterAI soundAI = setup.GetComponent<SoundMonsterAI>();
+            if (ai == null && soundAI == null) continue;
+
+            float speed = ai != null ? ai.NetworkSpeed : soundAI.NetworkSpeed;
+            bool isWalking = ai != null ? ai.NetworkIsWalking : soundAI.NetworkIsWalking;
+            bool isAttacking = ai != null ? ai.NetworkIsAttacking : soundAI.NetworkIsAttacking;
+
+            Vector3 pos = setup.transform.position;
+            string message = string.Format(
+                CultureInfo.InvariantCulture,
+                "C_MONSTER_STATE|{0}|{1}|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6:F2}|{7}|{8}\n",
+                playerId, setup.monsterId, pos.x, pos.y, pos.z, setup.transform.eulerAngles.y,
+                speed, isWalking ? 1 : 0, isAttacking ? 1 : 0
+            );
+            SendMessageToServer(message, "몬스터 상태 전송 실패");
+        }
     }
 
     void ConnectToServer()
@@ -276,6 +308,10 @@ public class NetworkClient : MonoBehaviour
 
         switch (parts[0])
         {
+            case "ID":
+                if (parts.Length >= 2 && int.TryParse(parts[1], out int assignedPlayerId))
+                    playerId = assignedPlayerId;
+                break;
             case "START":
                 // 서버로부터 "START|시드번호" 를 받으면 맵 생성기에 전달
                 if (parts.Length >= 2 && int.TryParse(parts[1], out int seed))
@@ -286,6 +322,7 @@ public class NetworkClient : MonoBehaviour
                 break;
             case "MOVE": ProcessMovePacket(parts); break;
             case "S_MONSTER_STATE": ProcessMonsterStatePacket(parts); break;
+            case "S_NOISE": ProcessNoisePacket(parts); break;
             case "S_PLAYER_DAMAGE": ProcessPlayerDamagePacket(parts); break;
             case "S_PLAYER_HP": ProcessPlayerHpPacket(parts); break;
             case "S_ITEM_PICKUP": ProcessItemPickupPacket(parts); break;
@@ -335,6 +372,22 @@ public class NetworkClient : MonoBehaviour
             bool isAttack = parts[10] == "1";
             ApplyRemoteMonsterTransform(monsterId, new Vector3(x, y, z), Quaternion.Euler(0f, rotY, 0f), speed, isWalk, isAttack);
         }
+    }
+
+    void ProcessNoisePacket(string[] parts)
+    {
+        if (parts.Length < 6 || playerId != 1) return;
+        if (!int.TryParse(parts[1], out int sourcePlayerId)) return;
+        if (!float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) ||
+            !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) ||
+            !float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float z) ||
+            !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float amount))
+            return;
+
+        GameObject source = sourcePlayerId == 1 ? player1Object : player2Object;
+        if (source == null) return;
+        foreach (SoundMonsterAI soundMonster in FindObjectsOfType<SoundMonsterAI>())
+            soundMonster.HearNetworkNoise(new Vector3(x, y, z), amount, source);
     }
 
     void ProcessPlayerDamagePacket(string[] parts)
@@ -445,6 +498,9 @@ public class NetworkClient : MonoBehaviour
         {
             if (monster != null && monster.monsterId == monsterId)
             {
+                if (monster.IsAuthority)
+                    return;
+
                 RemoteMonster remoteMonster = monster.GetComponent<RemoteMonster>();
                 if (remoteMonster != null)
                 {
@@ -475,6 +531,8 @@ public class NetworkClient : MonoBehaviour
             for (int i = 0; i < spawnedMonsters.Length; i++)
             {
                 monsterSetups[i] = spawnedMonsters[i].GetComponent<MonsterNetworkSetup>();
+                if (monsterSetups[i] != null)
+                    monsterSetups[i].SetupMonster(offlineMode || playerId == 1);
             }
         }
 

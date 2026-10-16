@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AI;
+using Unity.AI.Navigation;
 
 [System.Serializable]
 public class RoomData
@@ -11,26 +13,27 @@ public class RoomData
 
 public class MapGenerator : MonoBehaviour
 {
-    [Header("¸Ê ±Ô°İ ¼¼ÆÃ")]
+    [Header("ë§µ ê·œê²© ì„¸íŒ…")]
     public int mapSize = 20;
     public float tileSize = 10f;
 
-    [Header("º¹µµ ¸ğµâ ÇÁ¸®ÆÕ (1:1 ¸ÅÄª¿ë)")]
+    [Header("ë³µë„ ëª¨ë“ˆ í”„ë¦¬íŒ¹ (1:1 ë§¤ì¹­ìš©)")]
     public GameObject prefabI;
     public GameObject prefabL;
     public GameObject prefabU;
     public GameObject prefabO;
 
-    [Header("¹èÄ¡ÇÒ ¹æ ¸ñ·Ï")]
+    [Header("ë°°ì¹˜í•  ë°© ëª©ë¡")]
     public List<RoomData> roomsToSpawn;
 
-    [Header("½ºÆùÇÒ ÇÁ¸®ÆÕ ¼³Á¤")]
+    [Header("ìŠ¤í°í•  í”„ë¦¬íŒ¹ ì„¤ì •")]
     public GameObject player1Prefab;
     public GameObject player2Prefab;
     public GameObject monsterPrefab;
+    public GameObject monster2Prefab;
     public GameObject[] itemPrefabs;
 
-    [Header("½ºÆù ¼³Á¤")]
+    [Header("ìŠ¤í° ì„¤ì •")]
     public float minMonsterDistance = 30f;
     public int itemSpawnCount = 20;
 
@@ -39,10 +42,17 @@ public class MapGenerator : MonoBehaviour
     [Min(0.5f)] public float spawnHeight = 1.8f;
     [Range(1, 50)] public int maxGenerationAttempts = 12;
 
-    // ¸Ê »óÅÂ: 0 = º®/ºó°ø°£, 1 = º¹µµ, 2 = ¹æ ³»ºÎ, 3 = ¹æ ¹®
+    [Header("Runtime Navigation")]
+    public NavMeshSurface navMeshSurface;
+
+    // ë§µ ìƒíƒœ: 0 = ë²½/ë¹ˆê³µê°„, 1 = ë³µë„, 2 = ë°© ë‚´ë¶€, 3 = ë°© ë¬¸
     private int[,] map;
     private List<Vector2Int> roomDoors = new List<Vector2Int>();
     private List<Vector3> validSpawnPoints = new List<Vector3>();
+    private readonly List<Vector3> walkableCenters = new List<Vector3>();
+    private readonly HashSet<long> openEmptyEdges = new HashSet<long>();
+    private readonly List<List<long>> emptyRegionCandidates = new List<List<long>>();
+    private readonly List<GameObject> spawnedWalls = new List<GameObject>();
     private readonly List<GameObject> spawnedEntities = new List<GameObject>();
 
     void Start()
@@ -61,6 +71,14 @@ public class MapGenerator : MonoBehaviour
             Debug.LogError("[MapGenerator] Map size, tile size, and room prefabs must be configured.");
             return;
         }
+        for (int i = 0; i < roomsToSpawn.Count; i++)
+        {
+            if (roomsToSpawn[i] == null || roomsToSpawn[i].prefab == null)
+            {
+                Debug.LogError($"[MapGenerator] Room entry {i} has a missing prefab; map generation cancelled.");
+                return;
+            }
+        }
 
         foreach (GameObject entity in spawnedEntities)
             DisposeGeneratedObject(entity);
@@ -68,6 +86,8 @@ public class MapGenerator : MonoBehaviour
 
         bool generated = false;
         int selectedSeed = seed;
+        int roomFailures = 0, topologyFailures = 0, emptyFailures = 0;
+        int openingFailures = 0, spawnFailures = 0, navigationFailures = 0;
         for (int attempt = 0; attempt < maxGenerationAttempts; attempt++)
         {
             ClearMapChildren();
@@ -76,30 +96,94 @@ public class MapGenerator : MonoBehaviour
             map = new int[mapSize, mapSize];
             roomDoors.Clear();
             validSpawnPoints.Clear();
+            walkableCenters.Clear();
+            openEmptyEdges.Clear();
+            emptyRegionCandidates.Clear();
+            spawnedWalls.Clear();
 
-            if (!PlaceRooms()) continue;
+            if (!PlaceRooms()) { roomFailures++; continue; }
+            Physics.SyncTransforms();
             BuildFullMaze();
             EnsureGlobalConnectivity();
             LoopDeadEnds();
-            if (FindConnectedAreas().Count == 1)
-            {
-                generated = true;
-                break;
-            }
+            if (FindConnectedAreas().Count != 1) { topologyFailures++; continue; }
+            if (!OpenEmptyAreasToCorridors()) { emptyFailures++; continue; }
+
+            SpawnPrefabsSafely();
+            Physics.SyncTransforms();
+            if (!RepairBlockedEmptyOpenings()) { openingFailures++; continue; }
+            if (!CollectReachableSpawnPoints() || validSpawnPoints.Count < 4) { spawnFailures++; continue; }
+            RebuildNavMesh();
+            if (!ValidateNavMeshConnectivity()) { navigationFailures++; continue; }
+
+            generated = true;
+            break;
         }
 
         if (!generated)
         {
             ClearMapChildren();
-            Debug.LogError($"[MapGenerator] Seed {seed}: all {maxGenerationAttempts} layout attempts failed.");
+            if (navMeshSurface != null) navMeshSurface.RemoveData();
+            Debug.LogError($"[MapGenerator] Seed {seed}: all {maxGenerationAttempts} layout attempts failed " +
+                           $"(rooms {roomFailures}, topology {topologyFailures}, empty regions {emptyFailures}, " +
+                           $"blocked openings {openingFailures}, spawn points {spawnFailures}, " +
+                           $"navigation {navigationFailures}).");
             return;
         }
 
-        SpawnPrefabsSafely();
-        Physics.SyncTransforms();
-        CollectReachableSpawnPoints();
         Debug.Log($"[MapGenerator] Seed {selectedSeed}: {roomDoors.Count} rooms, {validSpawnPoints.Count} safe spawn points.");
         SpawnEntities();
+    }
+
+    void RebuildNavMesh()
+    {
+        if (navMeshSurface == null)
+            navMeshSurface = GetComponent<NavMeshSurface>();
+
+        if (navMeshSurface == null)
+            navMeshSurface = gameObject.AddComponent<NavMeshSurface>();
+
+        navMeshSurface.collectObjects = CollectObjects.All;
+        navMeshSurface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
+        navMeshSurface.RemoveData();
+        navMeshSurface.BuildNavMesh();
+    }
+
+    bool ValidateNavMeshConnectivity()
+    {
+        if (walkableCenters.Count == 0) return false;
+        if (!NavMesh.SamplePosition(walkableCenters[0], out NavMeshHit origin, 1f, NavMesh.AllAreas))
+        {
+            Debug.LogWarning($"[MapGenerator] NavMesh has no surface near origin {walkableCenters[0]}.");
+            return false;
+        }
+
+        float mapLimit = mapSize * tileSize / 2f - tileSize / 2f;
+        NavMeshPath path = new NavMeshPath();
+        foreach (Vector3 center in walkableCenters)
+        {
+            if (!NavMesh.SamplePosition(center, out NavMeshHit destination, 1f, NavMesh.AllAreas))
+            {
+                Debug.LogWarning($"[MapGenerator] NavMesh has no surface near {center}.");
+                return false;
+            }
+            if (!NavMesh.CalculatePath(origin.position, destination.position, NavMesh.AllAreas, path) ||
+                path.status != NavMeshPathStatus.PathComplete)
+            {
+                Debug.LogWarning($"[MapGenerator] NavMesh path to {center} is {path.status}.");
+                return false;
+            }
+
+            foreach (Vector3 corner in path.corners)
+            {
+                if (Mathf.Abs(corner.x) > mapLimit || Mathf.Abs(corner.z) > mapLimit)
+                {
+                    Debug.LogWarning($"[MapGenerator] NavMesh path to {center} leaves the map at {corner}.");
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     void DisposeGeneratedObject(GameObject obj)
@@ -126,15 +210,11 @@ public class MapGenerator : MonoBehaviour
     bool PlaceRooms()
     {
         float startOffset = -(mapSize * tileSize) / 2f + (tileSize / 2f);
+        bool centralRoomPlaced = false;
 
         for (int i = 0; i < roomsToSpawn.Count; i++)
         {
             var room = roomsToSpawn[i];
-            if (room == null || room.prefab == null)
-            {
-                Debug.LogWarning($"[MapGenerator] Room entry {i} has a missing prefab; check the scene reference.");
-                continue;
-            }
             if (room.sizeX < 1 || room.sizeZ < 1 ||
                 mapSize - room.sizeX - 1 <= 1 || mapSize - room.sizeZ - 1 <= 2)
             {
@@ -150,8 +230,12 @@ public class MapGenerator : MonoBehaviour
 
             while (!placed && attempts < 500)
             {
-                int rx = Random.Range(1, maxX);
-                int rz = Random.Range(2, maxZ);
+                int rx = !centralRoomPlaced
+                    ? Mathf.Clamp((mapSize - room.sizeX) / 2 + Random.Range(-2, 3), 1, maxX - 1)
+                    : Random.Range(1, maxX);
+                int rz = !centralRoomPlaced
+                    ? Mathf.Clamp((mapSize - room.sizeZ) / 2 + Random.Range(-2, 3), 2, maxZ - 1)
+                    : Random.Range(2, maxZ);
 
                 if (IsAreaClear(rx, rz, room.sizeX, room.sizeZ))
                 {
@@ -170,9 +254,13 @@ public class MapGenerator : MonoBehaviour
 
                     float posX = startOffset + (rx * tileSize) + ((room.sizeX - 1) * tileSize / 2f);
                     float posZ = startOffset + (rz * tileSize) + ((room.sizeZ - 1) * tileSize / 2f);
-                    Instantiate(room.prefab, new Vector3(posX, 0, posZ), Quaternion.identity, transform);
+                    GameObject roomInstance = Instantiate(room.prefab, new Vector3(posX, 0, posZ),
+                                                          Quaternion.identity, transform);
+                    if (room.sizeX > 1 || room.sizeZ > 1)
+                        OpenSouthEntrance(roomInstance, doorX - rx, room.sizeX, room.sizeZ);
 
                     placed = true;
+                    centralRoomPlaced = true;
                 }
                 attempts++;
             }
@@ -183,6 +271,61 @@ public class MapGenerator : MonoBehaviour
             }
         }
         return roomDoors.Count > 0;
+    }
+
+    // Existing large-room prefabs have an unbroken south wall and some props
+    // across the intended door. Clear a narrow route on the spawned instance.
+    void OpenSouthEntrance(GameObject roomInstance, int doorColumn, int sizeX, int sizeZ)
+    {
+        float boundaryZ = roomInstance.transform.position.z - sizeZ * tileSize / 2f;
+        float doorX = roomInstance.transform.position.x +
+                      (doorColumn - (sizeX - 1) * 0.5f) * tileSize;
+        foreach (Collider wall in roomInstance.GetComponentsInChildren<Collider>())
+        {
+            if (!wall.name.StartsWith("SM_Wall") ||
+                wall.bounds.min.x > doorX + 1f || wall.bounds.max.x < doorX - 1f ||
+                wall.bounds.min.z > boundaryZ + 0.5f ||
+                wall.bounds.max.z < boundaryZ - 0.5f ||
+                wall.bounds.min.y > 1f || wall.bounds.max.y < 2f)
+                continue;
+
+            DisableRoomObstacle(wall);
+        }
+
+        Vector3 roomCenter = new Vector3(doorX, 1f, boundaryZ + tileSize / 2f);
+        float radius = Mathf.Max(0.1f, spawnRadius);
+        float height = Mathf.Max(spawnHeight, radius * 2f);
+        Vector3 bottom = roomCenter + Vector3.up * radius;
+        Vector3 top = roomCenter + Vector3.up * (height - radius);
+        Physics.SyncTransforms();
+        for (int i = 0; i < 30; i++)
+        {
+            Collider obstacle = null;
+            foreach (Collider overlap in Physics.OverlapCapsule(bottom, top, radius, ~0,
+                                                                 QueryTriggerInteraction.Ignore))
+            {
+                if (overlap.transform.IsChildOf(roomInstance.transform) &&
+                    overlap.bounds.max.y > 0.5f && overlap.bounds.min.y < 3f)
+                {
+                    obstacle = overlap;
+                    break;
+                }
+            }
+            if (obstacle == null && Physics.CapsuleCast(bottom, top, radius, Vector3.back,
+                                                        out RaycastHit hit, tileSize, ~0,
+                                                        QueryTriggerInteraction.Ignore) &&
+                hit.collider.transform.IsChildOf(roomInstance.transform))
+                obstacle = hit.collider;
+            if (obstacle == null) break;
+            DisableRoomObstacle(obstacle);
+        }
+    }
+
+    void DisableRoomObstacle(Collider obstacle)
+    {
+        obstacle.enabled = false;
+        Renderer renderer = obstacle.GetComponent<Renderer>();
+        if (renderer != null) renderer.enabled = false;
     }
 
     bool IsAreaClear(int startX, int startZ, int sizeX, int sizeZ)
@@ -198,16 +341,16 @@ public class MapGenerator : MonoBehaviour
         return true;
     }
 
-    // ¸Ê ÀüÃ¼¸¦ ºóÆ´¾øÀÌ Ã¤¿ì´Â ¿ÏÀü ¹Ì·Î »ı¼º
+    // ë§µ ì „ì²´ë¥¼ ë¹ˆí‹ˆì—†ì´ ì±„ìš°ëŠ” ì™„ì „ ë¯¸ë¡œ ìƒì„±
     void BuildFullMaze()
     {
-        // ¹æ ¹®¿¡¼­ Ãâ¹ßÇÏ¿© ¹Ì·Î È®Àå
+        // ë°© ë¬¸ì—ì„œ ì¶œë°œí•˜ì—¬ ë¯¸ë¡œ í™•ì¥
         foreach (var door in roomDoors)
         {
             CarveMaze(door.x, door.y);
         }
 
-        // ¹Ì·Î°¡ µµ´ŞÇÏÁö ¸øÇÑ ºó °ø°£µéµµ ³²±è¾øÀÌ Ã¤¿ò
+        // ë¯¸ë¡œê°€ ë„ë‹¬í•˜ì§€ ëª»í•œ ë¹ˆ ê³µê°„ë“¤ë„ ë‚¨ê¹€ì—†ì´ ì±„ì›€
         for (int x = 1; x < mapSize - 1; x++)
         {
             for (int z = 1; z < mapSize - 1; z++)
@@ -233,7 +376,7 @@ public class MapGenerator : MonoBehaviour
         {
             Vector2Int curr = stack.Peek();
 
-            // ¹æÇâ ¼ÅÇÃ
+            // ë°©í–¥ ì…”í”Œ
             for (int i = 0; i < dirs.Length; i++)
             {
                 Vector2Int temp = dirs[i];
@@ -248,12 +391,12 @@ public class MapGenerator : MonoBehaviour
                 int nx = curr.x + dir.x;
                 int nz = curr.y + dir.y;
 
-                // ¿Ü°û Å×µÎ¸®(0, mapSize-1)´Â º®À¸·Î º¸Á¸
+                // ì™¸ê³½ í…Œë‘ë¦¬(0, mapSize-1)ëŠ” ë²½ìœ¼ë¡œ ë³´ì¡´
                 if (nx > 0 && nx < mapSize - 1 && nz > 0 && nz < mapSize - 1)
                 {
                     if (map[nx, nz] == 0)
                     {
-                        // ÀÎÁ¢ÇÑ ±æÀÌ 1°³ ÀÌÇÏÀÏ ¶§¸¸ ÆÄ¼­ ÀÚ¿¬½º·¯¿î ¹Ì·Î Çü¼º
+                        // ì¸ì ‘í•œ ê¸¸ì´ 1ê°œ ì´í•˜ì¼ ë•Œë§Œ íŒŒì„œ ìì—°ìŠ¤ëŸ¬ìš´ ë¯¸ë¡œ í˜•ì„±
                         if (GetAdjacentPathCount(nx, nz) <= 1)
                         {
                             map[nx, nz] = 1;
@@ -285,7 +428,7 @@ public class MapGenerator : MonoBehaviour
         return count;
     }
 
-    // [°³¼±] 1ÀÚ µµ·Î ¾øÀÌ ÃÖ¼Ò °Å¸®·Î¸¸ ÀÚ¿¬½º·´°Ô ¼¶ ¿¬°á
+    // [ê°œì„ ] 1ì ë„ë¡œ ì—†ì´ ìµœì†Œ ê±°ë¦¬ë¡œë§Œ ìì—°ìŠ¤ëŸ½ê²Œ ì„¬ ì—°ê²°
     // Rooms connect to corridors only through their south door cell.
     bool IsConnectedEdge(Vector2Int from, Vector2Int to)
     {
@@ -443,6 +586,129 @@ public class MapGenerator : MonoBehaviour
         }
     }
 
+    // Start each unused floor region with one entrance. Add another only if
+    // the placed wall geometry blocks it; never turn the region into open floor.
+    bool OpenEmptyAreasToCorridors()
+    {
+        bool[,] visited = new bool[mapSize, mapSize];
+        Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
+
+        for (int x = 1; x < mapSize - 1; x++)
+        {
+            for (int z = 1; z < mapSize - 1; z++)
+            {
+                if (map[x, z] != 0 || visited[x, z]) continue;
+
+                List<long> possibleOpenings = new List<long>();
+                Queue<Vector2Int> queue = new Queue<Vector2Int>();
+                queue.Enqueue(new Vector2Int(x, z));
+                visited[x, z] = true;
+                while (queue.Count > 0)
+                {
+                    Vector2Int current = queue.Dequeue();
+                    foreach (var dir in dirs)
+                    {
+                        Vector2Int next = current + dir;
+                        // The outer ring is outside the maze. Never merge it with
+                        // interior floor or create a doorway through the perimeter.
+                        if (next.x <= 0 || next.x >= mapSize - 1 ||
+                            next.y <= 0 || next.y >= mapSize - 1)
+                            continue;
+
+                        if (map[next.x, next.y] == 1 || map[next.x, next.y] == 3)
+                        {
+                            if (IsOpeningClear(next, current))
+                                possibleOpenings.Add(EmptyEdgeKey(next.x, next.y, current.x, current.y));
+                        }
+                        else if (map[next.x, next.y] == 0 && !visited[next.x, next.y])
+                        {
+                            visited[next.x, next.y] = true;
+                            queue.Enqueue(next);
+                        }
+                    }
+                }
+
+                if (possibleOpenings.Count == 0) return false;
+                emptyRegionCandidates.Add(possibleOpenings);
+                openEmptyEdges.Add(possibleOpenings[Random.Range(0, possibleOpenings.Count)]);
+            }
+        }
+        return true;
+    }
+
+    bool IsOpeningClear(Vector2Int corridor, Vector2Int empty)
+    {
+        float startOffset = -(mapSize * tileSize) / 2f + tileSize / 2f;
+        Vector3 corridorPos = new Vector3(startOffset + corridor.x * tileSize, 1f,
+                                          startOffset + corridor.y * tileSize);
+        Vector3 emptyPos = new Vector3(startOffset + empty.x * tileSize, 1f,
+                                       startOffset + empty.y * tileSize);
+        return IsSpawnClear(corridorPos) && IsSpawnClear(emptyPos) &&
+               IsPassageClear(corridorPos, emptyPos);
+    }
+
+    bool IsOpeningClear(long edge)
+    {
+        int corridorIndex = (int)(edge >> 32);
+        int emptyIndex = (int)(edge & 0xffffffffL);
+        return IsOpeningClear(new Vector2Int(corridorIndex / mapSize, corridorIndex % mapSize),
+                              new Vector2Int(emptyIndex / mapSize, emptyIndex % mapSize));
+    }
+
+    // Replace only generated wall pieces when a doorway is obstructed by their
+    // colliders. Keep the rooms and maze cells unchanged, and stop at the first
+    // physically usable opening for each interior empty region.
+    bool RepairBlockedEmptyOpenings()
+    {
+        int extraOpenings = 0;
+        while (true)
+        {
+            bool addedOpening = false;
+            foreach (List<long> candidates in emptyRegionCandidates)
+            {
+                bool passable = false;
+                foreach (long edge in candidates)
+                {
+                    if (openEmptyEdges.Contains(edge) && IsOpeningClear(edge))
+                    {
+                        passable = true;
+                        break;
+                    }
+                }
+                if (passable) continue;
+
+                List<long> unused = new List<long>();
+                foreach (long edge in candidates)
+                    if (!openEmptyEdges.Contains(edge)) unused.Add(edge);
+                if (unused.Count == 0) return false;
+
+                openEmptyEdges.Add(unused[Random.Range(0, unused.Count)]);
+                extraOpenings++;
+                addedOpening = true;
+            }
+
+            if (!addedOpening)
+            {
+                if (extraOpenings > 0)
+                    Debug.Log($"[MapGenerator] Opened {extraOpenings} additional maze edges to make enclosed regions passable.");
+                return true;
+            }
+
+            foreach (GameObject wall in spawnedWalls)
+                DisposeGeneratedObject(wall);
+            spawnedWalls.Clear();
+            SpawnPrefabsSafely();
+            Physics.SyncTransforms();
+        }
+    }
+
+    long EmptyEdgeKey(int corridorX, int corridorZ, int emptyX, int emptyZ)
+    {
+        long corridorIndex = corridorX * mapSize + corridorZ;
+        long emptyIndex = emptyX * mapSize + emptyZ;
+        return (corridorIndex << 32) | emptyIndex;
+    }
+
     void SpawnPrefabsSafely()
     {
         float startOffset = -(mapSize * tileSize) / 2f + (tileSize / 2f);
@@ -469,10 +735,10 @@ public class MapGenerator : MonoBehaviour
                     switch (mask)
                     {
                         case 0: break;
-                        case 1: SpawnWall(prefabI, pos, Quaternion.Euler(0, 0, 0)); break;
-                        case 2: SpawnWall(prefabI, pos, Quaternion.Euler(0, 90, 0)); break;
-                        case 4: SpawnWall(prefabI, pos, Quaternion.Euler(0, 180, 0)); break;
-                        case 8: SpawnWall(prefabI, pos, Quaternion.Euler(0, 270, 0)); break;
+                        case 1: SpawnWall(prefabI, pos, Quaternion.Euler(0, 180, 0)); break;
+                        case 2: SpawnWall(prefabI, pos, Quaternion.Euler(0, 270, 0)); break;
+                        case 4: SpawnWall(prefabI, pos, Quaternion.Euler(0, 0, 0)); break;
+                        case 8: SpawnWall(prefabI, pos, Quaternion.Euler(0, 90, 0)); break;
 
                         case 5:
                             SpawnWall(prefabI, pos, Quaternion.Euler(0, 0, 0));
@@ -488,13 +754,14 @@ public class MapGenerator : MonoBehaviour
                         case 12: SpawnWall(prefabL, pos, Quaternion.Euler(0, 180, 0)); break;
                         case 9: SpawnWall(prefabL, pos, Quaternion.Euler(0, 270, 0)); break;
 
-                        case 7: SpawnWall(prefabU, pos, Quaternion.Euler(0, 0, 0)); break;
-                        case 14: SpawnWall(prefabU, pos, Quaternion.Euler(0, 90, 0)); break;
-                        case 13: SpawnWall(prefabU, pos, Quaternion.Euler(0, 180, 0)); break;
-                        case 11: SpawnWall(prefabU, pos, Quaternion.Euler(0, 270, 0)); break;
+                        case 7: SpawnWall(prefabU, pos, Quaternion.Euler(0, 90, 0)); break;
+                        case 14: SpawnWall(prefabU, pos, Quaternion.Euler(0, 180, 0)); break;
+                        case 13: SpawnWall(prefabU, pos, Quaternion.Euler(0, 270, 0)); break;
+                        case 11: SpawnWall(prefabU, pos, Quaternion.Euler(0, 0, 0)); break;
 
                         case 15:
-                            SpawnWall(prefabO, pos, Quaternion.identity);
+                            // Wall O's source pivot is at a corner, unlike the other wall modules.
+                            SpawnWall(prefabO, pos + new Vector3(-tileSize / 2f, 0f, tileSize / 2f), Quaternion.identity);
                             break;
                     }
                 }
@@ -506,60 +773,117 @@ public class MapGenerator : MonoBehaviour
     {
         if (prefab != null)
         {
-            Instantiate(prefab, pos, rot, transform);
+            spawnedWalls.Add(Instantiate(prefab, pos, rot, transform));
         }
     }
 
     bool IsPath(int cx, int cz, int nx, int nz)
     {
+        if (nx >= 0 && nx < mapSize && nz >= 0 && nz < mapSize && map[nx, nz] == 0 &&
+            openEmptyEdges.Contains(EmptyEdgeKey(cx, cz, nx, nz)))
+            return true;
         return IsConnectedEdge(new Vector2Int(cx, cz), new Vector2Int(nx, nz));
     }
 
-    // ½ÃÀÛÁ¡¿¡¼­ µµ´Ş °¡´ÉÇÑ Å¸ÀÏ¸¸ BFS·Î ¼öÁı (°¤Èù °ø°£ ½ºÆù ¿øÃµ Â÷´Ü)
-    void CollectReachableSpawnPoints()
+    bool IsWalkableEdge(Vector2Int from, Vector2Int to)
+    {
+        if (to.x <= 0 || to.x >= mapSize - 1 || to.y <= 0 || to.y >= mapSize - 1)
+            return false;
+
+        int current = map[from.x, from.y];
+        int neighbor = map[to.x, to.y];
+        if (current == 0 && neighbor == 0) return true;
+        if (current == 0 && (neighbor == 1 || neighbor == 3))
+            return openEmptyEdges.Contains(EmptyEdgeKey(to.x, to.y, from.x, from.y));
+        if (neighbor == 0 && (current == 1 || current == 3))
+            return openEmptyEdges.Contains(EmptyEdgeKey(from.x, from.y, to.x, to.y));
+        return IsConnectedEdge(from, to);
+    }
+
+    // Collider walls can divide a logically connected map into separate spaces.
+    bool CollectReachableSpawnPoints()
     {
         validSpawnPoints.Clear();
+        walkableCenters.Clear();
         float startOffset = -(mapSize * tileSize) / 2f + (tileSize / 2f);
-
-        Vector2Int root = new Vector2Int(mapSize / 2, mapSize / 2);
-        if (roomDoors.Count > 0)
+        bool[,] clear = new bool[mapSize, mapSize];
+        bool[,] visited = new bool[mapSize, mapSize];
+        Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
+        for (int x = 0; x < mapSize; x++)
         {
-            root = roomDoors[0];
+            for (int z = 0; z < mapSize; z++)
+            {
+                if (x > 0 && x < mapSize - 1 && z > 0 && z < mapSize - 1)
+                    clear[x, z] = IsSpawnClear(new Vector3(startOffset + x * tileSize, 1f,
+                                                         startOffset + z * tileSize));
+            }
         }
 
-        bool[,] visited = new bool[mapSize, mapSize];
-        Queue<Vector2Int> queue = new Queue<Vector2Int>();
-
-        queue.Enqueue(root);
-        visited[root.x, root.y] = true;
-
-        Vector2Int[] dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
-
-        while (queue.Count > 0)
+        List<Vector3> largestArea = new List<Vector3>();
+        int corridorAreas = 0;
+        int reachableAreas = 0;
+        List<string> areaDetails = new List<string>();
+        for (int x = 0; x < mapSize; x++)
         {
-            Vector2Int curr = queue.Dequeue();
-
-            if (map[curr.x, curr.y] == 1 || map[curr.x, curr.y] == 2)
+            for (int z = 0; z < mapSize; z++)
             {
-                Vector3 worldPos = new Vector3(startOffset + (curr.x * tileSize), 1f, startOffset + (curr.y * tileSize));
-                if (IsSpawnClear(worldPos)) validSpawnPoints.Add(worldPos);
-            }
+                if (!clear[x, z] || visited[x, z]) continue;
+                reachableAreas++;
+                List<Vector3> area = new List<Vector3>();
+                Queue<Vector2Int> queue = new Queue<Vector2Int>();
+                queue.Enqueue(new Vector2Int(x, z));
+                visited[x, z] = true;
+                bool containsCorridor = false;
 
-            foreach (var dir in dirs)
-            {
-                int nx = curr.x + dir.x;
-                int nz = curr.y + dir.y;
-
-                if (nx >= 0 && nx < mapSize && nz >= 0 && nz < mapSize)
+                while (queue.Count > 0)
                 {
-                    if (IsConnectedEdge(curr, new Vector2Int(nx, nz)) && !visited[nx, nz])
+                    Vector2Int curr = queue.Dequeue();
+                    Vector3 worldPos = new Vector3(startOffset + curr.x * tileSize, 1f,
+                                                   startOffset + curr.y * tileSize);
+                    walkableCenters.Add(worldPos);
+                    if (map[curr.x, curr.y] == 1 || map[curr.x, curr.y] == 3)
+                        containsCorridor = true;
+                    if (map[curr.x, curr.y] != 0 && map[curr.x, curr.y] != 3)
+                        area.Add(worldPos);
+
+                    foreach (var dir in dirs)
                     {
-                        visited[nx, nz] = true;
-                        queue.Enqueue(new Vector2Int(nx, nz));
+                        Vector2Int next = curr + dir;
+                        if (next.x < 0 || next.x >= mapSize || next.y < 0 || next.y >= mapSize ||
+                            visited[next.x, next.y] || !clear[next.x, next.y] ||
+                            !IsWalkableEdge(curr, next)) continue;
+
+                        Vector3 nextPos = new Vector3(startOffset + next.x * tileSize, 1f,
+                                                      startOffset + next.y * tileSize);
+                        if (!IsPassageClear(worldPos, nextPos)) continue;
+                        visited[next.x, next.y] = true;
+                        queue.Enqueue(next);
                     }
                 }
+                if (containsCorridor)
+                {
+                    corridorAreas++;
+                    if (area.Count > largestArea.Count) largestArea = area;
+                }
+                areaDetails.Add($"({x},{z}) type {map[x, z]}: {area.Count} spawn cells, corridor {containsCorridor}");
             }
         }
+        validSpawnPoints.AddRange(largestArea);
+        if (reachableAreas != 1 || corridorAreas != 1)
+            Debug.LogWarning($"[MapGenerator] Found {reachableAreas} physically separate walkable areas " +
+                             $"({corridorAreas} contain corridors); retrying this layout. {string.Join("; ", areaDetails)}");
+        return reachableAreas == 1 && corridorAreas == 1;
+    }
+
+    bool IsPassageClear(Vector3 from, Vector3 to)
+    {
+        float radius = Mathf.Max(0.1f, spawnRadius);
+        float height = Mathf.Max(spawnHeight, radius * 2f);
+        Vector3 direction = to - from;
+        Vector3 bottom = from + Vector3.up * radius;
+        Vector3 top = from + Vector3.up * (height - radius);
+        return !Physics.CapsuleCast(bottom, top, radius, direction.normalized,
+                                    direction.magnitude, ~0, QueryTriggerInteraction.Ignore);
     }
 
     bool IsSpawnClear(Vector3 position)
@@ -573,9 +897,9 @@ public class MapGenerator : MonoBehaviour
 
     void SpawnEntities()
     {
-        if (validSpawnPoints.Count < 3)
+        if (validSpawnPoints.Count < 4)
         {
-            Debug.LogError("[MapGenerator] À¯È¿ÇÑ ½ºÆù Æ÷ÀÎÆ®°¡ ºÎÁ·ÇÕ´Ï´Ù.");
+            Debug.LogError("[MapGenerator] ìœ íš¨í•œ ìŠ¤í° í¬ì¸íŠ¸ê°€ ë¶€ì¡±í•©ë‹ˆë‹¤.");
             return;
         }
 
@@ -590,10 +914,27 @@ public class MapGenerator : MonoBehaviour
         spawnedEntities.Add(p2);
 
         Vector3 monsterPos = GetFarthestSpawnPoint(p1Pos, minMonsterDistance);
+        if (NavMesh.SamplePosition(monsterPos, out NavMeshHit monsterHit, tileSize, NavMesh.AllAreas))
+            monsterPos = monsterHit.position;
+        else
+            Debug.LogWarning($"[MapGenerator] No NavMesh position found near monster spawn {monsterPos}.");
         GameObject monster = Instantiate(monsterPrefab, monsterPos, Quaternion.identity);
-        monster.name = "Monster";
+        monster.name = "Monster1";
         spawnedEntities.Add(monster);
-        GameObject[] spawnedMonsters = new GameObject[] { monster };
+
+        if (monster2Prefab == null)
+        {
+            Debug.LogError("[MapGenerator] Monster2 prefab is not assigned.");
+            return;
+        }
+
+        Vector3 monster2Pos = GetFarthestSpawnPointFromAll(p1Pos, p2Pos, monsterPos);
+        if (NavMesh.SamplePosition(monster2Pos, out NavMeshHit monster2Hit, tileSize, NavMesh.AllAreas))
+            monster2Pos = monster2Hit.position;
+        GameObject monster2 = Instantiate(monster2Prefab, monster2Pos, Quaternion.identity);
+        monster2.name = "Monster2";
+        spawnedEntities.Add(monster2);
+        GameObject[] spawnedMonsters = new GameObject[] { monster, monster2 };
 
         List<PotionItem> spawnedPotions = new List<PotionItem>();
         if (itemPrefabs != null && itemPrefabs.Length > 0)
@@ -614,7 +955,7 @@ public class MapGenerator : MonoBehaviour
                 PotionItem potion = itemObj.GetComponent<PotionItem>();
                 if (potion != null)
                 {
-                    // ¡Ú [Ãß°¡µÈ ÇÙ½É ÄÚµå] º¹Á¦µÈ ¾ÆÀÌÅÛ¿¡ 1¹øºÎÅÍ ¼øÂ÷ÀûÀ¸·Î °íÀ¯ ½Äº°ÀÚ ºÎ¿©
+                    // â˜… [ì¶”ê°€ëœ í•µì‹¬ ì½”ë“œ] ë³µì œëœ ì•„ì´í…œì— 1ë²ˆë¶€í„° ìˆœì°¨ì ìœ¼ë¡œ ê³ ìœ  ì‹ë³„ì ë¶€ì—¬
                     potion.itemId = i + 1;
                     spawnedPotions.Add(potion);
                 }
@@ -624,7 +965,7 @@ public class MapGenerator : MonoBehaviour
         if (NetworkClient.Instance != null)
         {
             NetworkClient.Instance.SetupNetworkEntities(p1, p2, spawnedMonsters, spawnedPotions.ToArray(), PlayerRole.Healer, PlayerRole.Runner);
-            Debug.Log("[MapGenerator] ¸Ê »ı¼º ¿Ï·á ¹× ³×Æ®¿öÅ© ¿¬µ¿ ¿Ï·á");
+            Debug.Log("[MapGenerator] ë§µ ìƒì„± ì™„ë£Œ ë° ë„¤íŠ¸ì›Œí¬ ì—°ë™ ì™„ë£Œ");
         }
     }
 
@@ -655,10 +996,32 @@ public class MapGenerator : MonoBehaviour
 
         if (maxDist < minRequiredDistance)
         {
-            Debug.LogWarning($"ÃÖ¼Ò ½ºÆù °Å¸®({minRequiredDistance}) ºÒ¸¸Á·. °¡Àå ¸Õ °÷¿¡ ½ºÆù.");
+            Debug.LogWarning($"ìµœì†Œ ìŠ¤í° ê±°ë¦¬({minRequiredDistance}) ë¶ˆë§Œì¡±. ê°€ì¥ ë¨¼ ê³³ì— ìŠ¤í°.");
         }
 
         validSpawnPoints.RemoveAt(bestIndex);
         return bestPos;
+    }
+
+    Vector3 GetFarthestSpawnPointFromAll(params Vector3[] positions)
+    {
+        int bestIndex = 0;
+        float bestMinimumDistance = -1f;
+        for (int i = 0; i < validSpawnPoints.Count; i++)
+        {
+            float minimumDistance = float.MaxValue;
+            foreach (Vector3 position in positions)
+                minimumDistance = Mathf.Min(minimumDistance, Vector3.Distance(position, validSpawnPoints[i]));
+
+            if (minimumDistance > bestMinimumDistance)
+            {
+                bestMinimumDistance = minimumDistance;
+                bestIndex = i;
+            }
+        }
+
+        Vector3 result = validSpawnPoints[bestIndex];
+        validSpawnPoints.RemoveAt(bestIndex);
+        return result;
     }
 }
