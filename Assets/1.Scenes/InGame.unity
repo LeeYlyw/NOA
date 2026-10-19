@@ -6574,7 +6574,6 @@ MonoBehaviour:
   offlineMode: 1
   serverIP: 127.0.0.1
   serverPort: 7777
-  playerId: 1
   localPlayerTransform: {fileID: 1306263783}
   remotePlayerTransform: {fileID: 2014975748}
   autoSetupPlayers: 1

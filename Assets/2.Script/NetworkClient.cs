@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Net.Sockets;
 using System.Text;
@@ -17,7 +17,9 @@ public class NetworkClient : MonoBehaviour
     [Header("Network")]
     public string serverIP = "127.0.0.1";
     public int serverPort = 7777;
-    public int playerId = 1;
+    // Assigned by the server after connecting; never configured per build.
+    public int playerId { get; private set; }
+    public bool HasAssignedPlayerId => playerId == 1 || playerId == 2;
 
     [Header("Players")]
     public Transform localPlayerTransform;
@@ -54,14 +56,23 @@ public class NetworkClient : MonoBehaviour
     void Awake()
     {
         Instance = this;
+        playerId = offlineMode ? 1 : 0;
         Application.runInBackground = true;
     }
+
+    public bool IsConnected => isConnected;
+    public bool GameStarted { get; private set; }
+    public PlayerRole Role1 { get; private set; } = PlayerRole.Healer;
+    public PlayerRole Role2 { get; private set; } = PlayerRole.Runner;
+    public string ConnectionStatus { get; private set; } = "Connecting...";
+    public bool autoStartLocalServer = true;
 
     void Start()
     {
         if (!offlineMode)
         {
-            ConnectToServer();
+            if (GetComponent<LobbyManager>() == null) gameObject.AddComponent<LobbyManager>();
+            StartCoroutine(ConnectAutomatically());
         }
     }
 
@@ -72,9 +83,12 @@ public class NetworkClient : MonoBehaviour
 
         if (!isConnected || stream == null) return;
 
+        if (client.Client.Poll(0, SelectMode.SelectRead) && client.Client.Available == 0)
+        { isConnected = false; ConnectionStatus = "Disconnected. Restart the game."; return; }
+        ReceivePackets();
+        if (!isConnected || !HasAssignedPlayerId || !GameStarted) return;
         SendLocalPlayerTransform();
         SendAuthoritativeMonsterStates();
-        ReceivePackets();
         ApplyRemotePlayerTransform();
     }
 
@@ -108,21 +122,43 @@ public class NetworkClient : MonoBehaviour
         }
     }
 
-    void ConnectToServer()
+    System.Collections.IEnumerator ConnectAutomatically()
     {
-        try
+        bool launched = false;
+        for (int attempt = 0; attempt < 30; attempt++)
         {
             client = new TcpClient();
-            client.Connect(serverIP, serverPort);
-            stream = client.GetStream();
-            isConnected = true;
-            Debug.Log("[Network] 서버 연결 성공");
+            var task = client.ConnectAsync(serverIP, serverPort);
+            float deadline = Time.realtimeSinceStartup + 2f;
+            while (!task.IsCompleted && Time.realtimeSinceStartup < deadline) yield return null;
+            if (task.Status == System.Threading.Tasks.TaskStatus.RanToCompletion && client.Connected)
+            {
+                stream = client.GetStream(); isConnected = true; ConnectionStatus = "Connected";
+                yield break;
+            }
+            client.Close();
+            if (!launched && autoStartLocalServer && (serverIP == "127.0.0.1" || serverIP == "localhost"))
+            {
+                launched = true;
+                string root = System.IO.Path.GetDirectoryName(Application.dataPath);
+                string path = System.IO.Path.Combine(root, "Server", "GameServer.exe");
+                if (!System.IO.File.Exists(path)) path = System.IO.Path.Combine(root, "Server/GameServer/x64/Debug/GameServer.exe");
+                try
+                {
+                    if (!System.IO.File.Exists(path)) throw new System.IO.FileNotFoundException("GameServer.exe missing: " + path);
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = System.IO.Path.GetDirectoryName(path) });
+                    ConnectionStatus = "Starting server...";
+                }
+                catch (Exception e) { ConnectionStatus = e.Message; yield break; }
+            }
+            yield return new WaitForSecondsRealtime(0.3f);
         }
-        catch (Exception e)
-        {
-            Debug.LogError("[Network] 서버 연결 실패: " + e.Message);
-        }
+        ConnectionStatus = "Connection failed. Check server address and restart.";
     }
+
+    public void SelectRole(int role) => SendMessageToServer("C_ROLE|" + role + "\n", "Role failed");
+    public void SetReady(bool value) => SendMessageToServer("C_READY|" + (value ? 1 : 0) + "\n", "Ready failed");
+    public void RequestStart() => SendMessageToServer("C_START\n", "Start failed");
 
     void SendLocalPlayerTransform()
     {
@@ -255,7 +291,7 @@ public class NetworkClient : MonoBehaviour
 
     void SendMessageToServer(string message, string errorMessage)
     {
-        if (!isConnected || stream == null) return;
+        if (!isConnected || !HasAssignedPlayerId || stream == null) return;
         byte[] data = Encoding.UTF8.GetBytes(message);
         try
         {
@@ -265,6 +301,7 @@ public class NetworkClient : MonoBehaviour
         {
             Debug.LogError(errorMessage + ": " + e.Message);
             isConnected = false;
+            ConnectionStatus = "Disconnected. Restart the game.";
         }
     }
 
@@ -285,6 +322,7 @@ public class NetworkClient : MonoBehaviour
         {
             Debug.LogError("[Network] 수신 실패: " + e.Message);
             isConnected = false;
+            ConnectionStatus = "Disconnected. Restart the game.";
         }
     }
 
@@ -309,16 +347,33 @@ public class NetworkClient : MonoBehaviour
         switch (parts[0])
         {
             case "ID":
-                if (parts.Length >= 2 && int.TryParse(parts[1], out int assignedPlayerId))
+                if (!HasAssignedPlayerId && parts.Length == 2 &&
+                    int.TryParse(parts[1], out int assignedPlayerId) && assignedPlayerId >= 1 && assignedPlayerId <= 2)
+                {
                     playerId = assignedPlayerId;
+                    ConnectionStatus = "Connected - Player " + playerId;
+                    Debug.Log("[Network] Server assigned Player " + playerId);
+                }
                 break;
             case "START":
                 // 서버로부터 "START|시드번호" 를 받으면 맵 생성기에 전달
                 if (parts.Length >= 2 && int.TryParse(parts[1], out int seed))
                 {
                     MapGenerator mg = FindObjectOfType<MapGenerator>();
-                    if (mg != null) mg.GenerateMap(seed);
+                    if (HasAssignedPlayerId && !GameStarted && mg != null && parts.Length >= 4 &&
+                        int.TryParse(parts[2], out int r1) && int.TryParse(parts[3], out int r2) &&
+                        r1 >= 0 && r1 <= 3 && r2 >= 0 && r2 <= 3)
+                    {
+                        Role1 = (PlayerRole)r1; Role2 = (PlayerRole)r2;
+                        GameStarted = true; mg.GenerateMap(seed);
+                    }
                 }
+                break;
+            case "LOBBY":
+                if (LobbyManager.Instance != null) LobbyManager.Instance.ApplyState(parts);
+                break;
+            case "ERROR":
+                ConnectionStatus = parts.Length > 1 ? parts[1] : "Server error";
                 break;
             case "MOVE": ProcessMovePacket(parts); break;
             case "S_MONSTER_STATE": ProcessMonsterStatePacket(parts); break;

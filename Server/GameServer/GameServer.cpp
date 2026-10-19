@@ -1141,52 +1141,64 @@ int main()
     std::cout << "Listen Port : 7777" << std::endl;
     std::cout << "Server Model : select based two-client TCP server" << std::endl;
 
-    std::cout << "Waiting for client 1..." << std::endl;
-    clientSocket1 = accept(listenSocket, nullptr, nullptr);
-    if (clientSocket1 == INVALID_SOCKET)
-    {
-        std::cout << "accept client 1 failed: " << WSAGetLastError() << std::endl;
-        closesocket(listenSocket);
-        WSACleanup();
-        return 1;
+
+    SOCKET slots[3] = {INVALID_SOCKET, INVALID_SOCKET, INVALID_SOCKET};
+    int roles[3] = {-1, -1, -1};
+    bool ready[3] = {};
+    std::string pending[3];
+    int host = 0;
+    bool started = false;
+    auto publish = [&]() {
+        std::ostringstream out;
+        out << "LOBBY|" << host;
+        for (int i=1; i<=2; ++i) out << "|" << (slots[i]!=INVALID_SOCKET) << "|" << roles[i] << "|" << ready[i];
+        for (int i=1; i<=2; ++i) if (slots[i]!=INVALID_SOCKET) SendPacket(slots[i],out.str());
+    };
+    double emptySince = GetTimeSeconds();
+    while (!started) {
+        if (!host && GetTimeSeconds()-emptySince > 30.0) { closesocket(listenSocket); WSACleanup(); return 0; }
+        fd_set reads; FD_ZERO(&reads); FD_SET(listenSocket,&reads);
+        for (int i=1;i<=2;++i) if(slots[i]!=INVALID_SOCKET) FD_SET(slots[i],&reads);
+        timeval wait = {0,50000};
+        if(select(0,&reads,nullptr,nullptr,&wait)==SOCKET_ERROR) return 1;
+        if(FD_ISSET(listenSocket,&reads)) {
+            SOCKET incoming=accept(listenSocket,nullptr,nullptr);
+            int id=slots[1]==INVALID_SOCKET?1:slots[2]==INVALID_SOCKET?2:0;
+            if(incoming!=INVALID_SOCKET) {
+                if(!id) { SendPacket(incoming,"ERROR|Lobby full"); closesocket(incoming); }
+                else { slots[id]=incoming; if(!host) host=id; SendPacket(incoming,"ID|"+std::to_string(id)); publish(); }
+            }
+        }
+        for(int i=1;i<=2;++i) {
+            if(slots[i]==INVALID_SOCKET || !FD_ISSET(slots[i],&reads)) continue;
+            char data[1024]; int n=recv(slots[i],data,sizeof(data),0);
+            if(n<=0) {
+                closesocket(slots[i]); slots[i]=INVALID_SOCKET; pending[i].clear(); roles[i]=-1; ready[i]=false;
+                host=slots[1]!=INVALID_SOCKET?1:slots[2]!=INVALID_SOCKET?2:0; emptySince=GetTimeSeconds(); publish(); continue;
+            }
+            pending[i].append(data,n); size_t end;
+            while((end=pending[i].find('\n'))!=std::string::npos) {
+                auto parts=Split(pending[i].substr(0,end),'|'); pending[i].erase(0,end+1);
+                if(parts.empty()) continue;
+                int value;
+                if(parts[0]=="C_ROLE" && parts.size()==2 && TryParseInt(parts[1],value) && value>=0 && value<=3) { roles[i]=value; ready[i]=false; publish(); }
+                else if(parts[0]=="C_READY" && parts.size()==2 && TryParseInt(parts[1],value) && (value==0||value==1) && roles[i]>=0) { ready[i]=value==1; publish(); }
+                else if(parts[0]=="C_START" && i==host && slots[1]!=INVALID_SOCKET && slots[2]!=INVALID_SOCKET && ready[1] && ready[2]) { started=true; break; }
+            }
+            if(pending[i].size()>4096) pending[i].clear();
+        }
     }
-
-    std::cout << "Client 1 connected!" << std::endl;
-    SendPacket(clientSocket1, "ID|1");
-    SendPacket(clientSocket1, "COUNT|1");
-
-    std::cout << "Waiting for client 2..." << std::endl;
-    clientSocket2 = accept(listenSocket, nullptr, nullptr);
-    if (clientSocket2 == INVALID_SOCKET)
-    {
-        std::cout << "accept client 2 failed: " << WSAGetLastError() << std::endl;
-        closesocket(clientSocket1);
-        closesocket(listenSocket);
-        WSACleanup();
-        return 1;
-    }
-
-    std::cout << "Client 2 connected!" << std::endl;
-    SendPacket(clientSocket2, "ID|2");
-
-    BroadcastPacket(clientSocket1, clientSocket2, "COUNT|2");
-    // ▼ 수정된 부분: 랜덤 시드를 생성하여 START와 함께 전송 ▼
+    clientSocket1=slots[1]; clientSocket2=slots[2];
+    closesocket(listenSocket); listenSocket=INVALID_SOCKET;
     std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distrib(1, 999999);
-    int mapSeed = distrib(gen);
-
-    std::ostringstream startOss;
-    startOss << "START|" << mapSeed;
-    BroadcastPacket(clientSocket1, clientSocket2, startOss.str());
-    // ▲ 수정된 부분 끝 ▲
+    int mapSeed=1+rd()%999999;
+    BroadcastPacket(clientSocket1,clientSocket2,"START|"+std::to_string(mapSeed)+"|"+std::to_string(roles[1])+"|"+std::to_string(roles[2]));
 
     PlayerState players[3];
     players[1].playerId = 1;
     players[2].playerId = 2;
-    // The current two-player layout assigns Runner to player 2.
-    players[2].maxHp = 80;
-    players[2].hp = players[2].maxHp;
+    // Apply each lobby selection to server health.
+    for (int i=1;i<=2;++i) players[i].hp = players[i].maxHp = roles[i]==3 ? 80 : 100;
 
     MonsterState monsters[2];
     InitializeMonsters(monsters);
@@ -1299,7 +1311,7 @@ int main()
 
     std::cout << "Server Closed." << std::endl;
     std::cout << "Press Enter to quit." << std::endl;
-    std::cin.get();
+
 
     return 0;
 }

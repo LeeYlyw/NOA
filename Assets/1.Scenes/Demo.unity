@@ -7012,7 +7012,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   serverIP: 127.0.0.1
   serverPort: 7777
-  playerId: 2
   localPlayerTransform: {fileID: 221112666}
   remotePlayerTransform: {fileID: 5473649178970520274}
   autoSetupPlayers: 1

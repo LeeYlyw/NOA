@@ -2437,7 +2437,6 @@ MonoBehaviour:
   offlineMode: 0
   serverIP: 192.168.71.221
   serverPort: 7777
-  playerId: 1
   localPlayerTransform: {fileID: 0}
   remotePlayerTransform: {fileID: 0}
   autoSetupPlayers: 1

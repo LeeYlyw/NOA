@@ -964,7 +964,7 @@ public class MapGenerator : MonoBehaviour
 
         if (NetworkClient.Instance != null)
         {
-            NetworkClient.Instance.SetupNetworkEntities(p1, p2, spawnedMonsters, spawnedPotions.ToArray(), PlayerRole.Healer, PlayerRole.Runner);
+            NetworkClient.Instance.SetupNetworkEntities(p1, p2, spawnedMonsters, spawnedPotions.ToArray(), NetworkClient.Instance.Role1, NetworkClient.Instance.Role2);
             Debug.Log("[MapGenerator] 맵 생성 완료 및 네트워크 연동 완료");
         }
     }
