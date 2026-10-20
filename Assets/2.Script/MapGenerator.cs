@@ -908,7 +908,8 @@ public class MapGenerator : MonoBehaviour
         p1.name = "Player1";
         spawnedEntities.Add(p1);
 
-        Vector3 p2Pos = GetRandomSpawnPoint(removePoint: true);
+        // Keep both players close enough to find the cooperative puzzle during a demo.
+        Vector3 p2Pos = GetNearbySpawnPoint(p1Pos);
         GameObject p2 = Instantiate(player2Prefab, p2Pos, Quaternion.identity);
         p2.name = "Player2";
         spawnedEntities.Add(p2);
@@ -967,6 +968,32 @@ public class MapGenerator : MonoBehaviour
             NetworkClient.Instance.SetupNetworkEntities(p1, p2, spawnedMonsters, spawnedPotions.ToArray(), NetworkClient.Instance.Role1, NetworkClient.Instance.Role2);
             Debug.Log("[MapGenerator] 맵 생성 완료 및 네트워크 연동 완료");
         }
+
+        GameObject puzzle = CoopShapePuzzle.Create(p1Pos, p2Pos);
+        spawnedEntities.Add(puzzle);
+    }
+
+    Vector3 GetNearbySpawnPoint(Vector3 origin)
+    {
+        int best = -1;
+        float bestDistance = float.MaxValue;
+        NavMeshPath path = new NavMeshPath();
+        if (!NavMesh.SamplePosition(origin, out NavMeshHit start, tileSize, NavMesh.AllAreas))
+            return GetRandomSpawnPoint(removePoint: true);
+        for (int i = 0; i < validSpawnPoints.Count; i++)
+        {
+            float distance = Vector3.Distance(origin, validSpawnPoints[i]);
+            if (distance < tileSize * 0.75f || distance > tileSize * 3f || distance >= bestDistance) continue;
+            if (!NavMesh.SamplePosition(validSpawnPoints[i], out NavMeshHit destination, tileSize, NavMesh.AllAreas) ||
+                !NavMesh.CalculatePath(start.position, destination.position, NavMesh.AllAreas, path) ||
+                path.status != NavMeshPathStatus.PathComplete) continue;
+            best = i;
+            bestDistance = distance;
+        }
+        if (best < 0) return GetRandomSpawnPoint(removePoint: true);
+        Vector3 result = validSpawnPoints[best];
+        validSpawnPoints.RemoveAt(best);
+        return result;
     }
 
     Vector3 GetRandomSpawnPoint(bool removePoint)

@@ -829,6 +829,63 @@ void ProcessClientPacket(
 
     const std::string& type = parts[0];
 
+    // One cooperative color/shape puzzle per match. Only the assigned client may
+    // report its pad or submit a choice; the server owns the answer and result.
+    static bool puzzlePad[3] = {};
+    static bool puzzleStarted = false;
+    static bool puzzleSolved = false;
+    static int puzzleAnswer = -1;
+    static int puzzleChoices[4] = {};
+    if (type == "C_PUZZLE_PAD")
+    {
+        int id = 0, active = 0;
+        if (parts.size() != 3 || !TryParseInt(parts[1], id) || id != senderPlayerId ||
+            !TryParseInt(parts[2], active) || (active != 0 && active != 1) || puzzleSolved)
+            return;
+        if (puzzlePad[id] == (active == 1)) return;
+        puzzlePad[id] = active == 1;
+        BroadcastPacket(clientSocket1, clientSocket2,
+            "S_PUZZLE_PADS|" + std::to_string(puzzlePad[1] ? 1 : 0) + "|" +
+            std::to_string(puzzlePad[2] ? 1 : 0));
+        if (puzzlePad[1] && puzzlePad[2] && !puzzleStarted)
+        {
+            puzzleStarted = true;
+            std::random_device random;
+            puzzleAnswer = static_cast<int>(random() % 9);
+            int shape = puzzleAnswer / 3, color = puzzleAnswer % 3;
+            puzzleChoices[0] = puzzleAnswer;
+            puzzleChoices[1] = shape * 3 + (color + 1) % 3;
+            puzzleChoices[2] = ((shape + 1) % 3) * 3 + color;
+            puzzleChoices[3] = ((shape + 2) % 3) * 3 + (color + 2) % 3;
+            std::shuffle(puzzleChoices, puzzleChoices + 4, std::mt19937(random()));
+            SendPacket(clientSocket1, "S_PUZZLE_CLUE|" + std::to_string(puzzleAnswer));
+            std::ostringstream choices;
+            choices << "S_PUZZLE_CHOICES";
+            for (int choice : puzzleChoices) choices << "|" << choice;
+            SendPacket(clientSocket2, choices.str());
+        }
+        return;
+    }
+    if (type == "C_PUZZLE_CHOOSE")
+    {
+        int id = 0, index = -1;
+        if (parts.size() != 3 || !TryParseInt(parts[1], id) || id != 2 || id != senderPlayerId ||
+            !TryParseInt(parts[2], index) || index < 0 || index > 3 ||
+            !puzzleStarted || puzzleSolved || !puzzlePad[1] || !puzzlePad[2]) return;
+        if (puzzleChoices[index] == puzzleAnswer)
+        {
+            puzzleSolved = true;
+            BroadcastPacket(clientSocket1, clientSocket2, "S_PUZZLE_SOLVED");
+            ++clueCount;
+            BroadcastPacket(clientSocket1, clientSocket2,
+                "S_CLUE_COUNT|" + std::to_string(clueCount) + "|" + std::to_string(needClueCount));
+            if (clueCount >= needClueCount)
+                BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_CLEAR");
+        }
+        else BroadcastPacket(clientSocket1, clientSocket2, "S_PUZZLE_WRONG");
+        return;
+    }
+
     if (type == "MOVE")
     {
         if (!ProcessMovePacket(parts, senderPlayerId, players))

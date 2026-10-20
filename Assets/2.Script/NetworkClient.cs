@@ -71,6 +71,7 @@ public class NetworkClient : MonoBehaviour
     {
         if (!offlineMode)
         {
+            ConnectionStatus = "Connecting to " + serverIP + ":" + serverPort + "...";
             if (GetComponent<LobbyManager>() == null) gameObject.AddComponent<LobbyManager>();
             StartCoroutine(ConnectAutomatically());
         }
@@ -159,6 +160,12 @@ public class NetworkClient : MonoBehaviour
     public void SelectRole(int role) => SendMessageToServer("C_ROLE|" + role + "\n", "Role failed");
     public void SetReady(bool value) => SendMessageToServer("C_READY|" + (value ? 1 : 0) + "\n", "Ready failed");
     public void RequestStart() => SendMessageToServer("C_START\n", "Start failed");
+
+    public void SendPuzzlePad(bool active) =>
+        SendMessageToServer("C_PUZZLE_PAD|" + playerId + "|" + (active ? 1 : 0) + "\n", "Puzzle pad failed");
+
+    public void SendPuzzleChoice(int index) =>
+        SendMessageToServer("C_PUZZLE_CHOOSE|" + playerId + "|" + index + "\n", "Puzzle choice failed");
 
     void SendLocalPlayerTransform()
     {
@@ -374,6 +381,21 @@ public class NetworkClient : MonoBehaviour
                 break;
             case "ERROR":
                 ConnectionStatus = parts.Length > 1 ? parts[1] : "Server error";
+                break;
+            case "S_PUZZLE_PADS":
+                if (CoopShapePuzzle.Instance != null) CoopShapePuzzle.Instance.SetPads(parts);
+                break;
+            case "S_PUZZLE_CLUE":
+                if (CoopShapePuzzle.Instance != null) CoopShapePuzzle.Instance.SetClue(parts);
+                break;
+            case "S_PUZZLE_CHOICES":
+                if (CoopShapePuzzle.Instance != null) CoopShapePuzzle.Instance.SetChoices(parts);
+                break;
+            case "S_PUZZLE_WRONG":
+                if (CoopShapePuzzle.Instance != null) CoopShapePuzzle.Instance.SetWrong();
+                break;
+            case "S_PUZZLE_SOLVED":
+                if (CoopShapePuzzle.Instance != null) CoopShapePuzzle.Instance.SetSolved();
                 break;
             case "MOVE": ProcessMovePacket(parts); break;
             case "S_MONSTER_STATE": ProcessMonsterStatePacket(parts); break;

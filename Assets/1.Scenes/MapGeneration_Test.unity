@@ -2435,7 +2435,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   offlineMode: 0
-  serverIP: 192.168.71.221
+  serverIP: 127.0.0.1
   serverPort: 7777
   localPlayerTransform: {fileID: 0}
   remotePlayerTransform: {fileID: 0}
