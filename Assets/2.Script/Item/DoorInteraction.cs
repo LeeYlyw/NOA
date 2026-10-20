@@ -1,5 +1,7 @@
 using System.Collections;
+using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class DoorInteraction : MonoBehaviour
 {
@@ -11,81 +13,223 @@ public class DoorInteraction : MonoBehaviour
     public float openAngle = 90f;
     public float rotateSpeed = 2f;
 
-    private bool isNear = false;
-    private bool isOpen = false;
+    [Header("Door Sounds")]
+    public AudioClip openSound;
+    public AudioClip closeSound;
+
+    private AudioSource audioSource;
+    private bool isNear;
+    private bool isOpen;
     private Coroutine doorCoroutine;
-
-    // 추가된 부분: 문의 닫힌 상태와 열린 상태의 회전값을 미리 저장
     private Quaternion closedRotation;
-    private Quaternion openRotation;
+    private Transform nearbyPlayer;
+    private Vector3 leafCenterOffsetWorld;
+    private Vector3 closedUpWorld;
 
-    void Start()
+    private void Start()
     {
-        if (interactionUI != null) interactionUI.SetActive(false);
+        if (interactionUI != null)
+            interactionUI.SetActive(false);
 
-        // 현재 문의 회전값을 '닫힌 상태'로 저장
+        if (doorHinge == null)
+        {
+            Debug.LogError("DoorInteraction: Door Hinge를 연결해 주세요.", this);
+            enabled = false;
+            return;
+        }
+
         closedRotation = doorHinge.localRotation;
+        closedUpWorld = doorHinge.up;
 
-        // 닫힌 상태에서 Y축으로 openAngle만큼 회전한 값을 '열린 상태'로 계산
-        openRotation = closedRotation * Quaternion.Euler(0, openAngle, 0);
+        Renderer leafRenderer = doorHinge.GetComponentInChildren<Renderer>();
+        if (leafRenderer != null)
+            leafCenterOffsetWorld = leafRenderer.bounds.center - doorHinge.position;
+        else
+            Debug.LogWarning("DoorInteraction: Door Hinge 아래에 문짝 Renderer가 없습니다.", this);
+
+        audioSource = GetComponent<AudioSource>();
+        if (audioSource == null)
+        {
+            audioSource = gameObject.AddComponent<AudioSource>();
+            audioSource.spatialBlend = 1f;
+        }
+        audioSource.playOnAwake = false;
+
+        BuildPrompt();
     }
 
-    void Update()
+    private void Update()
     {
-        if (isNear && Input.GetKeyDown(KeyCode.F))
-        {
-            isOpen = !isOpen;
-            Debug.Log($"[동작 테스트] F키 입력 성공! isOpen 상태 : {isOpen}");
+        if (!isNear || !Input.GetKeyDown(KeyCode.F))
+            return;
 
-            if (doorCoroutine != null) StopCoroutine(doorCoroutine);
+        isOpen = !isOpen;
 
-            Quaternion targetRotation = isOpen ? openRotation : closedRotation;
+        if (doorCoroutine != null)
+            StopCoroutine(doorCoroutine);
 
-            // 회전축이 연결되어 있는지 확인하는 안전장치
-            if (doorHinge != null)
-            {
-                Debug.Log($"[동작 테스트] 회전 시작! 목표 회전값 : {targetRotation.eulerAngles}");
-                doorCoroutine = StartCoroutine(RotateDoor(targetRotation));
-            }
-            else
-            {
-                Debug.LogError("[에러] Door Hinge가 연결되지 않았습니다! 인스펙터 창을 확인하세요.");
-            }
-        }
+        if (isOpen && openSound != null)
+            audioSource.PlayOneShot(openSound);
+
+        Quaternion targetRotation = isOpen ? GetAwayRotation() : closedRotation;
+        doorCoroutine = StartCoroutine(RotateDoor(targetRotation, isOpen));
+    }
+
+    private Quaternion GetAwayRotation()
+    {
+        float angle = Mathf.Abs(openAngle);
+        Quaternion positive = closedRotation * Quaternion.Euler(0f, angle, 0f);
+        Quaternion negative = closedRotation * Quaternion.Euler(0f, -angle, 0f);
+
+        if (nearbyPlayer == null || leafCenterOffsetWorld.sqrMagnitude < 0.001f)
+            return positive;
+
+        Vector3 positiveCenter = doorHinge.position +
+            Quaternion.AngleAxis(angle, closedUpWorld) * leafCenterOffsetWorld;
+
+        Vector3 negativeCenter = doorHinge.position +
+            Quaternion.AngleAxis(-angle, closedUpWorld) * leafCenterOffsetWorld;
+
+        Vector3 playerPosition = nearbyPlayer.position;
+        playerPosition.y = positiveCenter.y;
+        positiveCenter.y = playerPosition.y;
+        negativeCenter.y = playerPosition.y;
+
+        float positiveDistance = (positiveCenter - playerPosition).sqrMagnitude;
+        float negativeDistance = (negativeCenter - playerPosition).sqrMagnitude;
+
+        return positiveDistance >= negativeDistance ? positive : negative;
     }
 
     private void OnTriggerEnter(Collider other)
     {
-        if (other.CompareTag("Player"))
-        {
-            isNear = true;
-            if (interactionUI != null) interactionUI.SetActive(true);
-        }
+        if (!other.CompareTag("Player"))
+            return;
+
+        isNear = true;
+        nearbyPlayer = other.transform;
+
+        if (interactionUI != null)
+            interactionUI.SetActive(true);
     }
 
     private void OnTriggerExit(Collider other)
     {
-        if (other.CompareTag("Player"))
-        {
-            isNear = false;
-            if (interactionUI != null) interactionUI.SetActive(false);
-        }
+        if (!other.CompareTag("Player"))
+            return;
+
+        isNear = false;
+
+        if (nearbyPlayer == other.transform)
+            nearbyPlayer = null;
+
+        if (interactionUI != null)
+            interactionUI.SetActive(false);
     }
 
-    private IEnumerator RotateDoor(Quaternion targetRotation)
+    private IEnumerator RotateDoor(Quaternion targetRotation, bool opening)
     {
         Quaternion startRotation = doorHinge.localRotation;
-        float time = 0;
+        float progress = 0f;
 
-        while (time < 1f)
+        while (progress < 1f)
         {
-            time += Time.deltaTime * rotateSpeed;
-            doorHinge.localRotation = Quaternion.Slerp(startRotation, targetRotation, time);
+            progress += Time.deltaTime * rotateSpeed;
+            doorHinge.localRotation =
+                Quaternion.Slerp(startRotation, targetRotation, progress);
             yield return null;
         }
 
         doorHinge.localRotation = targetRotation;
-        Debug.Log("[동작 테스트] 문 회전 완료!");
+        doorCoroutine = null;
+
+        if (!opening && closeSound != null)
+            audioSource.PlayOneShot(closeSound);
     }
 
+    private void BuildPrompt()
+    {
+        if (interactionUI == null)
+            return;
+
+        TMP_Text keyLabel = interactionUI.GetComponent<TMP_Text>();
+        if (keyLabel == null)
+        {
+            Debug.LogWarning(
+                "DoorInteraction: Interaction UI에 TMP 텍스트를 연결해 주세요.",
+                this
+            );
+            return;
+        }
+
+        Transform canvas = interactionUI.transform.parent;
+        if (canvas == null)
+            return;
+
+        GameObject oldKeyObject = interactionUI;
+
+        GameObject border = NewImage(
+            "F Key Prompt",
+            canvas,
+            new Color(0.72f, 0.76f, 0.79f, 0.9f)
+        );
+
+        RectTransform borderRect = border.GetComponent<RectTransform>();
+        borderRect.anchorMin = borderRect.anchorMax = new Vector2(0.5f, 0.5f);
+        borderRect.anchoredPosition = new Vector2(0f, -82f);
+        borderRect.sizeDelta = new Vector2(34f, 34f);
+
+        GameObject keyBackground = NewImage(
+            "Key Background",
+            border.transform,
+            new Color(0.12f, 0.14f, 0.17f, 1f)
+        );
+
+        RectTransform backgroundRect =
+            keyBackground.GetComponent<RectTransform>();
+
+        backgroundRect.anchorMin = Vector2.zero;
+        backgroundRect.anchorMax = Vector2.one;
+        backgroundRect.offsetMin = new Vector2(1.5f, 1.5f);
+        backgroundRect.offsetMax = new Vector2(-1.5f, -1.5f);
+
+        oldKeyObject.transform.SetParent(keyBackground.transform, false);
+        oldKeyObject.SetActive(true);
+
+        RectTransform keyRect = oldKeyObject.GetComponent<RectTransform>();
+        keyRect.anchorMin = Vector2.zero;
+        keyRect.anchorMax = Vector2.one;
+        keyRect.offsetMin = Vector2.zero;
+        keyRect.offsetMax = Vector2.zero;
+
+        keyLabel.text = "F";
+        keyLabel.fontSize = 21f;
+        keyLabel.color = Color.white;
+        keyLabel.alignment = TextAlignmentOptions.Center;
+        keyLabel.raycastTarget = false;
+
+        interactionUI = border;
+        border.SetActive(false);
+    }
+
+    private static GameObject NewImage(
+        string objectName,
+        Transform parent,
+        Color color
+    )
+    {
+        GameObject go = new GameObject(
+            objectName,
+            typeof(RectTransform),
+            typeof(Image)
+        );
+
+        go.transform.SetParent(parent, false);
+
+        Image image = go.GetComponent<Image>();
+        image.color = color;
+        image.raycastTarget = false;
+
+        return go;
+    }
 }
