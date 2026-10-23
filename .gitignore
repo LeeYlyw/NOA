@@ -105,6 +105,8 @@ InitTestScene*.unity*
 [Bb]in/
 [Oo]bj/
 *.obj
+# Unity imports OBJ models from Assets; keep them with their .meta files.
+!/[Aa]ssets/**/*.obj
 *.ilk
 *.idb
 *.tlog
