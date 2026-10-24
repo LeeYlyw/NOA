@@ -61,6 +61,7 @@ public class NetworkClient : MonoBehaviour
     }
 
     public bool IsConnected => isConnected;
+    public bool HasRemotePlayerState => hasRemoteState;
     public bool GameStarted { get; private set; }
     public PlayerRole Role1 { get; private set; } = PlayerRole.Healer;
     public PlayerRole Role2 { get; private set; } = PlayerRole.Runner;
@@ -670,8 +671,23 @@ public class NetworkClient : MonoBehaviour
         PlayerController p2Controller = player2Object.GetComponent<PlayerController>();
         if (p2Controller != null) p2Controller.InitializeStatsByRole(role2);
 
-        // 카메라 바인딩
-        if (Camera.main != null && localPlayerTransform != null)
+        // Prefer the local player's camera. The scene camera otherwise leaves a
+        // second AudioListener active after the player prefab is spawned.
+        Camera localCamera = localPlayerTransform.GetComponentInChildren<Camera>(true);
+        if (localCamera != null)
+        {
+            localCamera.enabled = true;
+            AudioListener localListener = localCamera.GetComponent<AudioListener>();
+            if (localListener != null) localListener.enabled = true;
+            foreach (Camera camera in FindObjectsOfType<Camera>(true))
+            {
+                if (camera == localCamera || !camera.CompareTag("MainCamera")) continue;
+                camera.enabled = false;
+                AudioListener listener = camera.GetComponent<AudioListener>();
+                if (listener != null) listener.enabled = false;
+            }
+        }
+        else if (Camera.main != null)
         {
             Camera.main.transform.position = localPlayerTransform.position + new Vector3(0, 3f, -4f);
             Camera.main.transform.rotation = Quaternion.Euler(20f, 0f, 0f);

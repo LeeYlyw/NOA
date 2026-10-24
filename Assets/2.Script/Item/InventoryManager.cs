@@ -34,6 +34,11 @@ public class InventoryManager : MonoBehaviour
 
         ItemData item = slots[slotIndex].item;
         if (item == null) return;
+        if (item.type == ItemData.ItemType.Teleport)
+        {
+            slots[slotIndex].OnClickSlot();
+            return;
+        }
 
         Transform localPlayer = null;
         if (NetworkClient.Instance != null && NetworkClient.Instance.localPlayerTransform != null)

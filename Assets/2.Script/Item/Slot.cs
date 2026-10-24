@@ -136,12 +136,27 @@ public class Slot : MonoBehaviour
         Transform localPlayer = GetLocalPlayer();
         if (localPlayer == null) return;
 
-        GameObject targetPoint = GameObject.FindGameObjectWithTag("TeleportPoint");
-        if (targetPoint == null)
+        Transform teammate = GetRemotePlayer();
+        if (teammate == null || !teammate.gameObject.activeInHierarchy ||
+            (!IsOfflineMode() && !NetworkClient.Instance.HasRemotePlayerState))
         {
-            Debug.LogError("맵에 TeleportPoint 태그를 가진 오브젝트가 없습니다. [cite: 12]");
+            Debug.LogWarning("[Teleport] Teammate is not available yet.");
             return;
         }
+
+        Transform targetPoint = null;
+        foreach (Transform child in teammate.GetComponentsInChildren<Transform>(true))
+        {
+            if (child != teammate && child.CompareTag("TeleportPoint"))
+            {
+                targetPoint = child;
+                break;
+            }
+        }
+
+        Vector3 destination = targetPoint != null
+            ? targetPoint.position
+            : teammate.position + teammate.right * 1.2f;
 
         CharacterController cc = localPlayer.GetComponent<CharacterController>();
         Vector3 originPos = localPlayer.position;
@@ -152,12 +167,12 @@ public class Slot : MonoBehaviour
         }
 
         if (cc != null) cc.enabled = false;
-        localPlayer.position = targetPoint.transform.position;
+        localPlayer.position = destination;
         if (cc != null) cc.enabled = true;
 
         if (ItemEffectManager.Instance != null)
         {
-            ItemEffectManager.Instance.PlayTeleportEffect(targetPoint.transform.position);
+            ItemEffectManager.Instance.PlayTeleportEffect(destination);
         }
 
         Debug.Log("텔레포트 아이템 사용 완료 [cite: 12]");

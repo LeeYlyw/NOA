@@ -50,6 +50,7 @@ public class MapGenerator : MonoBehaviour
     private List<Vector2Int> roomDoors = new List<Vector2Int>();
     private List<Vector3> validSpawnPoints = new List<Vector3>();
     private readonly List<Vector3> walkableCenters = new List<Vector3>();
+    private readonly HashSet<Vector2Int> oneByOneRoomCells = new HashSet<Vector2Int>();
     private readonly HashSet<long> openEmptyEdges = new HashSet<long>();
     private readonly List<List<long>> emptyRegionCandidates = new List<List<long>>();
     private readonly List<GameObject> spawnedWalls = new List<GameObject>();
@@ -95,6 +96,7 @@ public class MapGenerator : MonoBehaviour
             Random.InitState(selectedSeed);
             map = new int[mapSize, mapSize];
             roomDoors.Clear();
+            oneByOneRoomCells.Clear();
             validSpawnPoints.Clear();
             walkableCenters.Clear();
             openEmptyEdges.Clear();
@@ -251,13 +253,13 @@ public class MapGenerator : MonoBehaviour
                     int doorZ = rz - 1;
                     map[doorX, doorZ] = 3;
                     roomDoors.Add(new Vector2Int(doorX, doorZ));
+                    if (room.sizeX == 1 && room.sizeZ == 1)
+                        oneByOneRoomCells.Add(new Vector2Int(rx, rz));
 
                     float posX = startOffset + (rx * tileSize) + ((room.sizeX - 1) * tileSize / 2f);
                     float posZ = startOffset + (rz * tileSize) + ((room.sizeZ - 1) * tileSize / 2f);
-                    GameObject roomInstance = Instantiate(room.prefab, new Vector3(posX, 0, posZ),
-                                                          Quaternion.identity, transform);
-                    if (room.sizeX > 1 || room.sizeZ > 1)
-                        OpenSouthEntrance(roomInstance, doorX - rx, room.sizeX, room.sizeZ);
+                    Instantiate(room.prefab, new Vector3(posX, 0, posZ),
+                                Quaternion.identity, transform);
 
                     placed = true;
                     centralRoomPlaced = true;
@@ -271,61 +273,6 @@ public class MapGenerator : MonoBehaviour
             }
         }
         return roomDoors.Count > 0;
-    }
-
-    // Existing large-room prefabs have an unbroken south wall and some props
-    // across the intended door. Clear a narrow route on the spawned instance.
-    void OpenSouthEntrance(GameObject roomInstance, int doorColumn, int sizeX, int sizeZ)
-    {
-        float boundaryZ = roomInstance.transform.position.z - sizeZ * tileSize / 2f;
-        float doorX = roomInstance.transform.position.x +
-                      (doorColumn - (sizeX - 1) * 0.5f) * tileSize;
-        foreach (Collider wall in roomInstance.GetComponentsInChildren<Collider>())
-        {
-            if (!wall.name.StartsWith("SM_Wall") ||
-                wall.bounds.min.x > doorX + 1f || wall.bounds.max.x < doorX - 1f ||
-                wall.bounds.min.z > boundaryZ + 0.5f ||
-                wall.bounds.max.z < boundaryZ - 0.5f ||
-                wall.bounds.min.y > 1f || wall.bounds.max.y < 2f)
-                continue;
-
-            DisableRoomObstacle(wall);
-        }
-
-        Vector3 roomCenter = new Vector3(doorX, 1f, boundaryZ + tileSize / 2f);
-        float radius = Mathf.Max(0.1f, spawnRadius);
-        float height = Mathf.Max(spawnHeight, radius * 2f);
-        Vector3 bottom = roomCenter + Vector3.up * radius;
-        Vector3 top = roomCenter + Vector3.up * (height - radius);
-        Physics.SyncTransforms();
-        for (int i = 0; i < 30; i++)
-        {
-            Collider obstacle = null;
-            foreach (Collider overlap in Physics.OverlapCapsule(bottom, top, radius, ~0,
-                                                                 QueryTriggerInteraction.Ignore))
-            {
-                if (overlap.transform.IsChildOf(roomInstance.transform) &&
-                    overlap.bounds.max.y > 0.5f && overlap.bounds.min.y < 3f)
-                {
-                    obstacle = overlap;
-                    break;
-                }
-            }
-            if (obstacle == null && Physics.CapsuleCast(bottom, top, radius, Vector3.back,
-                                                        out RaycastHit hit, tileSize, ~0,
-                                                        QueryTriggerInteraction.Ignore) &&
-                hit.collider.transform.IsChildOf(roomInstance.transform))
-                obstacle = hit.collider;
-            if (obstacle == null) break;
-            DisableRoomObstacle(obstacle);
-        }
-    }
-
-    void DisableRoomObstacle(Collider obstacle)
-    {
-        obstacle.enabled = false;
-        Renderer renderer = obstacle.GetComponent<Renderer>();
-        if (renderer != null) renderer.enabled = false;
     }
 
     bool IsAreaClear(int startX, int startZ, int sizeX, int sizeZ)
@@ -719,10 +666,10 @@ public class MapGenerator : MonoBehaviour
             {
                 if (map[x, z] == 1 || map[x, z] == 3)
                 {
-                    bool wallTop = !IsPath(x, z, x, z + 1);
-                    bool wallRight = !IsPath(x, z, x + 1, z);
-                    bool wallBottom = !IsPath(x, z, x, z - 1);
-                    bool wallLeft = !IsPath(x, z, x - 1, z);
+                    bool wallTop = NeedsCorridorWall(x, z, x, z + 1);
+                    bool wallRight = NeedsCorridorWall(x, z, x + 1, z);
+                    bool wallBottom = NeedsCorridorWall(x, z, x, z - 1);
+                    bool wallLeft = NeedsCorridorWall(x, z, x - 1, z);
 
                     int mask = 0;
                     if (wallTop) mask += 1;
@@ -777,6 +724,16 @@ public class MapGenerator : MonoBehaviour
         }
     }
 
+    bool NeedsCorridorWall(int cx, int cz, int nx, int nz)
+    {
+        // A 1x1 room prefab supplies its own perimeter walls. Do not spawn a
+        // second corridor wall on that shared edge.
+        if (oneByOneRoomCells.Contains(new Vector2Int(nx, nz)))
+            return false;
+
+        return !IsPath(cx, cz, nx, nz);
+    }
+
     bool IsPath(int cx, int cz, int nx, int nz)
     {
         if (nx >= 0 && nx < mapSize && nz >= 0 && nz < mapSize && map[nx, nz] == 0 &&
@@ -821,15 +778,13 @@ public class MapGenerator : MonoBehaviour
 
         List<Vector3> largestArea = new List<Vector3>();
         int corridorAreas = 0;
-        int reachableAreas = 0;
-        List<string> areaDetails = new List<string>();
         for (int x = 0; x < mapSize; x++)
         {
             for (int z = 0; z < mapSize; z++)
             {
                 if (!clear[x, z] || visited[x, z]) continue;
-                reachableAreas++;
                 List<Vector3> area = new List<Vector3>();
+                List<Vector3> areaCenters = new List<Vector3>();
                 Queue<Vector2Int> queue = new Queue<Vector2Int>();
                 queue.Enqueue(new Vector2Int(x, z));
                 visited[x, z] = true;
@@ -840,7 +795,7 @@ public class MapGenerator : MonoBehaviour
                     Vector2Int curr = queue.Dequeue();
                     Vector3 worldPos = new Vector3(startOffset + curr.x * tileSize, 1f,
                                                    startOffset + curr.y * tileSize);
-                    walkableCenters.Add(worldPos);
+                    areaCenters.Add(worldPos);
                     if (map[curr.x, curr.y] == 1 || map[curr.x, curr.y] == 3)
                         containsCorridor = true;
                     if (map[curr.x, curr.y] != 0 && map[curr.x, curr.y] != 3)
@@ -863,16 +818,19 @@ public class MapGenerator : MonoBehaviour
                 if (containsCorridor)
                 {
                     corridorAreas++;
-                    if (area.Count > largestArea.Count) largestArea = area;
+                    if (area.Count > largestArea.Count)
+                    {
+                        largestArea = area;
+                        walkableCenters.Clear();
+                        walkableCenters.AddRange(areaCenters);
+                    }
                 }
-                areaDetails.Add($"({x},{z}) type {map[x, z]}: {area.Count} spawn cells, corridor {containsCorridor}");
             }
         }
         validSpawnPoints.AddRange(largestArea);
-        if (reachableAreas != 1 || corridorAreas != 1)
-            Debug.LogWarning($"[MapGenerator] Found {reachableAreas} physically separate walkable areas " +
-                             $"({corridorAreas} contain corridors); retrying this layout. {string.Join("; ", areaDetails)}");
-        return reachableAreas == 1 && corridorAreas == 1;
+        if (corridorAreas != 1)
+            Debug.LogWarning($"[MapGenerator] Found {corridorAreas} separate corridor areas; retrying this layout.");
+        return corridorAreas == 1;
     }
 
     bool IsPassageClear(Vector3 from, Vector3 to)

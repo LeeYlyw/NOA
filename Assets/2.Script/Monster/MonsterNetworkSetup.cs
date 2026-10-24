@@ -12,9 +12,11 @@ public class MonsterNetworkSetup : MonoBehaviour
     public MonoBehaviour[] aiScripts;
 
     public bool IsAuthority { get; private set; }
+    private bool isConfigured;
 
     void Start()
     {
+        if (isConfigured) return;
         // NetworkClient의 offlineMode 확인
         bool isOffline = (NetworkClient.Instance != null && NetworkClient.Instance.offlineMode);
 
@@ -66,6 +68,7 @@ public class MonsterNetworkSetup : MonoBehaviour
 
     public void SetupMonster(bool isAuthority)
     {
+        isConfigured = true;
         // [수정] 매개변수를 무시하던 버그 수정
         if (isAuthority)
         {
