@@ -43,6 +43,7 @@ public class NetworkClient : MonoBehaviour
 
     private float sendTimer = 0f;
     private float monsterSendTimer = 0f;
+    private int nextMimicShotId = 1;
     private string receiveBuffer = "";
     private PlayerController localPlayerController;
 
@@ -52,6 +53,8 @@ public class NetworkClient : MonoBehaviour
     private float targetRemoteSpeed;
     private bool targetRemoteIsRunning;
     private bool targetRemoteIsCrouching;
+    private bool targetRemoteIsGrounded;
+    private int targetRemoteJumpSequence;
 
     void Awake()
     {
@@ -168,6 +171,31 @@ public class NetworkClient : MonoBehaviour
     public void SendPuzzleChoice(int index) =>
         SendMessageToServer("C_PUZZLE_CHOOSE|" + playerId + "|" + index + "\n", "Puzzle choice failed");
 
+    public void SendMimicState(int mimicId, int state)
+    {
+        if (offlineMode || playerId != 1 || mimicId <= 0) return;
+        SendMessageToServer($"C_MIMIC_STATE|{playerId}|{mimicId}|{state}\n", "Mimic state failed");
+    }
+
+    public int SendMimicFire(int mimicId, int targetId, Vector3 start, Vector3 direction,
+                             float speed, int damage)
+    {
+        if (offlineMode || playerId != 1 || mimicId <= 0 || !isConnected) return 0;
+        int shotId = nextMimicShotId++;
+        string message = string.Format(CultureInfo.InvariantCulture,
+            "C_MIMIC_FIRE|{0}|{1}|{2}|{3}|{4:F3}|{5:F3}|{6:F3}|{7:F3}|{8:F3}|{9:F3}|{10:F2}|{11}\n",
+            playerId, mimicId, shotId, targetId, start.x, start.y, start.z,
+            direction.x, direction.y, direction.z, speed, damage);
+        SendMessageToServer(message, "Mimic projectile failed");
+        return shotId;
+    }
+
+    public void SendMimicHit(int shotId)
+    {
+        if (offlineMode || shotId <= 0) return;
+        SendMessageToServer($"C_MIMIC_HIT|{playerId}|{shotId}\n", "Mimic hit failed");
+    }
+
     void SendLocalPlayerTransform()
     {
         if (localPlayerTransform == null) return;
@@ -180,12 +208,14 @@ public class NetworkClient : MonoBehaviour
         float animSpeed = localPlayerController != null ? localPlayerController.CurrentAnimSpeed : 0f;
         bool isRunning = localPlayerController != null && localPlayerController.IsRunningState;
         bool isCrouching = localPlayerController != null && localPlayerController.IsCrouchingState;
+        bool isGrounded = localPlayerController != null && localPlayerController.IsGroundedState;
+        int jumpSequence = localPlayerController != null ? localPlayerController.JumpSequence : 0;
 
         string message = string.Format(
             CultureInfo.InvariantCulture,
-            "MOVE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6}|{7}\n",
+            "MOVE|{0}|{1:F2}|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6}|{7}|{8}|{9}\n",
             playerId, pos.x, pos.y, pos.z, rotY, animSpeed,
-            isRunning ? 1 : 0, isCrouching ? 1 : 0
+            isRunning ? 1 : 0, isCrouching ? 1 : 0, isGrounded ? 1 : 0, jumpSequence
         );
         SendMessageToServer(message, "플레이어 위치 전송 실패");
     }
@@ -392,6 +422,9 @@ public class NetworkClient : MonoBehaviour
             case "S_PUZZLE_CHOICES":
                 if (CoopShapePuzzle.Instance != null) CoopShapePuzzle.Instance.SetChoices(parts);
                 break;
+            case "S_PUZZLE_PROGRESS":
+                if (CoopShapePuzzle.Instance != null) CoopShapePuzzle.Instance.SetProgress(parts);
+                break;
             case "S_PUZZLE_WRONG":
                 if (CoopShapePuzzle.Instance != null) CoopShapePuzzle.Instance.SetWrong();
                 break;
@@ -400,6 +433,8 @@ public class NetworkClient : MonoBehaviour
                 break;
             case "MOVE": ProcessMovePacket(parts); break;
             case "S_MONSTER_STATE": ProcessMonsterStatePacket(parts); break;
+            case "S_MIMIC_STATE": ProcessMimicStatePacket(parts); break;
+            case "S_MIMIC_FIRE": ProcessMimicFirePacket(parts); break;
             case "S_NOISE": ProcessNoisePacket(parts); break;
             case "S_PLAYER_DAMAGE": ProcessPlayerDamagePacket(parts); break;
             case "S_PLAYER_HP": ProcessPlayerHpPacket(parts); break;
@@ -418,7 +453,7 @@ public class NetworkClient : MonoBehaviour
 
     void ProcessMovePacket(string[] parts)
     {
-        if (parts.Length < 9) return;
+        if (parts.Length < 11) return;
         if (!int.TryParse(parts[1], out int receivedPlayerId) || receivedPlayerId == playerId) return;
 
         if (float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
@@ -431,6 +466,8 @@ public class NetworkClient : MonoBehaviour
             float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out targetRemoteSpeed);
             targetRemoteIsRunning = parts[7] == "1";
             targetRemoteIsCrouching = parts[8] == "1";
+            targetRemoteIsGrounded = parts[9] == "1";
+            if (!int.TryParse(parts[10], out targetRemoteJumpSequence) || targetRemoteJumpSequence < 0) return;
             hasRemoteState = true;
         }
     }
@@ -450,6 +487,40 @@ public class NetworkClient : MonoBehaviour
             bool isAttack = parts[10] == "1";
             ApplyRemoteMonsterTransform(monsterId, new Vector3(x, y, z), Quaternion.Euler(0f, rotY, 0f), speed, isWalk, isAttack);
         }
+    }
+
+    MimicLaptop FindMimic(int mimicId)
+    {
+        foreach (MimicLaptop mimic in FindObjectsByType<MimicLaptop>(FindObjectsSortMode.None))
+            if (mimic.NetworkId == mimicId) return mimic;
+        return null;
+    }
+
+    void ProcessMimicStatePacket(string[] parts)
+    {
+        if (parts.Length != 3 || !int.TryParse(parts[1], out int mimicId) ||
+            !int.TryParse(parts[2], out int state)) return;
+        MimicLaptop mimic = FindMimic(mimicId);
+        if (mimic != null) mimic.ApplyNetworkState(state);
+    }
+
+    void ProcessMimicFirePacket(string[] parts)
+    {
+        if (parts.Length != 12 || !int.TryParse(parts[1], out int mimicId) ||
+            !int.TryParse(parts[2], out int shotId) ||
+            !int.TryParse(parts[3], out int targetId) ||
+            !float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float sx) ||
+            !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float sy) ||
+            !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float sz) ||
+            !float.TryParse(parts[7], NumberStyles.Float, CultureInfo.InvariantCulture, out float dx) ||
+            !float.TryParse(parts[8], NumberStyles.Float, CultureInfo.InvariantCulture, out float dy) ||
+            !float.TryParse(parts[9], NumberStyles.Float, CultureInfo.InvariantCulture, out float dz) ||
+            !float.TryParse(parts[10], NumberStyles.Float, CultureInfo.InvariantCulture, out float speed) ||
+            !int.TryParse(parts[11], out int damage)) return;
+        MimicLaptop mimic = FindMimic(mimicId);
+        if (mimic != null)
+            mimic.SpawnNetworkProjectile(shotId, targetId, new Vector3(sx, sy, sz),
+                                         new Vector3(dx, dy, dz), speed, damage);
     }
 
     void ProcessNoisePacket(string[] parts)
@@ -499,16 +570,7 @@ public class NetworkClient : MonoBehaviour
         PlayerController playerController = targetObject.GetComponent<PlayerController>();
         if (playerController == null) return;
 
-        bool wasDead = playerController.IsDeadState;
         playerController.TakeDamage(damage);
-        bool isDeadNow = playerController.IsDeadState;
-
-        RemotePlayer remotePlayer = targetObject.GetComponent<RemotePlayer>();
-        if (remotePlayer != null && !playerController.isLocalPlayer)
-        {
-            if (isDeadNow) remotePlayer.PlayDeathAnimation();
-            else if (!wasDead) remotePlayer.PlayHitAnimation();
-        }
     }
 
     void ProcessItemPickupPacket(string[] parts)
@@ -563,7 +625,9 @@ public class NetworkClient : MonoBehaviour
         if (remotePlayer != null)
         {
             remotePlayer.SetState(targetRemotePosition, targetRemoteRotation);
-            remotePlayer.SetAnimationState(targetRemoteSpeed, targetRemoteIsRunning, targetRemoteIsCrouching);
+            remotePlayer.SetAnimationState(targetRemoteSpeed, targetRemoteIsRunning,
+                                           targetRemoteIsCrouching, targetRemoteIsGrounded,
+                                           targetRemoteJumpSequence);
         }
     }
 

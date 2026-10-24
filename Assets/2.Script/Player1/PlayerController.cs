@@ -50,6 +50,8 @@ public class PlayerController : MonoBehaviour
     public float CurrentAnimSpeed { get; private set; }
     public bool IsRunningState => isRunning;
     public bool IsCrouchingState => isCrouching;
+    public bool IsGroundedState => isGrounded;
+    public int JumpSequence { get; private set; }
     public bool IsDeadState => isDead;
     public int CurrentHp => currentHp;
 
@@ -57,6 +59,7 @@ public class PlayerController : MonoBehaviour
     {
         controller = GetComponent<CharacterController>();
         animator = GetComponent<Animator>();
+        if (animator == null) animator = GetComponentInChildren<Animator>();
         noiseEmitter = GetComponent<PlayerNoiseEmitter>();
 
         currentHp = maxHealth;
@@ -97,11 +100,12 @@ public class PlayerController : MonoBehaviour
             HandleMovement();
             HandleStamina();
 
-            if (Input.GetKeyDown(KeyCode.H))
-                TakeDamage(10);
-
-            if (Input.GetKeyDown(KeyCode.K))
-                Die();
+            // Local debug keys must not change health outside server authority.
+            if (NetworkClient.Instance != null && NetworkClient.Instance.offlineMode)
+            {
+                if (Input.GetKeyDown(KeyCode.H)) TakeDamage(10);
+                if (Input.GetKeyDown(KeyCode.K)) Die();
+            }
         }
         else
         {
@@ -209,6 +213,7 @@ public class PlayerController : MonoBehaviour
         {
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
             coyoteTimer = 0f;
+            JumpSequence++;
 
             //  [추가] 점프하는 순간 애니메이터에 Jump 트리거를 날려줍니다.
             if (animator != null)

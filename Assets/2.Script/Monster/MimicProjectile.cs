@@ -14,6 +14,8 @@ public class MimicProjectile : MonoBehaviour
     private Transform owner;
     private bool launched;
     private Material runtimeMaterial;
+    private int networkShotId;
+    private int targetPlayerId;
 
     public static GameObject CreateDefault(Vector3 position, Vector3 direction)
     {
@@ -43,7 +45,8 @@ public class MimicProjectile : MonoBehaviour
         return shot;
     }
 
-    public void Launch(Vector3 travelDirection, float travelSpeed, int hitDamage, Transform source)
+    public void Launch(Vector3 travelDirection, float travelSpeed, int hitDamage, Transform source,
+                       int shotId = 0, int targetId = 0)
     {
         foreach (Collider ownCollider in GetComponentsInChildren<Collider>())
             ownCollider.enabled = false;
@@ -51,6 +54,8 @@ public class MimicProjectile : MonoBehaviour
         speed = Mathf.Max(0.1f, travelSpeed);
         damage = Mathf.Max(1, hitDamage);
         owner = source;
+        networkShotId = shotId;
+        targetPlayerId = targetId;
         launched = true;
         Destroy(gameObject, lifetime);
     }
@@ -74,7 +79,18 @@ public class MimicProjectile : MonoBehaviour
         {
             PlayerController player = nearest.Value.collider.GetComponentInParent<PlayerController>();
             if (player != null && player.isLocalPlayer && !player.IsDeadState)
-                player.TakeDamage(damage);
+            {
+                NetworkClient network = NetworkClient.Instance;
+                if (network != null && !network.offlineMode)
+                {
+                    if (networkShotId > 0 && network.playerId == targetPlayerId)
+                        network.SendMimicHit(networkShotId);
+                }
+                else
+                {
+                    player.TakeDamage(damage);
+                }
+            }
             Destroy(gameObject);
             return;
         }

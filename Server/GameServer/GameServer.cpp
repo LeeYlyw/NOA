@@ -13,6 +13,7 @@
 #include <cerrno>
 #include <climits>
 #include <map>
+#include <iterator>
 #include <random>
 
 #pragma comment(lib, "ws2_32.lib")
@@ -56,6 +57,14 @@ struct ItemState
     ItemType type = ItemType::Unknown;
     int pickedByPlayerId = 0;
     bool isPicked = false;
+};
+
+struct MimicShot
+{
+    int mimicId = 0;
+    int targetPlayerId = 0;
+    int damage = 0;
+    double expiresAt = 0.0;
 };
 
 struct PlayerState
@@ -578,7 +587,7 @@ void BroadcastMonsterState(SOCKET clientSocket1, SOCKET clientSocket2, const Mon
 
 bool ProcessMovePacket(const std::vector<std::string>& parts, int senderPlayerId, PlayerState players[])
 {
-    if (parts.size() < 9)
+    if (parts.size() != 11)
         return false;
 
     int playerId = 0;
@@ -596,11 +605,15 @@ bool ProcessMovePacket(const std::vector<std::string>& parts, int senderPlayerId
     float speed = 0.0f;
     int running = 0;
     int crouching = 0;
+    int grounded = 0;
+    int jumpSequence = 0;
     if (!TryParseFloat(parts[2], position.x) || !TryParseFloat(parts[3], position.y) ||
         !TryParseFloat(parts[4], position.z) || !TryParseFloat(parts[5], rotY) ||
         !TryParseFloat(parts[6], speed) || !TryParseInt(parts[7], running) ||
-        !TryParseInt(parts[8], crouching) || speed < 0.0f ||
-        (running != 0 && running != 1) || (crouching != 0 && crouching != 1))
+        !TryParseInt(parts[8], crouching) || !TryParseInt(parts[9], grounded) ||
+        !TryParseInt(parts[10], jumpSequence) || speed < 0.0f ||
+        (running != 0 && running != 1) || (crouching != 0 && crouching != 1) ||
+        (grounded != 0 && grounded != 1) || jumpSequence < 0)
         return false;
 
     player.playerId = playerId;
@@ -828,6 +841,7 @@ void ProcessClientPacket(
         return;
 
     const std::string& type = parts[0];
+    static std::map<int, MimicShot> mimicShots;
 
     // One cooperative color/shape puzzle per match. Only the assigned client may
     // report its pad or submit a choice; the server owns the answer and result.
@@ -836,6 +850,29 @@ void ProcessClientPacket(
     static bool puzzleSolved = false;
     static int puzzleAnswer = -1;
     static int puzzleChoices[4] = {};
+    static int puzzleRound = 0;
+    static double puzzleRetryAt = 0.0;
+    constexpr int puzzleRoundCount = 3;
+    // Code = shape * 12 + color * 3 + center mark (4 x 4 x 3).
+    auto sendPuzzleRound = [&]() {
+        std::random_device random;
+        puzzleAnswer = static_cast<int>(random() % 48);
+        int shape = puzzleAnswer / 12;
+        int color = (puzzleAnswer / 3) % 4;
+        int mark = puzzleAnswer % 3;
+        puzzleChoices[0] = puzzleAnswer;
+        puzzleChoices[1] = shape * 12 + color * 3 + (mark + 1) % 3;
+        puzzleChoices[2] = shape * 12 + ((color + 1) % 4) * 3 + mark;
+        puzzleChoices[3] = ((shape + 1) % 4) * 12 + color * 3 + mark;
+        std::shuffle(puzzleChoices, puzzleChoices + 4, std::mt19937(random()));
+        SendPacket(clientSocket1, "S_PUZZLE_CLUE|" + std::to_string(puzzleRound) + "|" + std::to_string(puzzleAnswer));
+        std::ostringstream options;
+        options << "S_PUZZLE_CHOICES|" << puzzleRound;
+        for (int choice : puzzleChoices) options << "|" << choice;
+        SendPacket(clientSocket2, options.str());
+        BroadcastPacket(clientSocket1, clientSocket2,
+            "S_PUZZLE_PROGRESS|" + std::to_string(puzzleRound) + "|" + std::to_string(puzzleRoundCount));
+    };
     if (type == "C_PUZZLE_PAD")
     {
         int id = 0, active = 0;
@@ -850,19 +887,8 @@ void ProcessClientPacket(
         if (puzzlePad[1] && puzzlePad[2] && !puzzleStarted)
         {
             puzzleStarted = true;
-            std::random_device random;
-            puzzleAnswer = static_cast<int>(random() % 9);
-            int shape = puzzleAnswer / 3, color = puzzleAnswer % 3;
-            puzzleChoices[0] = puzzleAnswer;
-            puzzleChoices[1] = shape * 3 + (color + 1) % 3;
-            puzzleChoices[2] = ((shape + 1) % 3) * 3 + color;
-            puzzleChoices[3] = ((shape + 2) % 3) * 3 + (color + 2) % 3;
-            std::shuffle(puzzleChoices, puzzleChoices + 4, std::mt19937(random()));
-            SendPacket(clientSocket1, "S_PUZZLE_CLUE|" + std::to_string(puzzleAnswer));
-            std::ostringstream choices;
-            choices << "S_PUZZLE_CHOICES";
-            for (int choice : puzzleChoices) choices << "|" << choice;
-            SendPacket(clientSocket2, choices.str());
+            puzzleRound = 1;
+            sendPuzzleRound();
         }
         return;
     }
@@ -871,18 +897,26 @@ void ProcessClientPacket(
         int id = 0, index = -1;
         if (parts.size() != 3 || !TryParseInt(parts[1], id) || id != 2 || id != senderPlayerId ||
             !TryParseInt(parts[2], index) || index < 0 || index > 3 ||
-            !puzzleStarted || puzzleSolved || !puzzlePad[1] || !puzzlePad[2]) return;
+            !puzzleStarted || puzzleSolved || !puzzlePad[1] || !puzzlePad[2] ||
+            GetTimeSeconds() < puzzleRetryAt) return;
         if (puzzleChoices[index] == puzzleAnswer)
         {
-            puzzleSolved = true;
-            BroadcastPacket(clientSocket1, clientSocket2, "S_PUZZLE_SOLVED");
-            ++clueCount;
-            BroadcastPacket(clientSocket1, clientSocket2,
-                "S_CLUE_COUNT|" + std::to_string(clueCount) + "|" + std::to_string(needClueCount));
-            if (clueCount >= needClueCount)
-                BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_CLEAR");
+            if (puzzleRound < puzzleRoundCount)
+            {
+                ++puzzleRound;
+                sendPuzzleRound();
+            }
+            else
+            {
+                puzzleSolved = true;
+                BroadcastPacket(clientSocket1, clientSocket2, "S_PUZZLE_SOLVED");
+            }
         }
-        else BroadcastPacket(clientSocket1, clientSocket2, "S_PUZZLE_WRONG");
+        else
+        {
+            puzzleRetryAt = GetTimeSeconds() + 1.5;
+            BroadcastPacket(clientSocket1, clientSocket2, "S_PUZZLE_WRONG");
+        }
         return;
     }
 
@@ -895,6 +929,73 @@ void ProcessClientPacket(
         if (otherSocket != INVALID_SOCKET)
             SendPacket(otherSocket, packet);
 
+        return;
+    }
+
+    if (type == "C_MIMIC_STATE")
+    {
+        int playerId = 0, mimicId = 0, state = -1;
+        if (senderPlayerId != 1 || parts.size() != 4 ||
+            !TryParseInt(parts[1], playerId) || playerId != senderPlayerId ||
+            !TryParseInt(parts[2], mimicId) || mimicId < 1 || mimicId > 128 ||
+            !TryParseInt(parts[3], state) || state < 0 || state > 2) return;
+        SendPacket(clientSocket2, "S_MIMIC_STATE|" + std::to_string(mimicId) + "|" +
+                                  std::to_string(state));
+        return;
+    }
+
+    if (type == "C_MIMIC_FIRE")
+    {
+        int playerId = 0, mimicId = 0, shotId = 0, targetId = 0, damage = 0;
+        Vec3 start, direction;
+        float speed = 0.0f;
+        if (senderPlayerId != 1 || parts.size() != 13 ||
+            !TryParseInt(parts[1], playerId) || playerId != senderPlayerId ||
+            !TryParseInt(parts[2], mimicId) || mimicId < 1 || mimicId > 128 ||
+            !TryParseInt(parts[3], shotId) || shotId < 1 ||
+            !TryParseInt(parts[4], targetId) || targetId < 1 || targetId > 2 ||
+            !TryParseFloat(parts[5], start.x) || !TryParseFloat(parts[6], start.y) ||
+            !TryParseFloat(parts[7], start.z) || !TryParseFloat(parts[8], direction.x) ||
+            !TryParseFloat(parts[9], direction.y) || !TryParseFloat(parts[10], direction.z) ||
+            !TryParseFloat(parts[11], speed) || !TryParseInt(parts[12], damage) ||
+            !std::isfinite(start.x) || !std::isfinite(start.y) || !std::isfinite(start.z) ||
+            !std::isfinite(direction.x) || !std::isfinite(direction.y) || !std::isfinite(direction.z) ||
+            !std::isfinite(speed) || speed < 0.1f || speed > 30.0f ||
+            damage < 1 || damage > 30 || players[targetId].isDead ||
+            direction.x * direction.x + direction.y * direction.y + direction.z * direction.z < 0.25f)
+            return;
+
+        double now = GetTimeSeconds();
+        for (auto it = mimicShots.begin(); it != mimicShots.end(); )
+            it = it->second.expiresAt < now ? mimicShots.erase(it) : std::next(it);
+        if (mimicShots.find(shotId) != mimicShots.end()) return;
+        mimicShots[shotId] = { mimicId, targetId, damage, now + 6.0 };
+
+        std::ostringstream fire;
+        fire << "S_MIMIC_FIRE|" << mimicId << "|" << shotId << "|" << targetId;
+        for (size_t i = 5; i <= 12; ++i) fire << "|" << parts[i];
+        SendPacket(clientSocket2, fire.str());
+        return;
+    }
+
+    if (type == "C_MIMIC_HIT")
+    {
+        int playerId = 0, shotId = 0;
+        if (parts.size() != 3 || !TryParseInt(parts[1], playerId) ||
+            playerId != senderPlayerId || !TryParseInt(parts[2], shotId)) return;
+        auto it = mimicShots.find(shotId);
+        if (it == mimicShots.end() || it->second.targetPlayerId != playerId ||
+            GetTimeSeconds() > it->second.expiresAt || players[playerId].isDead) return;
+        MimicShot shot = it->second;
+        mimicShots.erase(it);
+        players[playerId].hp = std::max(0, players[playerId].hp - shot.damage);
+        if (players[playerId].hp == 0) players[playerId].isDead = true;
+        BroadcastPacket(clientSocket1, clientSocket2,
+            "S_PLAYER_DAMAGE|" + std::to_string(playerId) + "|" +
+            std::to_string(shot.damage) + "|" + std::to_string(shot.mimicId));
+        BroadcastPacket(clientSocket1, clientSocket2,
+            "S_PLAYER_HP|" + std::to_string(playerId) + "|" +
+            std::to_string(players[playerId].hp));
         return;
     }
 
@@ -919,6 +1020,13 @@ void ProcessClientPacket(
 
     if (type == "C_ITEM_PICKUP" || type == "ITEM_PICKUP")
     {
+        int requestedId = 0;
+        if (type == "C_ITEM_PICKUP" && parts.size() >= 4 && TryParseInt(parts[2], requestedId))
+        {
+            bool reportsClue = parts[3] == "Clue";
+            if (reportsClue != (requestedId >= 1 && requestedId <= 3) ||
+                (requestedId == 3 && !puzzleSolved)) return;
+        }
         ProcessItemPickupPacket(parts, senderPlayerId, clientSocket1, clientSocket2, players, items, clueCount, needClueCount);
         return;
     }

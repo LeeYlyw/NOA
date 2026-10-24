@@ -1,33 +1,37 @@
 using UnityEngine;
 
 // One shared puzzle spawned from deterministic map positions on both clients.
-// Player 1 describes the colored shape; player 2 selects it while both stand on pads.
+// Player 1 reads a compound sigil; player 2 identifies it while both hold the pads.
 public class CoopShapePuzzle : MonoBehaviour
 {
     public static CoopShapePuzzle Instance { get; private set; }
 
-    static readonly string[] ShapeNames = { "SQUARE", "TRIANGLE", "CIRCLE" };
-    static readonly string[] ColorNames = { "RED", "BLUE", "YELLOW" };
-    static readonly Color[] ShapeColors = { new Color(0.95f, 0.2f, 0.2f), new Color(0.2f, 0.55f, 1f), new Color(1f, 0.85f, 0.1f) };
+    static readonly string[] ShapeNames = { "SQUARE", "TRIANGLE", "CIRCLE", "DIAMOND" };
+    static readonly string[] ColorNames = { "RED", "BLUE", "YELLOW", "GREEN" };
+    static readonly string[] MarkNames = { "DOT", "BAR", "CROSS" };
+    static readonly Color[] ShapeColors = { new Color(0.95f, 0.2f, 0.2f), new Color(0.2f, 0.55f, 1f), new Color(1f, 0.85f, 0.1f), new Color(0.25f, 0.85f, 0.4f) };
 
     readonly bool[] pads = new bool[3];
     readonly int[] choices = { -1, -1, -1, -1 };
-    readonly Texture2D[] shapeImages = new Texture2D[9];
+    readonly Texture2D[] shapeImages = new Texture2D[48];
     Vector3 firstPad;
     Vector3 secondPad;
-    Transform cabinetDoor;
-    Vector3 closedDoorPosition;
+    Transform roomGate;
+    Vector3 closedGatePosition;
+    GameObject lockedClue;
     bool configured;
     bool locallyOnPad;
     bool solved;
     int clue = -1;
+    int round;
+    int totalRounds = 3;
     float wrongUntil;
 
-    public static GameObject Create(Vector3 player1Spawn, Vector3 player2Spawn)
+    public static GameObject Create(Vector3 player1Spawn, Vector3 player2Spawn, Vector3 roomCenter, float tileSize)
     {
         GameObject root = new GameObject("Cooperative Shape Puzzle");
         CoopShapePuzzle puzzle = root.AddComponent<CoopShapePuzzle>();
-        puzzle.Configure(player1Spawn, player2Spawn);
+        puzzle.Configure(player1Spawn, player2Spawn, roomCenter, tileSize);
         return root;
     }
 
@@ -39,42 +43,47 @@ public class CoopShapePuzzle : MonoBehaviour
         foreach (Texture2D image in shapeImages) if (image != null) Destroy(image);
     }
 
-    void Configure(Vector3 p1, Vector3 p2)
+    void Configure(Vector3 p1, Vector3 p2, Vector3 roomCenter, float tileSize)
     {
-        firstPad = FindPadPosition(p1);
-        secondPad = FindPadPosition(p2);
+        firstPad = FindPadPosition(p1, Vector3.zero);
+        secondPad = FindPadPosition(p2, firstPad);
         CreatePad("Blue description pad", firstPad, new Color(0.1f, 0.7f, 1f));
         CreatePad("Orange selection pad", secondPad, new Color(1f, 0.45f, 0.08f));
 
-        // A visible cabinet opens on both clients when the server accepts the answer.
-        Vector3 direction = (p1 - p2).normalized;
-        Vector3 cabinetPosition = secondPad + Vector3.Cross(Vector3.up, direction) * 2.7f;
-        cabinetPosition.y = secondPad.y - 0.1f;
-        GameObject cabinet = CreatePrimitive("Puzzle cabinet", PrimitiveType.Cube,
-            cabinetPosition + Vector3.up * 0.8f, new Vector3(1.8f, 1.6f, 0.45f), new Color(0.13f, 0.17f, 0.22f));
-        GameObject door = CreatePrimitive("Cabinet door", PrimitiveType.Cube,
-            cabinetPosition + Vector3.up * 0.8f + Vector3.back * 0.28f,
-            new Vector3(1.5f, 1.3f, 0.08f), new Color(0.9f, 0.2f, 0.2f));
-        cabinet.transform.SetParent(transform);
-        door.transform.SetParent(transform);
-        GameObject evidence = CreatePrimitive("Puzzle evidence", PrimitiveType.Sphere,
-            cabinetPosition + Vector3.up * 0.8f + Vector3.back * 0.36f,
-            Vector3.one * 0.45f, new Color(1f, 0.8f, 0.12f));
-        evidence.transform.SetParent(transform);
-        cabinetDoor = door.transform;
-        closedDoorPosition = cabinetDoor.position;
+        // The 1x1 room has an open south side. Seal it until the server solves the puzzle.
+        GameObject gate = CreatePrimitive("Sigil locked room gate", PrimitiveType.Cube,
+            roomCenter + Vector3.back * (tileSize * 0.5f) + Vector3.up * 2f,
+            new Vector3(tileSize - 0.4f, 4f, 0.35f), new Color(0.8f, 0.13f, 0.17f));
+        gate.transform.SetParent(transform);
+        gate.AddComponent<BoxCollider>();
+        roomGate = gate.transform;
+        closedGatePosition = roomGate.position;
         for (int i = 0; i < shapeImages.Length; i++) shapeImages[i] = MakeShapeImage(i);
         configured = true;
     }
 
-    Vector3 FindPadPosition(Vector3 spawn)
+    public void SetLockedClue(GameObject clue)
+    {
+        lockedClue = clue;
+        if (lockedClue != null) lockedClue.SetActive(solved);
+    }
+
+    Vector3 FindPadPosition(Vector3 spawn, Vector3 otherPad)
     {
         // The players start next to the pads, so stepping on them starts the puzzle.
-        Vector3[] offsets = { Vector3.right * 2.5f, Vector3.left * 2.5f, Vector3.forward * 2.5f, Vector3.back * 2.5f };
+        Vector3[] offsets = { Vector3.right * 2.5f, Vector3.left * 2.5f, Vector3.forward * 2.5f, Vector3.back * 2.5f,
+            (Vector3.right + Vector3.forward).normalized * 2.5f,
+            (Vector3.left + Vector3.back).normalized * 2.5f };
+        if (!UnityEngine.AI.NavMesh.SamplePosition(spawn, out UnityEngine.AI.NavMeshHit start, 1.5f, UnityEngine.AI.NavMesh.AllAreas))
+            return spawn;
+        UnityEngine.AI.NavMeshPath path = new UnityEngine.AI.NavMeshPath();
         foreach (Vector3 offset in offsets)
         {
             Vector3 point = spawn + offset;
-            if (UnityEngine.AI.NavMesh.SamplePosition(point, out UnityEngine.AI.NavMeshHit hit, 1f, UnityEngine.AI.NavMesh.AllAreas))
+            if (UnityEngine.AI.NavMesh.SamplePosition(point, out UnityEngine.AI.NavMeshHit hit, 0.8f, UnityEngine.AI.NavMesh.AllAreas) &&
+                (otherPad == Vector3.zero || Vector3.Distance(hit.position, otherPad) >= 3f) &&
+                UnityEngine.AI.NavMesh.CalculatePath(start.position, hit.position, UnityEngine.AI.NavMesh.AllAreas, path) &&
+                path.status == UnityEngine.AI.NavMeshPathStatus.PathComplete)
                 return hit.position;
         }
         return spawn;
@@ -114,9 +123,9 @@ public class CoopShapePuzzle : MonoBehaviour
 
         if (solved)
         {
-            if (cabinetDoor != null)
-                cabinetDoor.position = Vector3.MoveTowards(cabinetDoor.position,
-                    closedDoorPosition + Vector3.down * 1.4f, Time.deltaTime * 2f);
+            if (roomGate != null)
+                roomGate.position = Vector3.MoveTowards(roomGate.position,
+                    closedGatePosition + Vector3.down * 4.2f, Time.deltaTime * 4f);
             return;
         }
 
@@ -147,19 +156,33 @@ public class CoopShapePuzzle : MonoBehaviour
 
     public void SetClue(string[] parts)
     {
-        if (parts.Length == 2 && int.TryParse(parts[1], out int value) && value >= 0 && value < 9)
-            clue = value;
+        if (parts.Length == 3 && int.TryParse(parts[1], out int newRound) &&
+            int.TryParse(parts[2], out int value) && newRound >= round && value >= 0 && value < 48)
+        { round = newRound; clue = value; wrongUntil = 0f; }
     }
 
     public void SetChoices(string[] parts)
     {
-        if (parts.Length != 5) return;
+        if (parts.Length != 6 || !int.TryParse(parts[1], out int newRound) || newRound < round) return;
+        round = newRound;
         for (int i = 0; i < 4; i++)
-            if (!int.TryParse(parts[i + 1], out choices[i]) || choices[i] < 0 || choices[i] >= 9) return;
+            if (!int.TryParse(parts[i + 2], out choices[i]) || choices[i] < 0 || choices[i] >= 48) return;
+        wrongUntil = 0f;
+    }
+
+    public void SetProgress(string[] parts)
+    {
+        if (parts.Length == 3 && int.TryParse(parts[1], out int newRound) &&
+            int.TryParse(parts[2], out int count) && newRound >= round && count > 0)
+        { round = newRound; totalRounds = count; }
     }
 
     public void SetWrong() { wrongUntil = Time.time + 2f; }
-    public void SetSolved() { solved = true; }
+    public void SetSolved()
+    {
+        solved = true;
+        if (lockedClue != null) lockedClue.SetActive(true);
+    }
 
     void OnGUI()
     {
@@ -168,13 +191,13 @@ public class CoopShapePuzzle : MonoBehaviour
 
         float width = Mathf.Min(560f, Screen.width - 20f);
         Rect panel = new Rect((Screen.width - width) * 0.5f, 12f, width, 215f);
-        GUI.Box(panel, "COOPERATIVE SHAPE PUZZLE");
+        GUI.Box(panel, "COOPERATIVE SIGIL LOCK  -  " + Mathf.Max(1, round) + "/" + totalRounds);
         float x = panel.x + 12f;
         GUI.Label(new Rect(x, 36f, width - 24f, 25f), "Blue pad: " + (pads[1] ? "occupied" : "empty") +
             "     Orange pad: " + (pads[2] ? "occupied" : "empty"));
         if (solved)
         {
-            GUI.Label(new Rect(x, 72f, width - 24f, 35f), "Correct! Cabinet open; one clue collected for the team.");
+            GUI.Label(new Rect(x, 72f, width - 24f, 35f), "Lock released! Find and collect the clue inside the opened room.");
             return;
         }
         if (!pads[1] || !pads[2])
@@ -190,10 +213,10 @@ public class CoopShapePuzzle : MonoBehaviour
         }
         if (network.playerId == 1)
         {
-            GUI.Label(new Rect(x, 62f, width - 24f, 28f), "Describe BOTH the shape and its color to your partner:");
+            GUI.Label(new Rect(x, 62f, width - 24f, 28f), "Describe the outline, color, and center mark to your partner:");
             if (clue >= 0) DrawShape(clue, new Rect(x + 10f, 94f, 72f, 72f));
             if (clue >= 0) GUI.Label(new Rect(x + 100f, 107f, width - 125f, 45f),
-                ColorNames[clue % 3] + " " + ShapeNames[clue / 3]);
+                Describe(clue));
         }
         else
         {
@@ -205,11 +228,16 @@ public class CoopShapePuzzle : MonoBehaviour
                 GUI.Box(new Rect(optionX, 89f, (width - 24f) / 4f - 4f, 99f), (i + 1).ToString());
                 DrawShape(choices[i], new Rect(optionX + 26f, 111f, 52f, 52f));
                 GUI.Label(new Rect(optionX + 10f, 163f, 110f, 22f),
-                    ColorNames[choices[i] % 3] + " " + ShapeNames[choices[i] / 3]);
+                    Describe(choices[i]));
             }
         }
         if (Time.time < wrongUntil)
-            GUI.Label(new Rect(x, 190f, width - 24f, 22f), "Wrong answer. Check the color AND shape.");
+            GUI.Label(new Rect(x, 190f, width - 24f, 22f), "Wrong sigil. Compare all three details; retry shortly.");
+    }
+
+    static string Describe(int id)
+    {
+        return ColorNames[(id / 3) % 4] + " " + ShapeNames[id / 12] + " / " + MarkNames[id % 3];
     }
 
     void DrawShape(int id, Rect area)
@@ -223,7 +251,9 @@ public class CoopShapePuzzle : MonoBehaviour
         Texture2D image = new Texture2D(64, 64, TextureFormat.RGBA32, false);
         image.filterMode = FilterMode.Bilinear;
         Color[] pixels = new Color[64 * 64];
-        int shape = id / 3;
+        int shape = id / 12;
+        int color = (id / 3) % 4;
+        int mark = id % 3;
         for (int y = 0; y < 64; y++)
             for (int x = 0; x < 64; x++)
             {
@@ -231,8 +261,13 @@ public class CoopShapePuzzle : MonoBehaviour
                 float ny = (y - 31.5f) / 28f;
                 bool inside = shape == 0 ? Mathf.Abs(nx) < 0.82f && Mathf.Abs(ny) < 0.82f :
                     shape == 1 ? ny > -0.82f && ny < 0.82f && Mathf.Abs(nx) < (0.82f - ny) * 0.52f :
-                    nx * nx + ny * ny < 0.72f;
-                pixels[y * 64 + x] = inside ? ShapeColors[id % 3] : Color.clear;
+                    shape == 2 ? nx * nx + ny * ny < 0.72f :
+                    Mathf.Abs(nx) + Mathf.Abs(ny) < 0.98f;
+                bool center = mark == 0 ? nx * nx + ny * ny < 0.055f :
+                    mark == 1 ? Mathf.Abs(nx) < 0.075f && Mathf.Abs(ny) < 0.35f :
+                    (Mathf.Abs(nx) < 0.065f && Mathf.Abs(ny) < 0.34f) ||
+                    (Mathf.Abs(ny) < 0.065f && Mathf.Abs(nx) < 0.34f);
+                pixels[y * 64 + x] = !inside ? Color.clear : center ? Color.black : ShapeColors[color];
             }
         image.SetPixels(pixels);
         image.Apply();

@@ -13,10 +13,13 @@ public class RemotePlayer : MonoBehaviour
     private float targetSpeed;
     private bool targetIsRunning;
     private bool targetIsCrouching;
+    private bool targetIsGrounded;
+    private int lastJumpSequence;
 
     void Awake()
     {
         animator = GetComponent<Animator>();
+        if (animator == null) animator = GetComponentInChildren<Animator>();
 
         targetPosition = transform.position;
         targetRotation = transform.rotation;
@@ -44,6 +47,7 @@ public class RemotePlayer : MonoBehaviour
             animator.SetFloat("Speed", targetSpeed);
             animator.SetBool("IsRunning", targetIsRunning);
             animator.SetBool("isCrouching", targetIsCrouching);
+            animator.SetBool("isGrounded", targetIsGrounded);
         }
     }
 
@@ -60,11 +64,16 @@ public class RemotePlayer : MonoBehaviour
         }
     }
 
-    public void SetAnimationState(float speed, bool isRunning, bool isCrouching)
+    public void SetAnimationState(float speed, bool isRunning, bool isCrouching,
+                                  bool isGrounded, int jumpSequence)
     {
         targetSpeed = speed;
         targetIsRunning = isRunning;
         targetIsCrouching = isCrouching;
+        targetIsGrounded = isGrounded;
+        if (jumpSequence > lastJumpSequence && animator != null)
+            animator.SetTrigger("Jump");
+        lastJumpSequence = jumpSequence;
     }
 
     public void PlayHitAnimation()

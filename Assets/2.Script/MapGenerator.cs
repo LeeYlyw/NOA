@@ -55,6 +55,8 @@ public class MapGenerator : MonoBehaviour
     private readonly List<List<long>> emptyRegionCandidates = new List<List<long>>();
     private readonly List<GameObject> spawnedWalls = new List<GameObject>();
     private readonly List<GameObject> spawnedEntities = new List<GameObject>();
+    private Vector3 puzzleRoomCenter;
+    private bool hasPuzzleRoom;
 
     void Start()
     {
@@ -102,6 +104,7 @@ public class MapGenerator : MonoBehaviour
             openEmptyEdges.Clear();
             emptyRegionCandidates.Clear();
             spawnedWalls.Clear();
+            hasPuzzleRoom = false;
 
             if (!PlaceRooms()) { roomFailures++; continue; }
             Physics.SyncTransforms();
@@ -114,9 +117,9 @@ public class MapGenerator : MonoBehaviour
             SpawnPrefabsSafely();
             Physics.SyncTransforms();
             if (!RepairBlockedEmptyOpenings()) { openingFailures++; continue; }
-            if (!CollectReachableSpawnPoints() || validSpawnPoints.Count < 4) { spawnFailures++; continue; }
+            if (!CollectReachableSpawnPoints() || validSpawnPoints.Count < 6) { spawnFailures++; continue; }
             RebuildNavMesh();
-            if (!ValidateNavMeshConnectivity()) { navigationFailures++; continue; }
+            if (!ValidateNavMeshConnectivity() || !ValidatePuzzleRoomAccess()) { navigationFailures++; continue; }
 
             generated = true;
             break;
@@ -188,6 +191,18 @@ public class MapGenerator : MonoBehaviour
         return true;
     }
 
+    bool ValidatePuzzleRoomAccess()
+    {
+        if (!hasPuzzleRoom) return false;
+        if (walkableCenters.Count == 0 ||
+            !NavMesh.SamplePosition(walkableCenters[0], out NavMeshHit outside, 1.5f, NavMesh.AllAreas) ||
+            !NavMesh.SamplePosition(puzzleRoomCenter, out NavMeshHit inside, 1.5f, NavMesh.AllAreas))
+            return false;
+        NavMeshPath path = new NavMeshPath();
+        return NavMesh.CalculatePath(outside.position, inside.position, NavMesh.AllAreas, path) &&
+               path.status == NavMeshPathStatus.PathComplete;
+    }
+
     void DisposeGeneratedObject(GameObject obj)
     {
         if (obj == null) return;
@@ -213,6 +228,7 @@ public class MapGenerator : MonoBehaviour
     {
         float startOffset = -(mapSize * tileSize) / 2f + (tileSize / 2f);
         bool centralRoomPlaced = false;
+        int nextMimicId = 1;
 
         for (int i = 0; i < roomsToSpawn.Count; i++)
         {
@@ -258,8 +274,15 @@ public class MapGenerator : MonoBehaviour
 
                     float posX = startOffset + (rx * tileSize) + ((room.sizeX - 1) * tileSize / 2f);
                     float posZ = startOffset + (rz * tileSize) + ((room.sizeZ - 1) * tileSize / 2f);
-                    Instantiate(room.prefab, new Vector3(posX, 0, posZ),
-                                Quaternion.identity, transform);
+                    if (!hasPuzzleRoom && room.sizeX == 1 && room.sizeZ == 1)
+                    {
+                        puzzleRoomCenter = new Vector3(posX, 0f, posZ);
+                        hasPuzzleRoom = true;
+                    }
+                    GameObject roomInstance = Instantiate(room.prefab, new Vector3(posX, 0, posZ),
+                                                          Quaternion.identity, transform);
+                    foreach (MimicLaptop mimic in roomInstance.GetComponentsInChildren<MimicLaptop>(true))
+                        mimic.SetNetworkId(nextMimicId++);
 
                     placed = true;
                     centralRoomPlaced = true;
@@ -895,8 +918,41 @@ public class MapGenerator : MonoBehaviour
         spawnedEntities.Add(monster2);
         GameObject[] spawnedMonsters = new GameObject[] { monster, monster2 };
 
+        ItemData clueData = null;
+        List<GameObject> ordinaryItemPrefabs = new List<GameObject>();
+        if (itemPrefabs != null)
+            foreach (GameObject itemPrefab in itemPrefabs)
+            {
+                if (itemPrefab == null) continue;
+                PotionItem item = itemPrefab.GetComponent<PotionItem>();
+                if (item != null && item.itemData != null && item.itemData.type == ItemData.ItemType.Clue)
+                    clueData = item.itemData;
+                else
+                    ordinaryItemPrefabs.Add(itemPrefab);
+            }
+        if (clueData == null || !hasPuzzleRoom || validSpawnPoints.Count < 2)
+        {
+            Debug.LogError("[MapGenerator] Three fixed clues require a clue item prefab, a 1x1 room, and two free spawn points.");
+            return;
+        }
+
         List<PotionItem> spawnedPotions = new List<PotionItem>();
-        if (itemPrefabs != null && itemPrefabs.Length > 0)
+        for (int clueId = 1; clueId <= 2; clueId++)
+        {
+            Vector3 position = GetRandomSpawnPoint(removePoint: true);
+            PotionItem clue = CreateCluePickup(position, clueData, clueId);
+            spawnedEntities.Add(clue.gameObject);
+            spawnedPotions.Add(clue);
+        }
+
+        GameObject puzzle = CoopShapePuzzle.Create(p1Pos, p2Pos, puzzleRoomCenter, tileSize);
+        spawnedEntities.Add(puzzle);
+        PotionItem lockedClue = CreateCluePickup(puzzleRoomCenter, clueData, 3);
+        spawnedEntities.Add(lockedClue.gameObject);
+        spawnedPotions.Add(lockedClue);
+        puzzle.GetComponent<CoopShapePuzzle>().SetLockedClue(lockedClue.gameObject);
+
+        if (ordinaryItemPrefabs.Count > 0)
         {
             for (int i = 0; i < itemSpawnCount; i++)
             {
@@ -907,7 +963,7 @@ public class MapGenerator : MonoBehaviour
                 }
 
                 Vector3 itemPos = GetRandomSpawnPoint(removePoint: true);
-                GameObject randomItemPrefab = itemPrefabs[Random.Range(0, itemPrefabs.Length)];
+                GameObject randomItemPrefab = ordinaryItemPrefabs[Random.Range(0, ordinaryItemPrefabs.Count)];
                 GameObject itemObj = Instantiate(randomItemPrefab, itemPos, Quaternion.identity);
                 spawnedEntities.Add(itemObj);
 
@@ -915,7 +971,7 @@ public class MapGenerator : MonoBehaviour
                 if (potion != null)
                 {
                     // ★ [추가된 핵심 코드] 복제된 아이템에 1번부터 순차적으로 고유 식별자 부여
-                    potion.itemId = i + 1;
+                    potion.itemId = i + 4;
                     spawnedPotions.Add(potion);
                 }
             }
@@ -927,8 +983,29 @@ public class MapGenerator : MonoBehaviour
             Debug.Log("[MapGenerator] 맵 생성 완료 및 네트워크 연동 완료");
         }
 
-        GameObject puzzle = CoopShapePuzzle.Create(p1Pos, p2Pos);
-        spawnedEntities.Add(puzzle);
+    }
+
+    PotionItem CreateCluePickup(Vector3 floorPosition, ItemData clueData, int id)
+    {
+        GameObject clue = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        clue.name = id == 3 ? "Locked room clue" : "Field clue " + id;
+        clue.transform.position = floorPosition + Vector3.up * 0.85f;
+        clue.transform.localScale = Vector3.one * 0.55f;
+        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null) shader = Shader.Find("Standard");
+        Material material = new Material(shader);
+        material.color = new Color(1f, 0.78f, 0.12f);
+        clue.GetComponent<Renderer>().material = material;
+        SphereCollider collider = clue.GetComponent<SphereCollider>();
+        collider.isTrigger = true;
+        Rigidbody body = clue.AddComponent<Rigidbody>();
+        body.isKinematic = true;
+        body.useGravity = false;
+        PotionItem pickup = clue.AddComponent<PotionItem>();
+        pickup.itemId = id;
+        pickup.itemData = clueData;
+        clue.AddComponent<ClueVisibilityByRole>();
+        return pickup;
     }
 
     Vector3 GetNearbySpawnPoint(Vector3 origin)
