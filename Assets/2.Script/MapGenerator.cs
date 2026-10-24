@@ -137,7 +137,100 @@ public class MapGenerator : MonoBehaviour
         }
 
         Debug.Log($"[MapGenerator] Seed {selectedSeed}: {roomDoors.Count} rooms, {validSpawnPoints.Count} safe spawn points.");
+        NetworkClient network = NetworkClient.Instance;
+        string navigationMask = network != null && !network.offlineMode && network.IsConnected
+            ? BuildServerNavigationMask() : null;
         SpawnEntities();
+        SendServerNavigationMap(selectedSeed, navigationMask);
+    }
+
+    // Send the actual baked walkable geometry, rather than asking the C++ server to
+    // guess Unity prefab collision from the random seed. Each hex digit describes
+    // the four traversable edges of one two-metre navigation cell.
+    void SendServerNavigationMap(int seed, string edgeMask)
+    {
+        NetworkClient network = NetworkClient.Instance;
+        if (network == null || network.offlineMode || !network.IsConnected ||
+            !network.HasAssignedPlayerId) return;
+
+        Vector3[] monsterPositions = new Vector3[2];
+        bool[] foundMonster = new bool[2];
+        foreach (GameObject entity in spawnedEntities)
+        {
+            if (entity == null) continue;
+            MonsterNetworkSetup setup = entity.GetComponent<MonsterNetworkSetup>();
+            if (setup == null || setup.monsterId < 1 || setup.monsterId > 2) continue;
+            monsterPositions[setup.monsterId - 1] = entity.transform.position;
+            foundMonster[setup.monsterId - 1] = true;
+        }
+        if (!foundMonster[0] || !foundMonster[1])
+        {
+            Debug.LogError("[MapGenerator] Cannot send navigation map without both monster spawns.");
+            return;
+        }
+
+        const float step = 2f;
+        float worldSize = mapSize * tileSize;
+        int width = Mathf.CeilToInt(worldSize / step);
+        int height = width;
+        float origin = -worldSize * 0.5f + step * 0.5f;
+        if (string.IsNullOrEmpty(edgeMask) || edgeMask.Length != width * height) return;
+        Vector3 gate = puzzleRoomCenter + Vector3.back * (tileSize * 0.5f);
+        network.SendNavigationMap(seed, width, height, origin, origin, step,
+                                  gate.x, gate.z, tileSize * 0.5f - 0.2f,
+                                  monsterPositions[0], monsterPositions[1], edgeMask);
+    }
+
+    string BuildServerNavigationMask()
+    {
+        const float step = 2f;
+        float worldSize = mapSize * tileSize;
+        int width = Mathf.CeilToInt(worldSize / step);
+        int height = width;
+        float origin = -worldSize * 0.5f + step * 0.5f;
+        if (width > 200 || height > 200)
+        {
+            Debug.LogError("[MapGenerator] Navigation map exceeds server grid limit.");
+            return null;
+        }
+        bool[] walkable = new bool[width * height];
+        Vector3[] points = new Vector3[walkable.Length];
+        for (int z = 0; z < height; z++)
+        for (int x = 0; x < width; x++)
+        {
+            int index = z * width + x;
+            Vector3 center = new Vector3(origin + x * step, 0f, origin + z * step);
+            if (NavMesh.SamplePosition(center, out NavMeshHit hit, 0.4f, NavMesh.AllAreas) &&
+                Vector2.Distance(new Vector2(center.x, center.z),
+                                 new Vector2(hit.position.x, hit.position.z)) <= 0.4f)
+            {
+                walkable[index] = true;
+                points[index] = hit.position;
+            }
+        }
+        byte[] edges = new byte[walkable.Length];
+        for (int z = 0; z < height; z++)
+        for (int x = 0; x < width; x++)
+        {
+            int index = z * width + x;
+            if (!walkable[index]) continue;
+            if (x + 1 < width && walkable[index + 1] &&
+                !NavMesh.Raycast(points[index], points[index + 1], out _, NavMesh.AllAreas))
+            {
+                edges[index] |= 1;
+                edges[index + 1] |= 2;
+            }
+            if (z + 1 < height && walkable[index + width] &&
+                !NavMesh.Raycast(points[index], points[index + width], out _, NavMesh.AllAreas))
+            {
+                edges[index] |= 4;
+                edges[index + width] |= 8;
+            }
+        }
+        const string hex = "0123456789ABCDEF";
+        System.Text.StringBuilder mask = new System.Text.StringBuilder(edges.Length);
+        foreach (byte edge in edges) mask.Append(hex[edge]);
+        return mask.ToString();
     }
 
     void RebuildNavMesh()

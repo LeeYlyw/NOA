@@ -25,6 +25,26 @@ struct Vec3
     float z = 0.0f;
 };
 
+#include "ServerNavigation.h"
+
+struct NavigationUpload
+{
+    int width = 0;
+    int height = 0;
+    int nextSequence = 0;
+    bool begun = false;
+    bool complete = false;
+    std::string header;
+    std::string mask;
+    Vec3 monsterSpawns[2];
+    float originX = 0.0f, originZ = 0.0f, step = 2.0f;
+    float gateX = 0.0f, gateZ = 0.0f, gateHalfWidth = 0.0f;
+};
+
+static ServerNavigation navigation;
+static NavigationUpload navigationUploads[3];
+static double gateOpeningTime = 0.0;
+
 enum class MonsterType
 {
     Vision,
@@ -100,6 +120,12 @@ struct MonsterState
     float rotY = 0.0f;
     float currentSpeed = 0.0f;
     float moveSpeed = 2.0f;
+    float patrolSpeed = 1.5f;
+    float chaseSpeed = 3.5f;
+    float searchSpeed = 2.0f;
+    float patrolRadius = 12.0f;
+    double searchDuration = 7.0;
+    double loseSightDelay = 1.5;
 
     int targetPlayerId = 0;
 
@@ -115,9 +141,12 @@ struct MonsterState
     bool isWalk = false;
     bool isAttack = false;
     int attackSequence = 0;
-    bool clientNavigated = false;
-    bool hasClientState = false;
-    double lastClientStateTime = 0.0;
+    std::vector<int> path;
+    int pathGoal = -1;
+    size_t pathCursor = 0;
+    double stateUntil = 0.0;
+    double lostSightAt = 0.0;
+    int searchVisits = 0;
 };
 
 static const float PI = 3.1415926535f;
@@ -305,32 +334,56 @@ void FaceTarget(MonsterState& monster, const Vec3& target)
 
 bool MoveToward(MonsterState& monster, const Vec3& target, float deltaTime)
 {
-    float dx = target.x - monster.position.x;
-    float dz = target.z - monster.position.z;
+    if (!navigation.ready) return false;
+    int start = navigation.ClosestCell(monster.position);
+    int goal = navigation.ClosestCell(target);
+    if (start < 0 || goal < 0)
+    {
+        monster.isWalk = false;
+        monster.currentSpeed = 0.0f;
+        return false;
+    }
+    if (monster.pathGoal != goal || monster.path.empty() ||
+        (monster.pathCursor < monster.path.size() &&
+         navigation.ClosestCell(monster.position) != monster.path[monster.pathCursor - 1]))
+    {
+        monster.path = navigation.FindPath(start, goal);
+        monster.pathGoal = goal;
+        monster.pathCursor = monster.path.empty() ? 0 : 1;
+    }
+    if (monster.path.empty())
+    {
+        monster.isWalk = false;
+        monster.currentSpeed = 0.0f;
+        return false;
+    }
+
+    Vec3 waypoint = monster.pathCursor < monster.path.size()
+        ? navigation.Center(monster.path[monster.pathCursor]) : target;
+    float dx = waypoint.x - monster.position.x;
+    float dz = waypoint.z - monster.position.z;
     float distance = std::sqrt(dx * dx + dz * dz);
-
-    FaceTarget(monster, target);
-
-    if (distance < 0.15f)
+    if (distance < 0.2f && monster.pathCursor < monster.path.size())
+    {
+        ++monster.pathCursor;
+        waypoint = monster.pathCursor < monster.path.size()
+            ? navigation.Center(monster.path[monster.pathCursor]) : target;
+        dx = waypoint.x - monster.position.x;
+        dz = waypoint.z - monster.position.z;
+        distance = std::sqrt(dx * dx + dz * dz);
+    }
+    if (distance < 0.2f)
     {
         monster.isWalk = false;
         monster.currentSpeed = 0.0f;
         return true;
     }
-
-    float dirX = dx / distance;
-    float dirZ = dz / distance;
-    float moveAmount = monster.moveSpeed * deltaTime;
-
-    if (moveAmount > distance)
-        moveAmount = distance;
-
-    monster.position.x += dirX * moveAmount;
-    monster.position.z += dirZ * moveAmount;
-
+    FaceTarget(monster, waypoint);
+    float moveAmount = std::min(distance, monster.moveSpeed * deltaTime);
+    monster.position.x += dx / distance * moveAmount;
+    monster.position.z += dz / distance * moveAmount;
     monster.isWalk = true;
     monster.currentSpeed = monster.moveSpeed;
-
     return false;
 }
 
@@ -362,7 +415,8 @@ bool IsPlayerVisible(const MonsterState& monster, const PlayerState& player)
     dot = Clamp(dot, -1.0f, 1.0f);
 
     float angle = std::acos(dot) * 180.0f / PI;
-    return angle <= monster.sightAngle * 0.5f;
+    return angle <= monster.sightAngle * 0.5f &&
+           navigation.HasLineOfSight(monster.position, player.position);
 }
 PlayerState* FindVisiblePlayer(MonsterState& monster, PlayerState players[])
 {
@@ -419,6 +473,8 @@ void SendPlayerDamageIfPossible(
     float distance = Distance2D(monster.position, target.position);
     if (distance > monster.attackRange)
         return;
+    if (!navigation.HasLineOfSight(monster.position, target.position))
+        return;
 
     if (now - monster.lastAttackTime < monster.attackCooldown)
         return;
@@ -454,6 +510,85 @@ void SendPlayerDamageIfPossible(
         << std::endl;
 }
 
+Vec3 PickReachablePoint(const MonsterState& monster, const Vec3& center, float radius)
+{
+    static std::mt19937 random(std::random_device{}());
+    int origin = navigation.ClosestCell(monster.position);
+    int around = navigation.ClosestCell(center);
+    if (origin < 0 || around < 0) return monster.position;
+    int cellRadius = std::max(1, static_cast<int>(std::ceil(radius / navigation.step)));
+    std::uniform_int_distribution<int> offset(-cellRadius, cellRadius);
+    for (int attempt = 0; attempt < 24; ++attempt)
+    {
+        int dx = offset(random), dz = offset(random);
+        if (dx * dx + dz * dz > cellRadius * cellRadius) continue;
+        int index = navigation.Index(around % navigation.width + dx,
+                                     around / navigation.width + dz);
+        if (index < 0 || navigation.edges[index] == 0 || index == origin) continue;
+        if (navigation.FindPath(origin, index).empty()) continue;
+        Vec3 point = navigation.Center(index);
+        point.y = monster.position.y;
+        return point;
+    }
+    return monster.position;
+}
+
+void UpdatePatrol(MonsterState& monster, float deltaTime, double now)
+{
+    monster.state = MonsterAIState::Idle;
+    monster.moveSpeed = monster.patrolSpeed;
+    if (now < monster.stateUntil)
+    {
+        monster.isWalk = false;
+        monster.currentSpeed = 0.0f;
+        monster.rotY = std::fmod(monster.rotY + 30.0f * deltaTime, 360.0f);
+        return;
+    }
+    if (Distance2D(monster.position, monster.targetPosition) < 0.3f || monster.pathGoal < 0)
+        monster.targetPosition = PickReachablePoint(monster, monster.position, monster.patrolRadius);
+    bool arrived = MoveToward(monster, monster.targetPosition, deltaTime);
+    if (arrived || monster.path.empty())
+    {
+        monster.targetPosition = monster.position;
+        monster.stateUntil = now + 1.5;
+        monster.pathGoal = -1;
+    }
+}
+
+void BeginSearch(MonsterState& monster, const Vec3& location)
+{
+    monster.state = MonsterAIState::Investigate;
+    monster.targetPosition = location;
+    monster.searchVisits = -1;
+    monster.stateUntil = 0.0;
+    monster.pathGoal = -1;
+}
+
+void UpdateSearch(MonsterState& monster, float deltaTime, double now)
+{
+    monster.moveSpeed = monster.searchSpeed;
+    if (monster.searchVisits >= 0 && now >= monster.stateUntil)
+    {
+        monster.state = MonsterAIState::Idle;
+        monster.targetPosition = monster.position;
+        monster.stateUntil = now + 1.5;
+        monster.pathGoal = -1;
+        return;
+    }
+    bool arrived = MoveToward(monster, monster.targetPosition, deltaTime);
+    if (!arrived && !monster.path.empty()) return;
+    if (monster.searchVisits < 0)
+    {
+        monster.searchVisits = 0;
+        monster.stateUntil = now + monster.searchDuration;
+    }
+    Vec3 center = monster.type == MonsterType::Vision
+        ? monster.lastKnownPosition : monster.lastHeardPosition;
+    monster.targetPosition = PickReachablePoint(monster, center, 3.0f);
+    monster.pathGoal = -1;
+    ++monster.searchVisits;
+}
+
 void UpdateVisionMonster(
     MonsterState& monster,
     PlayerState players[],
@@ -463,16 +598,13 @@ void UpdateVisionMonster(
     double now)
 {
     monster.isAttack = false;
-
     PlayerState* visiblePlayer = FindVisiblePlayer(monster, players);
-
     if (visiblePlayer != nullptr)
     {
+        monster.lostSightAt = 0.0;
         monster.targetPlayerId = visiblePlayer->playerId;
         monster.lastKnownPosition = visiblePlayer->position;
-
         float distance = Distance2D(monster.position, visiblePlayer->position);
-
         if (distance <= monster.attackRange)
         {
             monster.state = MonsterAIState::Attack;
@@ -482,44 +614,29 @@ void UpdateVisionMonster(
             SendPlayerDamageIfPossible(monster, *visiblePlayer, clientSocket1, clientSocket2, now);
             return;
         }
-
         monster.state = MonsterAIState::Chase;
+        monster.moveSpeed = monster.chaseSpeed;
         MoveToward(monster, visiblePlayer->position, deltaTime);
         return;
     }
-
     if (monster.state == MonsterAIState::Chase || monster.state == MonsterAIState::Attack)
     {
-        monster.state = MonsterAIState::Investigate;
-        monster.targetPosition = monster.lastKnownPosition;
+        if (monster.lostSightAt == 0.0) monster.lostSightAt = now;
+        if (now - monster.lostSightAt < monster.loseSightDelay)
+        {
+            monster.state = MonsterAIState::Chase;
+            monster.moveSpeed = monster.chaseSpeed;
+            MoveToward(monster, monster.lastKnownPosition, deltaTime);
+            return;
+        }
+        BeginSearch(monster, monster.lastKnownPosition);
     }
-
     if (monster.state == MonsterAIState::Investigate)
     {
-        bool arrived = MoveToward(monster, monster.targetPosition, deltaTime);
-        if (arrived)
-            monster.state = MonsterAIState::Return;
-
+        UpdateSearch(monster, deltaTime, now);
         return;
     }
-
-    if (monster.state == MonsterAIState::Return)
-    {
-        bool arrived = MoveToward(monster, monster.spawnPosition, deltaTime);
-        if (arrived)
-            monster.state = MonsterAIState::Idle;
-
-        return;
-    }
-
-    // 1차 구현에서는 순찰 경로가 없으므로 Idle 상태에서 천천히 회전하며 시야 탐색만 한다.
-    monster.state = MonsterAIState::Idle;
-    monster.rotY += 30.0f * deltaTime;
-    if (monster.rotY >= 360.0f)
-        monster.rotY -= 360.0f;
-
-    monster.isWalk = false;
-    monster.currentSpeed = 0.0f;
+    UpdatePatrol(monster, deltaTime, now);
 }
 
 void UpdateSoundMonster(
@@ -531,41 +648,46 @@ void UpdateSoundMonster(
     double now)
 {
     monster.isAttack = false;
-
-    PlayerState* attackTarget = FindNearestAttackTarget(monster, players);
-    if (attackTarget != nullptr)
+    PlayerState* visiblePlayer = FindVisiblePlayer(monster, players);
+    if (visiblePlayer != nullptr)
     {
-        monster.state = MonsterAIState::Attack;
-        monster.isWalk = false;
-        monster.currentSpeed = 0.0f;
-        FaceTarget(monster, attackTarget->position);
-        SendPlayerDamageIfPossible(monster, *attackTarget, clientSocket1, clientSocket2, now);
+        monster.lostSightAt = 0.0;
+        monster.targetPlayerId = visiblePlayer->playerId;
+        monster.lastKnownPosition = visiblePlayer->position;
+        float distance = Distance2D(monster.position, visiblePlayer->position);
+        if (distance <= monster.attackRange)
+        {
+            monster.state = MonsterAIState::Attack;
+            monster.isWalk = false;
+            monster.currentSpeed = 0.0f;
+            FaceTarget(monster, visiblePlayer->position);
+            SendPlayerDamageIfPossible(monster, *visiblePlayer, clientSocket1, clientSocket2, now);
+            return;
+        }
+        monster.state = MonsterAIState::Chase;
+        monster.moveSpeed = monster.chaseSpeed;
+        MoveToward(monster, visiblePlayer->position, deltaTime);
         return;
     }
-
+    if (monster.state == MonsterAIState::Chase || monster.state == MonsterAIState::Attack)
+    {
+        if (monster.lostSightAt == 0.0) monster.lostSightAt = now;
+        if (now - monster.lostSightAt < monster.loseSightDelay)
+        {
+            monster.state = MonsterAIState::Chase;
+            monster.moveSpeed = monster.chaseSpeed;
+            MoveToward(monster, monster.lastKnownPosition, deltaTime);
+            return;
+        }
+        monster.lastHeardPosition = monster.lastKnownPosition;
+        BeginSearch(monster, monster.lastKnownPosition);
+    }
     if (monster.state == MonsterAIState::Investigate)
     {
-        bool arrived = MoveToward(monster, monster.lastHeardPosition, deltaTime);
-
-        if (arrived)
-            monster.state = MonsterAIState::Return;
-
+        UpdateSearch(monster, deltaTime, now);
         return;
     }
-
-    if (monster.state == MonsterAIState::Return)
-    {
-        bool arrived = MoveToward(monster, monster.spawnPosition, deltaTime);
-
-        if (arrived)
-            monster.state = MonsterAIState::Idle;
-
-        return;
-    }
-
-    monster.state = MonsterAIState::Idle;
-    monster.isWalk = false;
-    monster.currentSpeed = 0.0f;
+    UpdatePatrol(monster, deltaTime, now);
 }
 
 void BroadcastMonsterState(SOCKET clientSocket1, SOCKET clientSocket2, const MonsterState& monster)
@@ -647,7 +769,9 @@ void ProcessNoisePacket(const std::vector<std::string>& parts, int senderPlayerI
     float noiseAmount = 0.0f;
     if (!TryParseFloat(parts[2], noisePosition.x) || !TryParseFloat(parts[3], noisePosition.y) ||
         !TryParseFloat(parts[4], noisePosition.z) || !TryParseFloat(parts[5], noiseAmount) ||
-        noiseAmount < 0.0f)
+        noiseAmount < 0.0f || noiseAmount > 10.0f || !navigation.ready ||
+        !players[playerId].hasState ||
+        Distance2D(noisePosition, players[playerId].position) > 2.0f)
         return;
 
     for (int i = 0; i < 2; ++i)
@@ -656,16 +780,21 @@ void ProcessNoisePacket(const std::vector<std::string>& parts, int senderPlayerI
 
         if (monster.type != MonsterType::Sound)
             continue;
+        if (FindVisiblePlayer(monster, players) != nullptr)
+            continue;
 
         float distance = Distance2D(monster.position, noisePosition);
 
         // noiseAmount가 클수록 더 먼 소리도 들을 수 있게 처리한다.
-        if (distance <= monster.hearingRange + noiseAmount)
+        if (distance <= noiseAmount * 2.0f)
         {
             monster.state = MonsterAIState::Investigate;
             monster.targetPlayerId = playerId;
             monster.lastHeardPosition = noisePosition;
             monster.targetPosition = noisePosition;
+            monster.searchVisits = -1;
+            monster.stateUntil = 0.0;
+            monster.pathGoal = -1;
 
             std::cout << "[NOISE] player "
                 << playerId
@@ -676,67 +805,6 @@ void ProcessNoisePacket(const std::vector<std::string>& parts, int senderPlayerI
         }
     }
 }
-
-bool ProcessMonsterStatePacket(const std::vector<std::string>& parts, int senderPlayerId, MonsterState monsters[])
-{
-    // Unity owns the generated NavMesh, so player 1 provides navigation state.
-    // The server still validates movement and remains authoritative for damage.
-    // C_MONSTER_STATE|playerId|monsterId|x|y|z|rotY|speed|isWalk|isAttack|targetId
-    if (senderPlayerId != 1 || parts.size() != 11)
-        return false;
-
-    int packetPlayerId = 0;
-    int monsterId = 0;
-    Vec3 position;
-    float rotY = 0.0f;
-    float speed = 0.0f;
-    int isWalk = 0;
-    int isAttack = 0;
-    int targetPlayerId = 0;
-
-    if (!TryParseInt(parts[1], packetPlayerId) || packetPlayerId != senderPlayerId ||
-        !TryParseInt(parts[2], monsterId) || monsterId < 1 || monsterId > 2 ||
-        !TryParseFloat(parts[3], position.x) || !TryParseFloat(parts[4], position.y) ||
-        !TryParseFloat(parts[5], position.z) || !TryParseFloat(parts[6], rotY) ||
-        !TryParseFloat(parts[7], speed) || !TryParseInt(parts[8], isWalk) ||
-        !TryParseInt(parts[9], isAttack) || !TryParseInt(parts[10], targetPlayerId) ||
-        targetPlayerId < 0 || targetPlayerId > 2 ||
-        (isAttack != 0 && targetPlayerId == 0))
-        return false;
-
-    MonsterState& monster = monsters[monsterId - 1];
-    double now = GetTimeSeconds();
-    if (monster.hasClientState)
-    {
-        double elapsed = Clamp(static_cast<float>(now - monster.lastClientStateTime), 0.0f, 0.5f);
-        float maxDistance = 8.0f * static_cast<float>(elapsed) + 0.35f;
-        if (Distance2D(monster.position, position) > maxDistance)
-            return false;
-    }
-
-    if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z) ||
-        !std::isfinite(rotY) || !std::isfinite(speed))
-        return false;
-
-    monster.position = position;
-    monster.rotY = rotY;
-    monster.currentSpeed = Clamp(speed, 0.0f, 8.0f);
-    monster.isWalk = isWalk != 0;
-    monster.isAttack = isAttack != 0;
-    monster.targetPlayerId = monster.isAttack ? targetPlayerId : 0;
-    monster.state = monster.isAttack ? MonsterAIState::Attack :
-        (monster.isWalk ? MonsterAIState::Chase : MonsterAIState::Idle);
-    monster.lastClientStateTime = now;
-
-    if (!monster.hasClientState)
-    {
-        monster.spawnPosition = position;
-        monster.hasClientState = true;
-    }
-
-    return true;
-}
-
 
 void ProcessItemPickupPacket(
     const std::vector<std::string>& parts,
@@ -829,6 +897,129 @@ void ProcessItemPickupPacket(
         << std::endl;
 }
 
+void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPlayerId,
+                             SOCKET clientSocket1, SOCKET clientSocket2, MonsterState monsters[])
+{
+    if (parts.size() < 2 || navigation.ready) return;
+    int packetPlayerId = 0;
+    if (!TryParseInt(parts[1], packetPlayerId) || packetPlayerId != senderPlayerId) return;
+    NavigationUpload& upload = navigationUploads[senderPlayerId];
+
+    if (parts[0] == "C_NAV_BEGIN")
+    {
+        if (parts.size() != 17) return;
+        int seed = 0, width = 0, height = 0;
+        NavigationUpload candidate;
+        if (!TryParseInt(parts[2], seed) || !TryParseInt(parts[3], width) ||
+            !TryParseInt(parts[4], height) || seed < 1 || width < 2 || height < 2 ||
+            width > 200 || height > 200 ||
+            !TryParseFloat(parts[5], candidate.originX) ||
+            !TryParseFloat(parts[6], candidate.originZ) ||
+            !TryParseFloat(parts[7], candidate.step) ||
+            !TryParseFloat(parts[8], candidate.gateX) ||
+            !TryParseFloat(parts[9], candidate.gateZ) ||
+            !TryParseFloat(parts[10], candidate.gateHalfWidth) ||
+            candidate.step < 0.5f || candidate.step > 4.0f ||
+            candidate.gateHalfWidth < 0.0f || candidate.gateHalfWidth > 50.0f)
+            return;
+        for (int i = 0; i < 2; ++i)
+        {
+            int offset = 11 + i * 3;
+            if (!TryParseFloat(parts[offset], candidate.monsterSpawns[i].x) ||
+                !TryParseFloat(parts[offset + 1], candidate.monsterSpawns[i].y) ||
+                !TryParseFloat(parts[offset + 2], candidate.monsterSpawns[i].z)) return;
+        }
+        candidate.width = width;
+        candidate.height = height;
+        candidate.begun = true;
+        for (size_t i = 2; i < parts.size(); ++i)
+            candidate.header += "|" + parts[i];
+        upload = candidate;
+        return;
+    }
+
+    if (parts[0] == "C_NAV_CHUNK")
+    {
+        int sequence = -1;
+        if (parts.size() != 4 || !upload.begun || upload.complete ||
+            !TryParseInt(parts[2], sequence) || sequence != upload.nextSequence ||
+            parts[3].empty() || parts[3].size() > 1000 ||
+            upload.mask.size() + parts[3].size() >
+                static_cast<size_t>(upload.width * upload.height)) return;
+        for (char digit : parts[3])
+            if ((digit < '0' || digit > '9') && (digit < 'A' || digit > 'F')) return;
+        upload.mask += parts[3];
+        ++upload.nextSequence;
+        return;
+    }
+
+    if (parts[0] != "C_NAV_END" || parts.size() != 2 || !upload.begun ||
+        upload.mask.size() != static_cast<size_t>(upload.width * upload.height)) return;
+    upload.complete = true;
+    if (!navigationUploads[1].complete || !navigationUploads[2].complete) return;
+
+    if (navigationUploads[1].header != navigationUploads[2].header ||
+        navigationUploads[1].mask != navigationUploads[2].mask)
+    {
+        BroadcastPacket(clientSocket1, clientSocket2, "S_NAV_ERROR|Map geometry differs between clients");
+        std::cout << "[NAV ERROR] Client maps differ" << std::endl;
+        return;
+    }
+
+    const NavigationUpload& source = navigationUploads[1];
+    navigation.width = source.width;
+    navigation.height = source.height;
+    navigation.originX = source.originX;
+    navigation.originZ = source.originZ;
+    navigation.step = source.step;
+    navigation.gateX = source.gateX;
+    navigation.gateZ = source.gateZ;
+    navigation.gateHalfWidth = source.gateHalfWidth;
+    navigation.edges.resize(source.mask.size());
+    for (size_t i = 0; i < source.mask.size(); ++i)
+    {
+        char digit = source.mask[i];
+        navigation.edges[i] = static_cast<uint8_t>(digit <= '9' ? digit - '0' : digit - 'A' + 10);
+    }
+    for (int z = 0; z < navigation.height; ++z)
+    for (int x = 0; x < navigation.width; ++x)
+    {
+        int index = navigation.Index(x, z);
+        uint8_t edge = navigation.edges[index];
+        int right = navigation.Index(x + 1, z);
+        int up = navigation.Index(x, z + 1);
+        if (((edge & 1) != 0) != (right >= 0 && (navigation.edges[right] & 2) != 0) ||
+            ((edge & 4) != 0) != (up >= 0 && (navigation.edges[up] & 8) != 0) ||
+            (x == 0 && (edge & 2) != 0) || (z == 0 && (edge & 8) != 0))
+        {
+            BroadcastPacket(clientSocket1, clientSocket2, "S_NAV_ERROR|Invalid navigation edges");
+            return;
+        }
+    }
+    navigation.ready = true;
+    for (int i = 0; i < 2; ++i)
+    {
+        if (navigation.ClosestCell(source.monsterSpawns[i]) < 0)
+        {
+            navigation.ready = false;
+            BroadcastPacket(clientSocket1, clientSocket2, "S_NAV_ERROR|Monster spawn is not walkable");
+            return;
+        }
+        monsters[i].position = source.monsterSpawns[i];
+        monsters[i].spawnPosition = source.monsterSpawns[i];
+        monsters[i].targetPosition = source.monsterSpawns[i];
+        monsters[i].lastKnownPosition = source.monsterSpawns[i];
+        monsters[i].state = MonsterAIState::Idle;
+        monsters[i].stateUntil = GetTimeSeconds() + 1.5;
+        monsters[i].path.clear();
+        monsters[i].pathGoal = -1;
+        monsters[i].pathCursor = 0;
+    }
+    BroadcastPacket(clientSocket1, clientSocket2, "S_NAV_READY");
+    std::cout << "[NAV READY] " << source.width << "x" << source.height
+              << " cells confirmed by both clients" << std::endl;
+}
+
 void ProcessClientPacket(
     int senderPlayerId,
     const std::string& packet,
@@ -848,6 +1039,11 @@ void ProcessClientPacket(
         return;
 
     const std::string& type = parts[0];
+    if (StartsWith(type, "C_NAV_"))
+    {
+        ProcessNavigationPacket(parts, senderPlayerId, clientSocket1, clientSocket2, monsters);
+        return;
+    }
     static std::map<int, MimicShot> mimicShots;
 
     // One cooperative color/shape puzzle per match. Only the assigned client may
@@ -916,6 +1112,7 @@ void ProcessClientPacket(
             else
             {
                 puzzleSolved = true;
+                gateOpeningTime = GetTimeSeconds() + 1.05;
                 BroadcastPacket(clientSocket1, clientSocket2, "S_PUZZLE_SOLVED");
             }
         }
@@ -973,6 +1170,12 @@ void ProcessClientPacket(
             return;
 
         double now = GetTimeSeconds();
+        if (!navigation.gateOpen && gateOpeningTime > 0.0 && now >= gateOpeningTime)
+        {
+            navigation.gateOpen = true;
+            for (int monsterIndex = 0; monsterIndex < 2; ++monsterIndex)
+                monsters[monsterIndex].pathGoal = -1;
+        }
         for (auto it = mimicShots.begin(); it != mimicShots.end(); )
             it = it->second.expiresAt < now ? mimicShots.erase(it) : std::next(it);
         if (mimicShots.find(shotId) != mimicShots.end()) return;
@@ -1009,19 +1212,6 @@ void ProcessClientPacket(
     if (type == "C_NOISE")
     {
         ProcessNoisePacket(parts, senderPlayerId, players, monsters);
-        if (senderPlayerId == 2 && parts.size() == 6)
-        {
-            std::ostringstream noiseOss;
-            noiseOss << "S_NOISE|" << parts[1] << "|" << parts[2] << "|"
-                << parts[3] << "|" << parts[4] << "|" << parts[5];
-            SendPacket(clientSocket1, noiseOss.str());
-        }
-        return;
-    }
-
-    if (type == "C_MONSTER_STATE")
-    {
-        ProcessMonsterStatePacket(parts, senderPlayerId, monsters);
         return;
     }
 
@@ -1199,13 +1389,18 @@ void InitializeMonsters(MonsterState monsters[])
     monsters[0].targetPosition = monsters[0].position;
     monsters[0].lastKnownPosition = monsters[0].position;
     monsters[0].rotY = 180.0f;
-    monsters[0].moveSpeed = 2.5f;
-    monsters[0].sightRange = 10.0f;
+    monsters[0].moveSpeed = 1.5f;
+    monsters[0].patrolSpeed = 1.5f;
+    monsters[0].chaseSpeed = 3.8f;
+    monsters[0].searchSpeed = 2.3f;
+    monsters[0].patrolRadius = 14.0f;
+    monsters[0].searchDuration = 7.0;
+    monsters[0].loseSightDelay = 1.5;
+    monsters[0].sightRange = 7.0f;
     monsters[0].sightAngle = 120.0f;
     monsters[0].attackRange = 2.0f;
     monsters[0].attackCooldown = 1.5;
     monsters[0].damage = 10;
-    monsters[0].clientNavigated = true;
 
     monsters[1].monsterId = 2;
     monsters[1].type = MonsterType::Sound;
@@ -1215,12 +1410,19 @@ void InitializeMonsters(MonsterState monsters[])
     monsters[1].targetPosition = monsters[1].position;
     monsters[1].lastHeardPosition = monsters[1].position;
     monsters[1].rotY = 270.0f;
-    monsters[1].moveSpeed = 2.2f;
-    monsters[1].hearingRange = 6.0f;
+    monsters[1].moveSpeed = 1.3f;
+    monsters[1].patrolSpeed = 1.3f;
+    monsters[1].chaseSpeed = 3.5f;
+    monsters[1].searchSpeed = 2.0f;
+    monsters[1].patrolRadius = 12.0f;
+    monsters[1].searchDuration = 6.0;
+    monsters[1].loseSightDelay = 3.0;
+    monsters[1].sightRange = 3.5f;
+    monsters[1].sightAngle = 60.0f;
+    monsters[1].hearingRange = 0.0f;
     monsters[1].attackRange = 2.0f;
     monsters[1].attackCooldown = 1.5;
     monsters[1].damage = 10;
-    monsters[1].clientNavigated = true;
 }
 
 void UpdateMonsters(
@@ -1233,17 +1435,7 @@ void UpdateMonsters(
 {
     for (int i = 0; i < 2; ++i)
     {
-        if (monsters[i].clientNavigated)
-        {
-            if (!monsters[i].hasClientState)
-                continue;
-
-            int targetId = monsters[i].targetPlayerId;
-            if (monsters[i].isAttack && targetId >= 1 && targetId <= 2 &&
-                players[targetId].hasState)
-                SendPlayerDamageIfPossible(monsters[i], players[targetId], clientSocket1, clientSocket2, now);
-        }
-        else if (monsters[i].type == MonsterType::Vision)
+        if (monsters[i].type == MonsterType::Vision)
         {
             UpdateVisionMonster(monsters[i], players, clientSocket1, clientSocket2, deltaTime, now);
         }
@@ -1258,9 +1450,6 @@ void BroadcastAllMonsterStates(SOCKET clientSocket1, SOCKET clientSocket2, Monst
 {
     for (int i = 0; i < 2; ++i)
     {
-        if (monsters[i].clientNavigated && !monsters[i].hasClientState)
-            continue;
-
         BroadcastMonsterState(clientSocket1, clientSocket2, monsters[i]);
     }
 }
@@ -1387,6 +1576,8 @@ int main()
 
     double lastUpdateTime = GetTimeSeconds();
     double lastMonsterBroadcastTime = GetTimeSeconds();
+    double navigationDeadline = GetTimeSeconds() + 30.0;
+    bool navigationTimeoutReported = false;
 
     char buffer[1024];
 
@@ -1443,6 +1634,12 @@ int main()
         }
 
         double now = GetTimeSeconds();
+        if (!navigation.ready && !navigationTimeoutReported && now >= navigationDeadline)
+        {
+            BroadcastPacket(clientSocket1, clientSocket2,
+                "S_NAV_ERROR|Timed out waiting for matching navigation maps");
+            navigationTimeoutReported = true;
+        }
         float deltaTime = static_cast<float>(now - lastUpdateTime);
         lastUpdateTime = now;
 
@@ -1468,9 +1665,10 @@ int main()
         }
 
         // 몬스터 AI 판단 및 이동 (은신 여부가 반영된 상태로 시야 판정 진행)
-        UpdateMonsters(monsters, players, clientSocket1, clientSocket2, deltaTime, now);
+        if (navigation.ready)
+            UpdateMonsters(monsters, players, clientSocket1, clientSocket2, deltaTime, now);
 
-        if (now - lastMonsterBroadcastTime >= 0.1)
+        if (navigation.ready && now - lastMonsterBroadcastTime >= 0.1)
         {
             BroadcastAllMonsterStates(clientSocket1, clientSocket2, monsters);
             lastMonsterBroadcastTime = now;
