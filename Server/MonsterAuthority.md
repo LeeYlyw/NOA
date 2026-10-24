@@ -5,11 +5,11 @@ The server owns vision and sound monster decisions, pathfinding, movement, and d
 ## Map handoff
 
 1. The server sends a seed. Both Unity clients generate the same layout and build a runtime NavMesh from Physics Colliders.
-2. Before spawning the dynamic puzzle gate, each client samples the static NavMesh at 2 m spacing. Each cell sends its four traversable edges. Both clients upload the mask, gate position, and monster spawns in `C_NAV_BEGIN`, `C_NAV_CHUNK`, and `C_NAV_END` packets.
+2. Before spawning the dynamic puzzle gate, each client samples the static NavMesh at 1 m spacing. Each cell sends its four traversable edges. Both clients upload the mask, gate position, and monster spawns in `C_NAV_BEGIN`, `C_NAV_CHUNK`, and `C_NAV_END` packets.
 3. The server compares both complete uploads. It refuses to start monster AI if they differ, and sends `S_NAV_READY` only after validation.
-4. The server runs A* over this graph. The puzzle gate blocks matching edges until its opening animation finishes. The same graph gates monster sight and melee attacks.
+4. The server runs eight-direction A* over this graph. Diagonal movement requires both adjacent cardinal routes, preventing corner cuts. The puzzle gate blocks matching edges until its opening animation finishes. The same graph gates monster sight and melee attacks.
 
-The mask represents navigability at 2 m resolution. It does not reproduce Unity's complete Collider geometry or animation physics. Player movement and mimic behavior still use their existing authority paths. This is a server-owned monster simulation based on a map snapshot verified by both clients, not a fully trustless server-generated world.
+The mask represents navigability at 1 m resolution. It does not reproduce Unity's complete Collider geometry or animation physics. Player movement and mimic behavior still use their existing authority paths. This is a server-owned monster simulation based on a map snapshot verified by both clients, not a fully trustless server-generated world.
 
 ## Build and test
 

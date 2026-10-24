@@ -44,20 +44,23 @@ public static class ServerNavigationMapSmoke
             MethodInfo build = typeof(MapGenerator).GetMethod("BuildServerNavigationMask",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             string mask = (string)build.Invoke(generator, null);
-            if (string.IsNullOrEmpty(mask) || mask.Length != 10000)
+            const int gridSize = 200;
+            const float step = 1f;
+            const float origin = -99.5f;
+            if (string.IsNullOrEmpty(mask) || mask.Length != gridSize * gridSize)
                 throw new Exception("Navigation mask is missing or has unexpected dimensions");
             int walkable = 0;
             foreach (char cell in mask) if (cell != '0') ++walkable;
             if (walkable < 100) throw new Exception("Navigation mask contains too few walkable cells");
             int blockedAdjacentPairs = 0;
-            for (int z = 0; z < 100; z++)
-            for (int x = 0; x < 100; x++)
+            for (int z = 0; z < gridSize; z++)
+            for (int x = 0; x < gridSize; x++)
             {
-                int index = z * 100 + x;
+                int index = z * gridSize + x;
                 int edge = Convert.ToInt32(mask[index].ToString(), 16);
-                if (x + 1 < 100 && edge != 0 && mask[index + 1] != '0' && (edge & 1) == 0)
+                if (x + 1 < gridSize && edge != 0 && mask[index + 1] != '0' && (edge & 1) == 0)
                     ++blockedAdjacentPairs;
-                if (z + 1 < 100 && edge != 0 && mask[index + 100] != '0' && (edge & 4) == 0)
+                if (z + 1 < gridSize && edge != 0 && mask[index + gridSize] != '0' && (edge & 4) == 0)
                     ++blockedAdjacentPairs;
             }
             if (blockedAdjacentPairs < 50)
@@ -68,7 +71,7 @@ public static class ServerNavigationMapSmoke
             foreach (MonsterNetworkSetup monster in monsters)
                 if (!NavMesh.SamplePosition(monster.transform.position, out _, 2f, NavMesh.AllAreas))
                     throw new Exception(monster.name + " spawned outside NavMesh");
-            CheckGraphConnectivity(mask, monsters);
+            CheckGraphConnectivity(mask, monsters, gridSize, origin, step);
             GameObject gate = GameObject.Find("Sigil locked room gate");
             if (gate == null) throw new Exception("Puzzle gate is missing");
             Vector3 firstSpawn = monsters[0].monsterId == 1
@@ -76,7 +79,7 @@ public static class ServerNavigationMapSmoke
             Vector3 secondSpawn = monsters[0].monsterId == 2
                 ? monsters[0].transform.position : monsters[1].transform.position;
             string fixtureHeader = string.Format(CultureInfo.InvariantCulture,
-                "522364|100|100|-99|-99|2|{0:F2}|{1:F2}|4.8|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6:F2}|{7:F2}",
+                "522364|200|200|-99.5|-99.5|1|{0:F2}|{1:F2}|4.8|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6:F2}|{7:F2}",
                 gate.transform.position.x, gate.transform.position.z,
                 firstSpawn.x, firstSpawn.y, firstSpawn.z,
                 secondSpawn.x, secondSpawn.y, secondSpawn.z);
@@ -90,10 +93,11 @@ public static class ServerNavigationMapSmoke
             {
                 generator.GenerateMap(otherSeed);
                 string otherMask = (string)build.Invoke(generator, null);
-                if (string.IsNullOrEmpty(otherMask) || otherMask.Length != 10000)
+                if (string.IsNullOrEmpty(otherMask) || otherMask.Length != gridSize * gridSize)
                     throw new Exception("Navigation mask failed for seed " + otherSeed);
                 CheckGraphConnectivity(otherMask,
-                    UnityEngine.Object.FindObjectsByType<MonsterNetworkSetup>(FindObjectsSortMode.None));
+                    UnityEngine.Object.FindObjectsByType<MonsterNetworkSetup>(FindObjectsSortMode.None),
+                    gridSize, origin, step);
             }
             Debug.Log("[NAV_SMOKE] PASS seed=522364 walkable=" + walkable +
                       " blockedPairs=" + blockedAdjacentPairs +
@@ -113,11 +117,12 @@ public static class ServerNavigationMapSmoke
         EditorApplication.Exit(exitCode);
     }
 
-    static void CheckGraphConnectivity(string mask, MonsterNetworkSetup[] monsters)
+    static void CheckGraphConnectivity(string mask, MonsterNetworkSetup[] monsters,
+                                       int gridSize, float origin, float step)
     {
         if (monsters.Length < 2) throw new Exception("Missing monster spawns");
-        int first = ClosestMaskCell(mask, monsters[0].transform.position);
-        int second = ClosestMaskCell(mask, monsters[1].transform.position);
+        int first = ClosestMaskCell(mask, monsters[0].transform.position, gridSize, origin, step);
+        int second = ClosestMaskCell(mask, monsters[1].transform.position, gridSize, origin, step);
         if (first < 0 || second < 0) throw new Exception("Monster spawn missing from grid");
         bool[] seen = new bool[mask.Length];
         Queue<int> queue = new Queue<int>();
@@ -126,12 +131,12 @@ public static class ServerNavigationMapSmoke
         while (queue.Count > 0)
         {
             int index = queue.Dequeue();
-            int x = index % 100, z = index / 100;
+            int x = index % gridSize, z = index / gridSize;
             int edge = Convert.ToInt32(mask[index].ToString(), 16);
-            if ((edge & 1) != 0 && x + 1 < 100) Add(index + 1);
+            if ((edge & 1) != 0 && x + 1 < gridSize) Add(index + 1);
             if ((edge & 2) != 0 && x > 0) Add(index - 1);
-            if ((edge & 4) != 0 && z + 1 < 100) Add(index + 100);
-            if ((edge & 8) != 0 && z > 0) Add(index - 100);
+            if ((edge & 4) != 0 && z + 1 < gridSize) Add(index + gridSize);
+            if ((edge & 8) != 0 && z > 0) Add(index - gridSize);
         }
         if (!seen[second]) throw new Exception("Monster spawns disconnected in server grid");
 
@@ -143,20 +148,21 @@ public static class ServerNavigationMapSmoke
         }
     }
 
-    static int ClosestMaskCell(string mask, Vector3 position)
+    static int ClosestMaskCell(string mask, Vector3 position,
+                               int gridSize, float origin, float step)
     {
-        int centerX = Mathf.RoundToInt((position.x + 99f) * 0.5f);
-        int centerZ = Mathf.RoundToInt((position.z + 99f) * 0.5f);
+        int centerX = Mathf.RoundToInt((position.x - origin) / step);
+        int centerZ = Mathf.RoundToInt((position.z - origin) / step);
         int result = -1;
         float best = float.PositiveInfinity;
         for (int dz = -2; dz <= 2; dz++)
         for (int dx = -2; dx <= 2; dx++)
         {
             int x = centerX + dx, z = centerZ + dz;
-            if (x < 0 || z < 0 || x >= 100 || z >= 100) continue;
-            int index = z * 100 + x;
+            if (x < 0 || z < 0 || x >= gridSize || z >= gridSize) continue;
+            int index = z * gridSize + x;
             if (mask[index] == '0') continue;
-            float px = -99f + x * 2f, pz = -99f + z * 2f;
+            float px = origin + x * step, pz = origin + z * step;
             float distance = (position.x - px) * (position.x - px) +
                              (position.z - pz) * (position.z - pz);
             if (distance >= best) continue;

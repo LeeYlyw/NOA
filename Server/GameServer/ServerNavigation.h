@@ -84,6 +84,20 @@ struct ServerNavigation
         return true;
     }
 
+    bool CanTraverse(int from, int to) const
+    {
+        if (CanStep(from, to)) return true;
+        if (from < 0 || to < 0 || from >= width * height || to >= width * height)
+            return false;
+        int fx = from % width, fz = from / width;
+        int tx = to % width, tz = to / width;
+        if (std::abs(tx - fx) != 1 || std::abs(tz - fz) != 1) return false;
+        int viaX = Index(tx, fz), viaZ = Index(fx, tz);
+        // Require both routes around the corner, so a diagonal cannot cut a wall.
+        return CanStep(from, viaX) && CanStep(viaX, to) &&
+               CanStep(from, viaZ) && CanStep(viaZ, to);
+    }
+
     bool HasLineOfSight(const Vec3& from, const Vec3& to) const
     {
         int previous = ClosestCell(from);
@@ -103,10 +117,7 @@ struct ServerNavigation
                 int cx = cell % width, cz = cell / width;
                 if (px != cx && pz != cz)
                 {
-                    int viaX = Index(cx, pz), viaZ = Index(px, cz);
-                    bool routeX = CanStep(previous, viaX) && CanStep(viaX, cell);
-                    bool routeZ = CanStep(previous, viaZ) && CanStep(viaZ, cell);
-                    if (!routeX || !routeZ) return false;
+                    if (!CanTraverse(previous, cell)) return false;
                 }
                 else if (!CanStep(previous, cell)) return false;
             }
@@ -125,8 +136,9 @@ struct ServerNavigation
         using QueueNode = std::pair<float, int>;
         std::priority_queue<QueueNode, std::vector<QueueNode>, std::greater<QueueNode>> open;
         auto heuristic = [&](int index) {
-            return static_cast<float>(std::abs(index % width - goal % width) +
-                                      std::abs(index / width - goal / width));
+            int dx = std::abs(index % width - goal % width);
+            int dz = std::abs(index / width - goal / width);
+            return static_cast<float>(std::max(dx, dz)) + 0.41421356f * std::min(dx, dz);
         };
         cost[start] = 0.0f;
         open.push({ heuristic(start), start });
@@ -137,14 +149,17 @@ struct ServerNavigation
             open.pop();
             if (priority > cost[current] + heuristic(current) + 0.001f) continue;
             if (current == goal) break;
-            int neighbors[4] = { Index(current % width + 1, current / width),
-                                 Index(current % width - 1, current / width),
-                                 Index(current % width, current / width + 1),
-                                 Index(current % width, current / width - 1) };
+            int x = current % width, z = current / width;
+            int neighbors[8] = { Index(x + 1, z), Index(x - 1, z),
+                                 Index(x, z + 1), Index(x, z - 1),
+                                 Index(x + 1, z + 1), Index(x + 1, z - 1),
+                                 Index(x - 1, z + 1), Index(x - 1, z - 1) };
             for (int next : neighbors)
             {
-                if (!CanStep(current, next) || cost[next] <= cost[current] + 1.0f) continue;
-                cost[next] = cost[current] + 1.0f;
+                if (!CanTraverse(current, next)) continue;
+                float travel = (next % width != x && next / width != z) ? 1.41421356f : 1.0f;
+                if (cost[next] <= cost[current] + travel) continue;
+                cost[next] = cost[current] + travel;
                 parent[next] = current;
                 open.push({ cost[next] + heuristic(next), next });
             }

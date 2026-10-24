@@ -343,9 +343,11 @@ bool MoveToward(MonsterState& monster, const Vec3& target, float deltaTime)
         monster.currentSpeed = 0.0f;
         return false;
     }
-    if (monster.pathGoal != goal || monster.path.empty() ||
-        (monster.pathCursor < monster.path.size() &&
-         navigation.ClosestCell(monster.position) != monster.path[monster.pathCursor - 1]))
+    if (!monster.path.empty() && monster.pathCursor < monster.path.size() &&
+        start == monster.path[monster.pathCursor])
+        ++monster.pathCursor;
+    if (monster.pathGoal != goal || monster.path.empty() || monster.pathCursor == 0 ||
+        start != monster.path[monster.pathCursor - 1])
     {
         monster.path = navigation.FindPath(start, goal);
         monster.pathGoal = goal;
@@ -360,6 +362,9 @@ bool MoveToward(MonsterState& monster, const Vec3& target, float deltaTime)
 
     Vec3 waypoint = monster.pathCursor < monster.path.size()
         ? navigation.Center(monster.path[monster.pathCursor]) : target;
+    if (monster.pathCursor >= monster.path.size() &&
+        !navigation.HasLineOfSight(monster.position, target))
+        waypoint = navigation.Center(monster.path.back());
     float dx = waypoint.x - monster.position.x;
     float dz = waypoint.z - monster.position.z;
     float distance = std::sqrt(dx * dx + dz * dz);
@@ -368,6 +373,9 @@ bool MoveToward(MonsterState& monster, const Vec3& target, float deltaTime)
         ++monster.pathCursor;
         waypoint = monster.pathCursor < monster.path.size()
             ? navigation.Center(monster.path[monster.pathCursor]) : target;
+        if (monster.pathCursor >= monster.path.size() &&
+            !navigation.HasLineOfSight(monster.position, target))
+            waypoint = navigation.Center(monster.path.back());
         dx = waypoint.x - monster.position.x;
         dz = waypoint.z - monster.position.z;
         distance = std::sqrt(dx * dx + dz * dz);

@@ -146,7 +146,7 @@ public class MapGenerator : MonoBehaviour
 
     // Send the actual baked walkable geometry, rather than asking the C++ server to
     // guess Unity prefab collision from the random seed. Each hex digit describes
-    // the four traversable edges of one two-metre navigation cell.
+    // the four traversable edges of one metre navigation cell.
     void SendServerNavigationMap(int seed, string edgeMask)
     {
         NetworkClient network = NetworkClient.Instance;
@@ -169,7 +169,7 @@ public class MapGenerator : MonoBehaviour
             return;
         }
 
-        const float step = 2f;
+        const float step = 1f;
         float worldSize = mapSize * tileSize;
         int width = Mathf.CeilToInt(worldSize / step);
         int height = width;
@@ -183,7 +183,7 @@ public class MapGenerator : MonoBehaviour
 
     string BuildServerNavigationMask()
     {
-        const float step = 2f;
+        const float step = 1f;
         float worldSize = mapSize * tileSize;
         int width = Mathf.CeilToInt(worldSize / step);
         int height = width;
