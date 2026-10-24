@@ -119,6 +119,14 @@ MonoBehaviour:
   attackRange: 2
   damage: 10
   attackCooldown: 1.5
+  patrolRadius: 14
+  patrolPause: 1.5
+  loseSightDelay: 1.5
+  searchDuration: 7
+  searchRadius: 3
+  patrolSpeed: 1.5
+  chaseSpeed: 3.8
+  searchSpeed: 2.3
   rotateSpeed: 5
 --- !u!195 &4953972206007419368
 NavMeshAgent:

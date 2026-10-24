@@ -1885,7 +1885,8 @@ MonoBehaviour:
   player: {fileID: 0}
   hearingMultiplier: 2
   chaseNoiseThreshold: 7
-  sightRange: 6
+  sightRange: 3.5
+  sightAngle: 60
   loseSightTime: 3
   investigateWaitTime: 2
 --- !u!114 &356707887

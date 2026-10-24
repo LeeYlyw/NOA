@@ -142,7 +142,8 @@ public class MimicLaptop : MonoBehaviour
     {
         return target == null
             || target.IsDeadState
-            || Vector3.Distance(transform.position, target.transform.position) > detectionRadius;
+            || Vector3.Distance(transform.position, target.transform.position) > detectionRadius
+            || !HasLineOfSight(target);
     }
 
     private void ResetAttack()
@@ -171,11 +172,33 @@ public class MimicLaptop : MonoBehaviour
             if (sqr > bestSqr)
                 continue;
 
+            if (!HasLineOfSight(player))
+                continue;
+
             bestSqr = sqr;
             nearest = player;
         }
 
         return nearest;
+    }
+
+    private bool HasLineOfSight(PlayerController player)
+    {
+        Vector3 start = projectileSpawn != null ? projectileSpawn.position : transform.position + Vector3.up * 0.5f;
+        CharacterController capsule = player.GetComponent<CharacterController>();
+        Vector3 aim = capsule != null ? capsule.bounds.center : player.transform.position + Vector3.up * 1.2f;
+        Vector3 delta = aim - start;
+        float distance = delta.magnitude;
+        if (distance < 0.01f) return true;
+
+        RaycastHit? nearest = null;
+        foreach (RaycastHit hit in Physics.RaycastAll(start, delta / distance, distance,
+                                                       ~0, QueryTriggerInteraction.Ignore))
+        {
+            if (hit.collider.transform.IsChildOf(transform)) continue;
+            if (!nearest.HasValue || hit.distance < nearest.Value.distance) nearest = hit;
+        }
+        return nearest.HasValue && nearest.Value.collider.GetComponentInParent<PlayerController>() == player;
     }
 
     private void FireAt(PlayerController player)

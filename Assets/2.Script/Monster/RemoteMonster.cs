@@ -14,11 +14,12 @@ public class RemoteMonster : MonoBehaviour
     private bool targetIsWalk;
     private bool targetIsAttack;
 
-    private bool previousIsAttack;
+    private int lastAttackSequence;
 
     void Awake()
     {
         animator = GetComponent<Animator>();
+        if (animator == null) animator = GetComponentInChildren<Animator>();
 
         targetPosition = transform.position;
         targetRotation = transform.rotation;
@@ -47,13 +48,7 @@ public class RemoteMonster : MonoBehaviour
             animator.SetBool("isWalk", targetIsWalk);
             animator.SetBool("isAttack", targetIsAttack);
 
-            if (targetIsAttack && !previousIsAttack)
-            {
-                animator.SetTrigger("Attack");
-            }
         }
-
-        previousIsAttack = targetIsAttack;
     }
 
     public void SetState(Vector3 position, Quaternion rotation)
@@ -69,10 +64,13 @@ public class RemoteMonster : MonoBehaviour
         }
     }
 
-    public void SetAnimationState(float speed, bool isWalk, bool isAttack)
+    public void SetAnimationState(float speed, bool isWalk, bool isAttack, int attackSequence)
     {
         targetSpeed = speed;
         targetIsWalk = isWalk;
         targetIsAttack = isAttack;
+        if (attackSequence > lastAttackSequence && animator != null)
+            animator.SetTrigger("Attack");
+        lastAttackSequence = attackSequence;
     }
 }

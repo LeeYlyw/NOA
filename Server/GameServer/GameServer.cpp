@@ -114,6 +114,7 @@ struct MonsterState
 
     bool isWalk = false;
     bool isAttack = false;
+    int attackSequence = 0;
     bool clientNavigated = false;
     bool hasClientState = false;
     double lastClientStateTime = 0.0;
@@ -423,6 +424,7 @@ void SendPlayerDamageIfPossible(
         return;
 
     monster.lastAttackTime = now;
+    monster.attackSequence++;
     monster.isAttack = true;
     monster.state = MonsterAIState::Attack;
 
@@ -580,7 +582,8 @@ void BroadcastMonsterState(SOCKET clientSocket1, SOCKET clientSocket2, const Mon
         << monster.rotY << "|"
         << monster.currentSpeed << "|"
         << (monster.isWalk ? 1 : 0) << "|"
-        << (monster.isAttack ? 1 : 0);
+        << (monster.isAttack ? 1 : 0) << "|"
+        << monster.attackSequence;
 
     BroadcastPacket(clientSocket1, clientSocket2, oss.str());
 }
@@ -678,8 +681,8 @@ bool ProcessMonsterStatePacket(const std::vector<std::string>& parts, int sender
 {
     // Unity owns the generated NavMesh, so player 1 provides navigation state.
     // The server still validates movement and remains authoritative for damage.
-    // C_MONSTER_STATE|playerId|monsterId|x|y|z|rotY|speed|isWalk|isAttack
-    if (senderPlayerId != 1 || parts.size() != 10)
+    // C_MONSTER_STATE|playerId|monsterId|x|y|z|rotY|speed|isWalk|isAttack|targetId
+    if (senderPlayerId != 1 || parts.size() != 11)
         return false;
 
     int packetPlayerId = 0;
@@ -689,13 +692,16 @@ bool ProcessMonsterStatePacket(const std::vector<std::string>& parts, int sender
     float speed = 0.0f;
     int isWalk = 0;
     int isAttack = 0;
+    int targetPlayerId = 0;
 
     if (!TryParseInt(parts[1], packetPlayerId) || packetPlayerId != senderPlayerId ||
         !TryParseInt(parts[2], monsterId) || monsterId < 1 || monsterId > 2 ||
         !TryParseFloat(parts[3], position.x) || !TryParseFloat(parts[4], position.y) ||
         !TryParseFloat(parts[5], position.z) || !TryParseFloat(parts[6], rotY) ||
         !TryParseFloat(parts[7], speed) || !TryParseInt(parts[8], isWalk) ||
-        !TryParseInt(parts[9], isAttack))
+        !TryParseInt(parts[9], isAttack) || !TryParseInt(parts[10], targetPlayerId) ||
+        targetPlayerId < 0 || targetPlayerId > 2 ||
+        (isAttack != 0 && targetPlayerId == 0))
         return false;
 
     MonsterState& monster = monsters[monsterId - 1];
@@ -717,6 +723,7 @@ bool ProcessMonsterStatePacket(const std::vector<std::string>& parts, int sender
     monster.currentSpeed = Clamp(speed, 0.0f, 8.0f);
     monster.isWalk = isWalk != 0;
     monster.isAttack = isAttack != 0;
+    monster.targetPlayerId = monster.isAttack ? targetPlayerId : 0;
     monster.state = monster.isAttack ? MonsterAIState::Attack :
         (monster.isWalk ? MonsterAIState::Chase : MonsterAIState::Idle);
     monster.lastClientStateTime = now;
@@ -1231,9 +1238,10 @@ void UpdateMonsters(
             if (!monsters[i].hasClientState)
                 continue;
 
-            PlayerState* attackTarget = FindNearestAttackTarget(monsters[i], players);
-            if (attackTarget != nullptr && monsters[i].isAttack)
-                SendPlayerDamageIfPossible(monsters[i], *attackTarget, clientSocket1, clientSocket2, now);
+            int targetId = monsters[i].targetPlayerId;
+            if (monsters[i].isAttack && targetId >= 1 && targetId <= 2 &&
+                players[targetId].hasState)
+                SendPlayerDamageIfPossible(monsters[i], players[targetId], clientSocket1, clientSocket2, now);
         }
         else if (monsters[i].type == MonsterType::Vision)
         {

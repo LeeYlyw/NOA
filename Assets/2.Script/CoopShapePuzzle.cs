@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.AI;
 
 // One shared puzzle spawned from deterministic map positions on both clients.
 // Player 1 reads a compound sigil; player 2 identifies it while both hold the pads.
@@ -17,6 +18,7 @@ public class CoopShapePuzzle : MonoBehaviour
     Vector3 firstPad;
     Vector3 secondPad;
     Transform roomGate;
+    NavMeshObstacle gateObstacle;
     Vector3 closedGatePosition;
     GameObject lockedClue;
     bool configured;
@@ -56,6 +58,13 @@ public class CoopShapePuzzle : MonoBehaviour
             new Vector3(tileSize - 0.4f, 4f, 0.35f), new Color(0.8f, 0.13f, 0.17f));
         gate.transform.SetParent(transform);
         gate.AddComponent<BoxCollider>();
+        // The gate is created after the runtime NavMesh is built. Carve its closed
+        // footprint so agents cannot plan through it until the puzzle is solved.
+        gateObstacle = gate.AddComponent<NavMeshObstacle>();
+        gateObstacle.shape = NavMeshObstacleShape.Box;
+        gateObstacle.size = Vector3.one;
+        gateObstacle.carving = true;
+        gateObstacle.carveOnlyStationary = false;
         roomGate = gate.transform;
         closedGatePosition = roomGate.position;
         for (int i = 0; i < shapeImages.Length; i++) shapeImages[i] = MakeShapeImage(i);
@@ -124,8 +133,12 @@ public class CoopShapePuzzle : MonoBehaviour
         if (solved)
         {
             if (roomGate != null)
+            {
                 roomGate.position = Vector3.MoveTowards(roomGate.position,
                     closedGatePosition + Vector3.down * 4.2f, Time.deltaTime * 4f);
+                if (gateObstacle != null && roomGate.position.y <= closedGatePosition.y - 4f)
+                    gateObstacle.enabled = false;
+            }
             return;
         }
 

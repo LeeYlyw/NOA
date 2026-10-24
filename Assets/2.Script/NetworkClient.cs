@@ -115,13 +115,16 @@ public class NetworkClient : MonoBehaviour
             float speed = ai != null ? ai.NetworkSpeed : soundAI.NetworkSpeed;
             bool isWalking = ai != null ? ai.NetworkIsWalking : soundAI.NetworkIsWalking;
             bool isAttacking = ai != null ? ai.NetworkIsAttacking : soundAI.NetworkIsAttacking;
+            Transform target = ai != null ? ai.player : soundAI.player;
+            PlayerRoleSetup targetRole = target != null ? target.GetComponent<PlayerRoleSetup>() : null;
+            int targetId = isAttacking && targetRole != null ? targetRole.ownerClientId : 0;
 
             Vector3 pos = setup.transform.position;
             string message = string.Format(
                 CultureInfo.InvariantCulture,
-                "C_MONSTER_STATE|{0}|{1}|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6:F2}|{7}|{8}\n",
+                "C_MONSTER_STATE|{0}|{1}|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6:F2}|{7}|{8}|{9}\n",
                 playerId, setup.monsterId, pos.x, pos.y, pos.z, setup.transform.eulerAngles.y,
-                speed, isWalking ? 1 : 0, isAttacking ? 1 : 0
+                speed, isWalking ? 1 : 0, isAttacking ? 1 : 0, targetId
             );
             SendMessageToServer(message, "몬스터 상태 전송 실패");
         }
@@ -474,18 +477,19 @@ public class NetworkClient : MonoBehaviour
 
     void ProcessMonsterStatePacket(string[] parts)
     {
-        if (parts.Length < 11) return;
+        if (parts.Length < 12) return;
         if (!int.TryParse(parts[1], out int monsterId)) return;
 
         if (float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
             float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) &&
             float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float z) &&
             float.TryParse(parts[7], NumberStyles.Float, CultureInfo.InvariantCulture, out float rotY) &&
-            float.TryParse(parts[8], NumberStyles.Float, CultureInfo.InvariantCulture, out float speed))
+            float.TryParse(parts[8], NumberStyles.Float, CultureInfo.InvariantCulture, out float speed) &&
+            int.TryParse(parts[11], out int attackSequence))
         {
             bool isWalk = parts[9] == "1";
             bool isAttack = parts[10] == "1";
-            ApplyRemoteMonsterTransform(monsterId, new Vector3(x, y, z), Quaternion.Euler(0f, rotY, 0f), speed, isWalk, isAttack);
+            ApplyRemoteMonsterTransform(monsterId, new Vector3(x, y, z), Quaternion.Euler(0f, rotY, 0f), speed, isWalk, isAttack, attackSequence);
         }
     }
 
@@ -631,7 +635,8 @@ public class NetworkClient : MonoBehaviour
         }
     }
 
-    void ApplyRemoteMonsterTransform(int monsterId, Vector3 pos, Quaternion rot, float speed, bool isWalk, bool isAttack)
+    void ApplyRemoteMonsterTransform(int monsterId, Vector3 pos, Quaternion rot, float speed,
+                                     bool isWalk, bool isAttack, int attackSequence)
     {
         if (monsterSetups == null || monsterSetups.Length == 0)
             monsterSetups = FindObjectsOfType<MonsterNetworkSetup>();
@@ -647,7 +652,7 @@ public class NetworkClient : MonoBehaviour
                 if (remoteMonster != null)
                 {
                     remoteMonster.SetState(pos, rot);
-                    remoteMonster.SetAnimationState(speed, isWalk, isAttack);
+                    remoteMonster.SetAnimationState(speed, isWalk, isAttack, attackSequence);
                 }
                 return;
             }
