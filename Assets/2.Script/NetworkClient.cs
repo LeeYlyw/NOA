@@ -743,6 +743,17 @@ public class NetworkClient : MonoBehaviour
         PlayerRoleSetup p2RoleSetup = player2Object.GetComponent<PlayerRoleSetup>();
         if (p2RoleSetup != null) p2RoleSetup.Setup(2, playerId, role2);
 
+        if (role2 == PlayerRole.Detector && player2Object.GetComponent<ClueDetector>() == null)
+        {
+            ClueDetector detector = player2Object.AddComponent<ClueDetector>();
+            AudioSource source = player2Object.AddComponent<AudioSource>();
+            ClueDetector firstDetector = player1Object.GetComponent<ClueDetector>();
+            source.clip = firstDetector != null && firstDetector.beepSound != null
+                ? firstDetector.beepSound.clip : null;
+            detector.beepSound = source;
+            detector.maxDetectionDist = firstDetector != null ? firstDetector.maxDetectionDist : 40f;
+        }
+
         // [추가] 각 캐릭터의 직업(역할)에 따른 스탯 적용 (러너 스탯 등)
         PlayerController p1Controller = player1Object.GetComponent<PlayerController>();
         if (p1Controller != null) p1Controller.InitializeStatsByRole(role1);
