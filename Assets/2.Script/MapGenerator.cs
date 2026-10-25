@@ -1079,6 +1079,23 @@ public class MapGenerator : MonoBehaviour
 
         if (ordinaryItemPrefabs.Count > 0)
         {
+            // Keep a recoverable run possible even when the remaining drops are random.
+            List<GameObject> guaranteedItems = new List<GameObject>();
+            GameObject healPrefab = ordinaryItemPrefabs.Find(prefab =>
+            {
+                PotionItem item = prefab.GetComponent<PotionItem>();
+                return item != null && item.itemData != null && item.itemData.type == ItemData.ItemType.Heal;
+            });
+            GameObject revivePrefab = ordinaryItemPrefabs.Find(prefab =>
+            {
+                PotionItem item = prefab.GetComponent<PotionItem>();
+                return item != null && item.itemData != null && item.itemData.type == ItemData.ItemType.Resurrection;
+            });
+            if (healPrefab != null) { guaranteedItems.Add(healPrefab); guaranteedItems.Add(healPrefab); }
+            else Debug.LogWarning("[MapGenerator] No heal prefab configured for guaranteed supplies.");
+            if (revivePrefab != null) guaranteedItems.Add(revivePrefab);
+            else Debug.LogWarning("[MapGenerator] No resurrection prefab configured for guaranteed supplies.");
+
             for (int i = 0; i < itemSpawnCount; i++)
             {
                 if (validSpawnPoints.Count == 0)
@@ -1088,7 +1105,9 @@ public class MapGenerator : MonoBehaviour
                 }
 
                 Vector3 itemPos = GetRandomSpawnPoint(removePoint: true);
-                GameObject randomItemPrefab = ordinaryItemPrefabs[Random.Range(0, ordinaryItemPrefabs.Count)];
+                GameObject randomItemPrefab = i < guaranteedItems.Count
+                    ? guaranteedItems[i]
+                    : ordinaryItemPrefabs[Random.Range(0, ordinaryItemPrefabs.Count)];
                 GameObject itemObj = Instantiate(randomItemPrefab, itemPos, Quaternion.identity);
                 spawnedEntities.Add(itemObj);
 
