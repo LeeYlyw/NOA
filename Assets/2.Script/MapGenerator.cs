@@ -1148,17 +1148,40 @@ public class MapGenerator : MonoBehaviour
 
     PotionItem CreateCluePickup(Vector3 floorPosition, ItemData clueData, int id)
     {
-        GameObject clue = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        GameObject clue = new GameObject();
         clue.name = id == 3 ? "Locked room clue" : "Field clue " + id;
         clue.tag = "Clue";
         clue.transform.position = floorPosition + Vector3.up * 0.85f;
-        clue.transform.localScale = Vector3.one * 0.55f;
-        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
-        if (shader == null) shader = Shader.Find("Standard");
-        Material material = new Material(shader);
-        material.color = new Color(1f, 0.78f, 0.12f);
-        clue.GetComponent<Renderer>().material = material;
-        SphereCollider collider = clue.GetComponent<SphereCollider>();
+        AddCluePart(clue.transform, PrimitiveType.Cylinder, "Signal base",
+            new Vector3(0f, -0.29f, 0f), new Vector3(0.48f, 0.025f, 0.48f),
+            new Color(0.95f, 0.72f, 0.13f));
+        if (id == 1)
+        {
+            AddCluePart(clue.transform, PrimitiveType.Cube, "Field document",
+                Vector3.zero, new Vector3(0.45f, 0.055f, 0.57f), new Color(0.86f, 0.83f, 0.69f));
+            AddCluePart(clue.transform, PrimitiveType.Cube, "Document spine",
+                new Vector3(-0.2f, 0.035f, 0f), new Vector3(0.05f, 0.11f, 0.57f),
+                new Color(0.08f, 0.4f, 0.55f));
+        }
+        else if (id == 2)
+        {
+            AddCluePart(clue.transform, PrimitiveType.Cube, "Voice recorder",
+                Vector3.zero, new Vector3(0.5f, 0.17f, 0.32f), new Color(0.11f, 0.22f, 0.31f));
+            AddCluePart(clue.transform, PrimitiveType.Cylinder, "Recorder reel left",
+                new Vector3(-0.13f, 0.105f, 0f), new Vector3(0.1f, 0.025f, 0.1f), Color.gray);
+            AddCluePart(clue.transform, PrimitiveType.Cylinder, "Recorder reel right",
+                new Vector3(0.13f, 0.105f, 0f), new Vector3(0.1f, 0.025f, 0.1f), Color.gray);
+        }
+        else
+        {
+            AddCluePart(clue.transform, PrimitiveType.Cube, "Sealed evidence box",
+                Vector3.zero, new Vector3(0.48f, 0.31f, 0.48f), new Color(0.58f, 0.39f, 0.13f));
+            AddCluePart(clue.transform, PrimitiveType.Cube, "Evidence seal",
+                new Vector3(0f, 0.165f, 0f), new Vector3(0.31f, 0.025f, 0.31f),
+                new Color(0.76f, 0.15f, 0.13f));
+        }
+        SphereCollider collider = clue.AddComponent<SphereCollider>();
+        collider.radius = 0.65f;
         collider.isTrigger = true;
         Rigidbody body = clue.AddComponent<Rigidbody>();
         body.isKinematic = true;
@@ -1168,6 +1191,23 @@ public class MapGenerator : MonoBehaviour
         pickup.itemData = clueData;
         clue.AddComponent<ClueVisibilityByRole>();
         return pickup;
+    }
+
+    static void AddCluePart(Transform parent, PrimitiveType shape, string label,
+        Vector3 localPosition, Vector3 scale, Color color)
+    {
+        GameObject part = GameObject.CreatePrimitive(shape);
+        part.name = label;
+        part.transform.SetParent(parent, false);
+        part.transform.localPosition = localPosition;
+        part.transform.localScale = scale;
+        Collider collider = part.GetComponent<Collider>();
+        if (collider != null) { collider.enabled = false; Destroy(collider); }
+        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null) shader = Shader.Find("Standard");
+        Material material = new Material(shader);
+        material.color = color;
+        part.GetComponent<Renderer>().material = material;
     }
 
     Vector3 GetNearbySpawnPoint(Vector3 origin)
