@@ -14,6 +14,12 @@ public class LobbyManager : MonoBehaviour
     readonly int[] roles = { -1, -1, -1 };
     int host;
     static readonly string[] names = { "Detector", "Explorer", "Healer", "Runner" };
+    static readonly string[] descriptions = {
+        "Detector: hear a stronger signal near hidden clues.",
+        "Explorer: find and collect all three clues.",
+        "Healer: press E to restore nearby teammates; 10 second cooldown.",
+        "Runner: move faster and use a larger stamina pool."
+    };
     void Awake() { Instance = this; }
     void Start() { if (startButton != null) startButton.onClick.AddListener(StartGame); }
     void OnDestroy() { if (Instance == this) Instance = null; }
@@ -49,6 +55,9 @@ public class LobbyManager : MonoBehaviour
         GUILayout.BeginHorizontal();
         for (int i = 0; i < names.Length; i++) if (GUILayout.Button(names[i], GUILayout.Height(40))) net.SelectRole(i);
         GUILayout.EndHorizontal();
+        int selectedRole = roles[Mathf.Clamp(net.playerId, 1, 2)];
+        if (selectedRole >= 0 && selectedRole < descriptions.Length)
+            GUILayout.Label(descriptions[selectedRole]);
         GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && !net.GameStarted && roles[Mathf.Clamp(net.playerId,1,2)] >= 0;
         if (GUILayout.Button(localReady ? "Cancel ready" : "Ready", GUILayout.Height(40))) net.SetReady(!localReady);
         bool hasExplorer = roles[1] == (int)PlayerRole.Explorer || roles[2] == (int)PlayerRole.Explorer;

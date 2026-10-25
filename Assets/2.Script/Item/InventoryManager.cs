@@ -68,6 +68,15 @@ public class InventoryManager : MonoBehaviour
         }
     }
 
+    public bool HasItemType(ItemData.ItemType type)
+    {
+        if (slots == null) return false;
+        foreach (Slot slot in slots)
+            if (slot != null && slot.item != null && slot.item.type == type)
+                return true;
+        return false;
+    }
+
     public void UseItem(int slotIndex)
     {
         if (slots == null || slotIndex < 0 || slotIndex >= slots.Length || slots[slotIndex] == null)

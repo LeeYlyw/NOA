@@ -13,7 +13,10 @@ public class ObjectiveHUD : MonoBehaviour
     Image[] roundMarks;
     Text bluePad;
     Text orangePad;
+    Text teammateStatus;
+    Text roleHint;
     Font font;
+    InventoryManager inventory;
     readonly Color accent = new Color(0.32f, 0.88f, 0.81f);
     readonly Color muted = new Color(0.53f, 0.59f, 0.65f);
 
@@ -31,10 +34,10 @@ public class ObjectiveHUD : MonoBehaviour
         scaler.referenceResolution = new Vector2(1920, 1080);
         scaler.matchWidthOrHeight = 0.5f;
 
-        RectTransform panel = Rect(root.transform, "Objective panel", 28, 28, 350, 306);
+        RectTransform panel = Rect(root.transform, "Objective panel", 28, 28, 350, 382);
         panel.gameObject.AddComponent<Image>().color = new Color(0.025f, 0.045f, 0.065f, 0.9f);
         panel.GetComponent<Image>().raycastTarget = false;
-        Bar(panel, "Accent", 0, 0, 4, 306, accent);
+        Bar(panel, "Accent", 0, 0, 4, 382, accent);
         Label(panel, "TEAM OBJECTIVE", 20, 16, 310, 23, 14, accent);
         objective = Label(panel, "", 20, 43, 310, 54, 21, Color.white);
         clues = Label(panel, "", 20, 106, 310, 25, 18, Color.white);
@@ -44,6 +47,8 @@ public class ObjectiveHUD : MonoBehaviour
         bluePad = Label(panel, "", 20, 216, 150, 24, 15, muted);
         orangePad = Label(panel, "", 175, 216, 155, 24, 15, muted);
         instruction = Label(panel, "", 20, 248, 310, 48, 15, muted);
+        teammateStatus = Label(panel, "", 20, 306, 310, 30, 16, Color.white);
+        roleHint = Label(panel, "", 20, 340, 310, 31, 14, muted);
         canvas.enabled = false;
     }
 
@@ -110,6 +115,45 @@ public class ObjectiveHUD : MonoBehaviour
                     "m\n두 사람이 각자 발판에 올라가세요.";
             }
             else instruction.text = "단서 1개는 잠긴 방 안에 있습니다.";
+        }
+
+        UpdateTeamStatus(network);
+    }
+
+    void UpdateTeamStatus(NetworkClient network)
+    {
+        Transform teammate = network.remotePlayerTransform;
+        PlayerController teammateController = teammate != null ? teammate.GetComponent<PlayerController>() : null;
+        if (network.offlineMode || teammateController == null)
+            teammateStatus.text = "동료 상태 · 연결 대기";
+        else if (teammateController.IsDeadState)
+        {
+            if (inventory == null) inventory = FindObjectOfType<InventoryManager>();
+            bool hasRevive = inventory != null && inventory.HasItemType(ItemData.ItemType.Resurrection);
+            bool near = network.localPlayerTransform != null &&
+                Vector3.Distance(network.localPlayerTransform.position, teammate.position) <= 5f;
+            teammateStatus.text = hasRevive
+                ? (near ? "동료 쓰러짐 · 부활 아이템 사용 가능" : "동료 쓰러짐 · 5m 이내 접근")
+                : "동료 쓰러짐 · 부활 아이템 필요";
+        }
+        else
+            teammateStatus.text = "동료 체력 · " + teammateController.CurrentHp + " / " + teammateController.maxHealth;
+        teammateStatus.color = teammateController != null && teammateController.IsDeadState
+            ? new Color(1f, 0.48f, 0.4f) : Color.white;
+
+        PlayerRole role = network.playerId == 1 ? network.Role1 : network.Role2;
+        switch (role)
+        {
+            case PlayerRole.Detector: roleHint.text = "감지자 · 단서 근처에서 신호음"; break;
+            case PlayerRole.Explorer: roleHint.text = "탐색자 · 단서 획득 가능"; break;
+            case PlayerRole.Healer:
+                HealerSkill healer = network.localPlayerTransform != null
+                    ? network.localPlayerTransform.GetComponent<HealerSkill>() : null;
+                roleHint.text = healer != null && healer.RemainingCooldown > 0f
+                    ? "치유자 · E 회복 " + healer.RemainingCooldown.ToString("F0") + "초 후"
+                    : "치유자 · E 회복 (5m)";
+                break;
+            case PlayerRole.Runner: roleHint.text = "러너 · 빠른 이동과 높은 지구력"; break;
         }
     }
 

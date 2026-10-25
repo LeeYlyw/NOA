@@ -9,6 +9,7 @@ public class HealerSkill : MonoBehaviour
     public float skillCooldown = 10f;
 
     private float currentCooldown;
+    public float RemainingCooldown => currentCooldown;
     private PlayerRoleSetup roleSetup;
     private PlayerController playerController;
 
