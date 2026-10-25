@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.UI;
 
 // One shared puzzle spawned from deterministic map positions on both clients.
 // Player 1 reads a compound sigil; player 2 identifies it while both hold the pads.
@@ -15,6 +16,17 @@ public class CoopShapePuzzle : MonoBehaviour
     readonly bool[] pads = new bool[3];
     readonly int[] choices = { -1, -1, -1, -1 };
     readonly Texture2D[] shapeImages = new Texture2D[48];
+    Canvas puzzleCanvas;
+    Font panelFont;
+    Text roundLabel;
+    Text directionLabel;
+    Text warningLabel;
+    GameObject clueView;
+    GameObject choicesView;
+    RawImage clueImage;
+    Text clueDescription;
+    readonly RawImage[] choiceImages = new RawImage[4];
+    readonly Text[] choiceDescriptions = new Text[4];
     Vector3 firstPad;
     Vector3 secondPad;
     Transform roomGate;
@@ -51,6 +63,7 @@ public class CoopShapePuzzle : MonoBehaviour
     {
         if (Instance == this) Instance = null;
         foreach (Texture2D image in shapeImages) if (image != null) Destroy(image);
+        if (panelFont != null) Destroy(panelFont);
     }
 
     void Configure(Vector3 p1, Vector3 p2, Vector3 roomCenter, float tileSize)
@@ -76,6 +89,7 @@ public class CoopShapePuzzle : MonoBehaviour
         roomGate = gate.transform;
         closedGatePosition = roomGate.position;
         for (int i = 0; i < shapeImages.Length; i++) shapeImages[i] = MakeShapeImage(i);
+        CreatePuzzlePanel();
         configured = true;
         gameObject.AddComponent<PuzzlePresentation>();
     }
@@ -136,6 +150,7 @@ public class CoopShapePuzzle : MonoBehaviour
     void Update()
     {
         NetworkClient network = NetworkClient.Instance;
+        UpdatePuzzlePanel(network);
         if (!configured || network == null || !network.IsConnected || !network.GameStarted ||
             !network.HasAssignedPlayerId || network.localPlayerTransform == null) return;
 
@@ -209,75 +224,130 @@ public class CoopShapePuzzle : MonoBehaviour
         if (lockedClue != null) lockedClue.SetActive(true);
     }
 
-    void OnGUI()
+    void CreatePuzzlePanel()
     {
-        NetworkClient network = NetworkClient.Instance;
-        if (!configured || network == null || !network.GameStarted || !network.HasAssignedPlayerId) return;
-        // Persistent status and directions are supplied by ObjectiveHUD.
-        // Only show the private puzzle contents while both players are on their pads.
-        if (solved || !pads[1] || !pads[2]) return;
+        panelFont = Font.CreateDynamicFontFromOSFont(
+            new[] { "Malgun Gothic", "Apple SD Gothic Neo", "Arial" }, 18);
+        GameObject root = new GameObject("Puzzle HUD", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
+        root.transform.SetParent(transform, false);
+        puzzleCanvas = root.GetComponent<Canvas>();
+        puzzleCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        puzzleCanvas.sortingOrder = 25;
+        CanvasScaler scaler = root.GetComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
+        scaler.matchWidthOrHeight = 0.5f;
 
-        float width = Mathf.Min(560f, Screen.width - 20f);
-        Rect panel = new Rect((Screen.width - width) * 0.5f, 12f, width, 215f);
-        GUI.Box(panel, "COOPERATIVE SIGIL LOCK  -  " + Mathf.Max(1, round) + "/" + totalRounds);
-        float x = panel.x + 12f;
-        GUI.Label(new Rect(x, 36f, width - 24f, 25f), "Blue pad: " + (pads[1] ? "occupied" : "empty") +
-            "     Orange pad: " + (pads[2] ? "occupied" : "empty"));
-        if (solved)
+        RectTransform panel = new GameObject("Sigil panel", typeof(RectTransform)).GetComponent<RectTransform>();
+        panel.SetParent(root.transform, false);
+        panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(0.5f, 1f);
+        panel.anchoredPosition = new Vector2(0f, -12f);
+        panel.sizeDelta = new Vector2(660f, 260f);
+        panel.gameObject.AddComponent<Image>().color = new Color(0.025f, 0.045f, 0.065f, 0.94f);
+        panel.GetComponent<Image>().raycastTarget = false;
+        Block(panel, "Accent", 0, 0, 660, 4, new Color(0.32f, 0.88f, 0.81f));
+        roundLabel = Label(panel, "", 20, 15, 620, 30, 21, Color.white);
+        directionLabel = Label(panel, "", 20, 49, 620, 30, 17,
+            new Color(0.7f, 0.84f, 0.88f));
+        warningLabel = Label(panel, "", 20, 229, 620, 25, 16,
+            new Color(1f, 0.45f, 0.35f));
+
+        clueView = Block(panel, "Description view", 20, 87, 620, 132,
+            new Color(0.08f, 0.12f, 0.15f)).gameObject;
+        clueImage = Picture(clueView.transform, 22, 18, 96, 96);
+        clueDescription = Label(clueView.transform, "", 140, 34, 455, 65, 23, Color.white);
+
+        choicesView = Block(panel, "Selection view", 20, 87, 620, 132, Color.clear).gameObject;
+        for (int i = 0; i < 4; i++)
         {
-            GUI.Label(new Rect(x, 72f, width - 24f, 35f), "Lock released! Find and collect the clue inside the opened room.");
-            return;
+            Transform option = Block(choicesView.transform, "Option " + (i + 1), i * 155, 0, 150, 132,
+                new Color(0.08f, 0.12f, 0.15f)).transform;
+            Label(option, (i + 1).ToString(), 9, 8, 25, 24, 19,
+                new Color(0.32f, 0.88f, 0.81f));
+            choiceImages[i] = Picture(option, 45, 10, 65, 65);
+            choiceDescriptions[i] = Label(option, "", 8, 82, 136, 42, 13, Color.white);
         }
-        if (!pads[1] || !pads[2])
+        puzzleCanvas.enabled = false;
+    }
+
+    void UpdatePuzzlePanel(NetworkClient network)
+    {
+        if (puzzleCanvas == null) return;
+        bool visible = configured && network != null && network.GameStarted &&
+            network.HasAssignedPlayerId && !solved && pads[1] && pads[2] &&
+            (ClueManager.instance == null || !ClueManager.instance.IsEnding);
+        puzzleCanvas.enabled = visible;
+        if (!visible) return;
+
+        roundLabel.text = "COOPERATIVE SIGIL LOCK   " + Mathf.Max(1, round) + " / " + totalRounds;
+        bool describing = network.playerId == 1;
+        clueView.SetActive(describing);
+        choicesView.SetActive(!describing);
+        directionLabel.text = describing
+            ? (round <= 1 ? "Describe the outer shape to your teammate."
+                : round == 2 ? "Describe the shape and color."
+                : "Describe the shape, color, and center mark.")
+            : (round <= 1 ? "Match the outer shape. Press 1-4."
+                : round == 2 ? "Match the shape and color. Press 1-4."
+                : "Match all three details. Press 1-4.");
+        if (describing)
         {
-            GUI.Label(new Rect(x, 72f, width - 24f, 55f), network.playerId == 1
-                ? "Stand on the BLUE pad. Ask your partner to stand on ORANGE."
-                : "Stand on the ORANGE pad. Ask your partner to stand on BLUE.");
-            Vector3 target = network.playerId == 1 ? firstPad : secondPad;
-            if (network.localPlayerTransform != null)
-                GUI.Label(new Rect(x, 110f, width - 24f, 35f), "Your pad: " +
-                    Vector3.Distance(network.localPlayerTransform.position, target).ToString("F1") + " m away");
-            return;
-        }
-        if (network.playerId == 1)
-        {
-            string direction = round <= 1 ? "Round 1: describe the outer shape."
-                : round == 2 ? "Round 2: describe the shape and color."
-                : "Round 3: describe the shape, color, and center mark.";
-            GUI.Label(new Rect(x, 62f, width - 24f, 28f), direction);
-            if (clue >= 0) DrawShape(clue, new Rect(x + 10f, 94f, 72f, 72f));
-            if (clue >= 0) GUI.Label(new Rect(x + 100f, 107f, width - 125f, 45f),
-                Describe(clue));
+            clueImage.texture = clue >= 0 ? shapeImages[clue] : null;
+            clueDescription.text = clue >= 0 ? Describe(clue) : "Waiting for clue...";
         }
         else
-        {
-            string direction = round <= 1 ? "Round 1: match the outer shape."
-                : round == 2 ? "Round 2: match the shape and color."
-                : "Round 3: match all three details.";
-            GUI.Label(new Rect(x, 61f, width - 24f, 25f), direction + " Press 1-4:");
             for (int i = 0; i < 4; i++)
             {
-                float optionX = x + i * (width - 24f) / 4f;
-                if (choices[i] < 0) continue;
-                GUI.Box(new Rect(optionX, 89f, (width - 24f) / 4f - 4f, 99f), (i + 1).ToString());
-                DrawShape(choices[i], new Rect(optionX + 26f, 111f, 52f, 52f));
-                GUI.Label(new Rect(optionX + 10f, 163f, 110f, 22f),
-                    Describe(choices[i]));
+                choiceImages[i].texture = choices[i] >= 0 ? shapeImages[choices[i]] : null;
+                choiceDescriptions[i].text = choices[i] >= 0 ? Describe(choices[i]) : "";
             }
-        }
-        if (Time.time < wrongUntil)
-            GUI.Label(new Rect(x, 190f, width - 24f, 22f), "Wrong sigil. Compare all three details; retry shortly.");
+        warningLabel.text = Time.time < wrongUntil ? "Wrong choice. Compare the details and try again." : "";
+    }
+
+    static RectTransform PanelRect(Transform parent, string name, float x, float y, float width, float height)
+    {
+        RectTransform rect = new GameObject(name, typeof(RectTransform)).GetComponent<RectTransform>();
+        rect.SetParent(parent, false);
+        rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0f, 1f);
+        rect.anchoredPosition = new Vector2(x, -y);
+        rect.sizeDelta = new Vector2(width, height);
+        return rect;
+    }
+
+    static Image Block(Transform parent, string name, float x, float y,
+        float width, float height, Color color)
+    {
+        Image image = PanelRect(parent, name, x, y, width, height).gameObject.AddComponent<Image>();
+        image.color = color;
+        image.raycastTarget = false;
+        return image;
+    }
+
+    static RawImage Picture(Transform parent, float x, float y, float width, float height)
+    {
+        RawImage image = PanelRect(parent, "Sigil", x, y, width, height).gameObject.AddComponent<RawImage>();
+        image.raycastTarget = false;
+        return image;
+    }
+
+    Text Label(Transform parent, string value, float x, float y,
+        float width, float height, int size, Color color)
+    {
+        Text label = PanelRect(parent, "Label", x, y, width, height).gameObject.AddComponent<Text>();
+        label.font = panelFont;
+        label.fontSize = size;
+        label.color = color;
+        label.text = value;
+        label.raycastTarget = false;
+        label.supportRichText = false;
+        label.horizontalOverflow = HorizontalWrapMode.Wrap;
+        label.verticalOverflow = VerticalWrapMode.Overflow;
+        return label;
     }
 
     static string Describe(int id)
     {
         return ColorNames[(id / 3) % 4] + " " + ShapeNames[id / 12] + " / " + MarkNames[id % 3];
-    }
-
-    void DrawShape(int id, Rect area)
-    {
-        if (id >= 0 && id < shapeImages.Length && shapeImages[id] != null)
-            GUI.DrawTexture(area, shapeImages[id], ScaleMode.ScaleToFit, true);
     }
 
     static Texture2D MakeShapeImage(int id)
