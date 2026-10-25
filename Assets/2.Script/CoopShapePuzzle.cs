@@ -241,14 +241,20 @@ public class CoopShapePuzzle : MonoBehaviour
         }
         if (network.playerId == 1)
         {
-            GUI.Label(new Rect(x, 62f, width - 24f, 28f), "Describe the outline, color, and center mark to your partner:");
+            string direction = round <= 1 ? "Round 1: describe the outer shape."
+                : round == 2 ? "Round 2: describe the shape and color."
+                : "Round 3: describe the shape, color, and center mark.";
+            GUI.Label(new Rect(x, 62f, width - 24f, 28f), direction);
             if (clue >= 0) DrawShape(clue, new Rect(x + 10f, 94f, 72f, 72f));
             if (clue >= 0) GUI.Label(new Rect(x + 100f, 107f, width - 125f, 45f),
                 Describe(clue));
         }
         else
         {
-            GUI.Label(new Rect(x, 61f, width - 24f, 25f), "Listen to your partner. Press 1, 2, 3, or 4 to choose:");
+            string direction = round <= 1 ? "Round 1: match the outer shape."
+                : round == 2 ? "Round 2: match the shape and color."
+                : "Round 3: match all three details.";
+            GUI.Label(new Rect(x, 61f, width - 24f, 25f), direction + " Press 1-4:");
             for (int i = 0; i < 4; i++)
             {
                 float optionX = x + i * (width - 24f) / 4f;

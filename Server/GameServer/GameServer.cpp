@@ -1266,9 +1266,26 @@ void ProcessClientPacket(
         int color = (puzzleAnswer / 3) % 4;
         int mark = puzzleAnswer % 3;
         puzzleChoices[0] = puzzleAnswer;
-        puzzleChoices[1] = shape * 12 + color * 3 + (mark + 1) % 3;
-        puzzleChoices[2] = shape * 12 + ((color + 1) % 4) * 3 + mark;
-        puzzleChoices[3] = ((shape + 1) % 4) * 12 + color * 3 + mark;
+        if (puzzleRound == 1)
+        {
+            // First teach the shared vocabulary with only the outline changing.
+            for (int i = 1; i < 4; ++i)
+                puzzleChoices[i] = ((shape + i) % 4) * 12 + color * 3 + mark;
+        }
+        else if (puzzleRound == 2)
+        {
+            // Then distinguish outline and color while the center mark is fixed.
+            puzzleChoices[1] = ((shape + 1) % 4) * 12 + color * 3 + mark;
+            puzzleChoices[2] = shape * 12 + ((color + 1) % 4) * 3 + mark;
+            puzzleChoices[3] = ((shape + 1) % 4) * 12 + ((color + 1) % 4) * 3 + mark;
+        }
+        else
+        {
+            // The last round requires all three details to be communicated.
+            puzzleChoices[1] = shape * 12 + color * 3 + (mark + 1) % 3;
+            puzzleChoices[2] = shape * 12 + ((color + 1) % 4) * 3 + mark;
+            puzzleChoices[3] = ((shape + 1) % 4) * 12 + color * 3 + mark;
+        }
         std::shuffle(puzzleChoices, puzzleChoices + 4, std::mt19937(random()));
         SendPacket(clientSocket1, "S_PUZZLE_CLUE|" + std::to_string(puzzleRound) + "|" + std::to_string(puzzleAnswer));
         std::ostringstream options;
