@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 
 public class NetworkClient : MonoBehaviour
 {
@@ -41,6 +42,7 @@ public class NetworkClient : MonoBehaviour
     private TcpClient client;
     private NetworkStream stream;
     private bool isConnected = false;
+    private bool isReloading;
 
     private float sendTimer = 0f;
     private int nextMimicShotId = 1;
@@ -135,6 +137,28 @@ public class NetworkClient : MonoBehaviour
     public void SelectRole(int role) => SendMessageToServer("C_ROLE|" + role + "\n", "Role failed");
     public void SetReady(bool value) => SendMessageToServer("C_READY|" + (value ? 1 : 0) + "\n", "Ready failed");
     public void RequestStart() => SendMessageToServer("C_START\n", "Start failed");
+    public void RequestRestart()
+    {
+        if (offlineMode) { ReturnToLobby(); return; }
+        SendMessageToServer("C_RESTART|" + playerId + "\n", "Restart request failed");
+    }
+
+    public void ReturnToLobby()
+    {
+        if (isReloading) return;
+        isReloading = true;
+        StartCoroutine(ReloadLobby());
+    }
+
+    private System.Collections.IEnumerator ReloadLobby()
+    {
+        isConnected = false;
+        if (stream != null) stream.Close();
+        if (client != null) client.Close();
+        Time.timeScale = 1f;
+        yield return new WaitForSecondsRealtime(0.7f);
+        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+    }
 
     public void SendPuzzlePad(bool active) =>
         SendMessageToServer("C_PUZZLE_PAD|" + playerId + "|" + (active ? 1 : 0) + "\n", "Puzzle pad failed");
@@ -453,6 +477,12 @@ public class NetworkClient : MonoBehaviour
             case "S_GAME_CLEAR":
                 if (ClueManager.instance != null) ClueManager.instance.ShowEnding();
                 break;
+            case "S_GAME_OVER":
+                if (ClueManager.instance != null) ClueManager.instance.ShowDefeat();
+                break;
+            case "S_RESTART":
+                ReturnToLobby();
+                break;
             case "COUNT":
                 if (parts.Length >= 2 && int.TryParse(parts[1], out int count))
                     if (LobbyManager.Instance != null) LobbyManager.Instance.SetPlayerCount(count);
@@ -758,6 +788,13 @@ public class NetworkClient : MonoBehaviour
 
     private void OnApplicationQuit()
     {
+        if (stream != null) stream.Close();
+        if (client != null) client.Close();
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
         if (stream != null) stream.Close();
         if (client != null) client.Close();
     }

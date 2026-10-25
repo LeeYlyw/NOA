@@ -47,6 +47,9 @@ static NavigationUpload navigationUploads[3];
 static double gateOpeningTime = 0.0;
 static int matchRoles[3] = {-1, -1, -1};
 static double nextHealAt[3][3] = {};
+static int matchResult = 0; // 0 playing, 1 clear, 2 defeat
+static bool restartVotes[3] = {};
+static bool restartRequested = false;
 
 enum class MonsterType
 {
@@ -936,8 +939,11 @@ void ProcessItemPickupPacket(
         clueOss << "S_CLUE_COUNT|" << clueCount << "|" << needClueCount;
         BroadcastPacket(clientSocket1, clientSocket2, clueOss.str());
 
-        if (clueCount >= needClueCount)
+        if (clueCount >= needClueCount && matchResult == 0)
+        {
+            matchResult = 1;
             BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_CLEAR");
+        }
     }
 
     std::cout << "[ITEM PICKUP] item " << itemId
@@ -1120,6 +1126,20 @@ void ProcessClientPacket(
         return;
 
     const std::string& type = parts[0];
+    if (type == "C_RESTART")
+    {
+        int playerId = 0;
+        if (matchResult == 0 || parts.size() != 2 ||
+            !TryParseInt(parts[1], playerId) || playerId != senderPlayerId) return;
+        restartVotes[playerId] = true;
+        if (restartVotes[1] && restartVotes[2])
+        {
+            BroadcastPacket(clientSocket1, clientSocket2, "S_RESTART");
+            restartRequested = true;
+        }
+        return;
+    }
+    if (matchResult != 0) return;
     if (StartsWith(type, "C_NAV_"))
     {
         ProcessNavigationPacket(parts, senderPlayerId, clientSocket1, clientSocket2, monsters);
@@ -1766,6 +1786,7 @@ int main()
                 buffer[recvLength] = '\0';
                 receiveBuffer1.append(buffer, recvLength);
                 ProcessReceiveBuffer(1, receiveBuffer1, clientSocket1, clientSocket2, players, monsters, items, clueCount, needClueCount);
+                if (restartRequested) break;
             }
             else
             {
@@ -1783,6 +1804,7 @@ int main()
                 buffer[recvLength] = '\0';
                 receiveBuffer2.append(buffer, recvLength);
                 ProcessReceiveBuffer(2, receiveBuffer2, clientSocket1, clientSocket2, players, monsters, items, clueCount, needClueCount);
+                if (restartRequested) break;
             }
             else
             {
@@ -1823,8 +1845,15 @@ int main()
         }
 
         // 몬스터 AI 판단 및 이동 (은신 여부가 반영된 상태로 시야 판정 진행)
-        if (navigation.ready)
+        if (navigation.ready && matchResult == 0)
             UpdateMonsters(monsters, players, clientSocket1, clientSocket2, deltaTime, now);
+
+        if (matchResult == 0 && players[1].hasState && players[2].hasState &&
+            players[1].isDead && players[2].isDead)
+        {
+            matchResult = 2;
+            BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_OVER");
+        }
 
         if (navigation.ready && now - lastMonsterBroadcastTime >= 0.1)
         {

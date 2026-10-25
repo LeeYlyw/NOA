@@ -18,6 +18,8 @@ public class ClueManager : MonoBehaviour
     public GameObject endingPanel;
 
     private bool isEnding = false;
+    private bool isDefeat;
+    private bool waitingForRestart;
     public bool IsEnding => isEnding;
 
     void Awake()
@@ -88,6 +90,7 @@ public class ClueManager : MonoBehaviour
             return;
 
         isEnding = true;
+        isDefeat = false;
         Debug.Log("엔딩 패널 활성화");
 
         if (endingPanel != null)
@@ -96,5 +99,41 @@ public class ClueManager : MonoBehaviour
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
         Time.timeScale = 0f;
+    }
+    public void ShowDefeat()
+    {
+        if (isEnding) return;
+        isEnding = true;
+        isDefeat = true;
+        if (endingPanel != null) endingPanel.SetActive(false);
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+        Time.timeScale = 0f;
+    }
+
+    private void OnGUI()
+    {
+        if (!isEnding) return;
+        NetworkClient network = NetworkClient.Instance;
+        Rect panel = new Rect((Screen.width - 440f) / 2f, Screen.height - 185f, 440f, 170f);
+        GUI.Box(panel, isDefeat ? "MISSION FAILED - BOTH PLAYERS DOWN" : "MISSION COMPLETE");
+        if (network == null) return;
+        GUI.Label(new Rect(panel.x + 20f, panel.y + 35f, 400f, 35f),
+            waitingForRestart ? "Waiting for teammate to restart..." :
+            "Both players can restart together, or return to the lobby.");
+        GUI.enabled = !waitingForRestart && (network.IsConnected || network.offlineMode);
+        if (GUI.Button(new Rect(panel.x + 20f, panel.y + 82f, 185f, 46f), "Restart together"))
+        {
+            waitingForRestart = true;
+            network.RequestRestart();
+        }
+        GUI.enabled = true;
+        if (GUI.Button(new Rect(panel.x + 235f, panel.y + 82f, 185f, 46f), "Return to lobby"))
+            network.ReturnToLobby();
+    }
+
+    private void OnDestroy()
+    {
+        if (instance == this) instance = null;
     }
 }
