@@ -29,6 +29,14 @@ public class CoopShapePuzzle : MonoBehaviour
     int totalRounds = 3;
     float wrongUntil;
 
+    public int WrongFeedbackVersion { get; private set; }
+    public bool IsSolved => solved;
+    public bool BluePadOccupied => pads[1];
+    public bool OrangePadOccupied => pads[2];
+    public int CompletedRounds => solved ? totalRounds : Mathf.Clamp(round - 1, 0, totalRounds);
+    public int TotalRounds => totalRounds;
+    public Vector3 GetAssignedPad(int playerId) => playerId == 1 ? firstPad : secondPad;
+
     public static GameObject Create(Vector3 player1Spawn, Vector3 player2Spawn, Vector3 roomCenter, float tileSize)
     {
         GameObject root = new GameObject("Cooperative Shape Puzzle");
@@ -69,6 +77,7 @@ public class CoopShapePuzzle : MonoBehaviour
         closedGatePosition = roomGate.position;
         for (int i = 0; i < shapeImages.Length; i++) shapeImages[i] = MakeShapeImage(i);
         configured = true;
+        gameObject.AddComponent<PuzzlePresentation>();
     }
 
     public void SetLockedClue(GameObject clue)
@@ -190,7 +199,7 @@ public class CoopShapePuzzle : MonoBehaviour
         { round = newRound; totalRounds = count; }
     }
 
-    public void SetWrong() { wrongUntil = Time.time + 2f; }
+    public void SetWrong() { if (solved) return; wrongUntil = Time.time + 2f; WrongFeedbackVersion++; }
     public void SetSolved()
     {
         solved = true;
@@ -201,6 +210,9 @@ public class CoopShapePuzzle : MonoBehaviour
     {
         NetworkClient network = NetworkClient.Instance;
         if (!configured || network == null || !network.GameStarted || !network.HasAssignedPlayerId) return;
+        // Persistent status and directions are supplied by ObjectiveHUD.
+        // Only show the private puzzle contents while both players are on their pads.
+        if (solved || !pads[1] || !pads[2]) return;
 
         float width = Mathf.Min(560f, Screen.width - 20f);
         Rect panel = new Rect((Screen.width - width) * 0.5f, 12f, width, 215f);

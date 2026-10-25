@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
@@ -18,10 +18,12 @@ public class ClueManager : MonoBehaviour
     public GameObject endingPanel;
 
     private bool isEnding = false;
+    public bool IsEnding => isEnding;
 
     void Awake()
     {
         instance = this;
+        GamePresentation.Ensure();
 
         if (clueIcon != null)
         {
@@ -35,6 +37,11 @@ public class ClueManager : MonoBehaviour
 
         if (endingPanel != null)
             endingPanel.SetActive(false);
+
+        if (GetComponent<ObjectiveHUD>() == null) gameObject.AddComponent<ObjectiveHUD>();
+        // The mission HUD owns the shared clue counter.
+        if (clueIcon != null) clueIcon.enabled = false;
+        if (clueCountText != null) clueCountText.enabled = false;
     }
 
     public void SetClueCount(int count, int needCount)

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.Net.Sockets;
 using System.Text;
@@ -42,7 +42,6 @@ public class NetworkClient : MonoBehaviour
     private bool isConnected = false;
 
     private float sendTimer = 0f;
-    private float monsterSendTimer = 0f;
     private int nextMimicShotId = 1;
     private string receiveBuffer = "";
     private PlayerController localPlayerController;
@@ -93,41 +92,7 @@ public class NetworkClient : MonoBehaviour
         ReceivePackets();
         if (!isConnected || !HasAssignedPlayerId || !GameStarted) return;
         SendLocalPlayerTransform();
-        SendAuthoritativeMonsterStates();
         ApplyRemotePlayerTransform();
-    }
-
-    void SendAuthoritativeMonsterStates()
-    {
-        if (monsterSetups == null) return;
-        monsterSendTimer += Time.deltaTime;
-        if (monsterSendTimer < sendInterval) return;
-        monsterSendTimer = 0f;
-
-        foreach (MonsterNetworkSetup setup in monsterSetups)
-        {
-            if (setup == null || !setup.IsAuthority) continue;
-
-            MonsterChase ai = setup.GetComponent<MonsterChase>();
-            SoundMonsterAI soundAI = setup.GetComponent<SoundMonsterAI>();
-            if (ai == null && soundAI == null) continue;
-
-            float speed = ai != null ? ai.NetworkSpeed : soundAI.NetworkSpeed;
-            bool isWalking = ai != null ? ai.NetworkIsWalking : soundAI.NetworkIsWalking;
-            bool isAttacking = ai != null ? ai.NetworkIsAttacking : soundAI.NetworkIsAttacking;
-            Transform target = ai != null ? ai.player : soundAI.player;
-            PlayerRoleSetup targetRole = target != null ? target.GetComponent<PlayerRoleSetup>() : null;
-            int targetId = isAttacking && targetRole != null ? targetRole.ownerClientId : 0;
-
-            Vector3 pos = setup.transform.position;
-            string message = string.Format(
-                CultureInfo.InvariantCulture,
-                "C_MONSTER_STATE|{0}|{1}|{2:F2}|{3:F2}|{4:F2}|{5:F2}|{6:F2}|{7}|{8}|{9}\n",
-                playerId, setup.monsterId, pos.x, pos.y, pos.z, setup.transform.eulerAngles.y,
-                speed, isWalking ? 1 : 0, isAttacking ? 1 : 0, targetId
-            );
-            SendMessageToServer(message, "몬스터 상태 전송 실패");
-        }
     }
 
     System.Collections.IEnumerator ConnectAutomatically()
@@ -149,11 +114,13 @@ public class NetworkClient : MonoBehaviour
             {
                 launched = true;
                 string root = System.IO.Path.GetDirectoryName(Application.dataPath);
-                string path = System.IO.Path.Combine(root, "Server", "GameServer.exe");
-                if (!System.IO.File.Exists(path)) path = System.IO.Path.Combine(root, "Server/GameServer/x64/Debug/GameServer.exe");
+                string path = System.IO.Path.Combine(root, "Server", "x64", "Release", "GameServer.exe");
+                if (!System.IO.File.Exists(path))
+                    path = System.IO.Path.Combine(root, "Server", "GameServer.exe");
                 try
                 {
-                    if (!System.IO.File.Exists(path)) throw new System.IO.FileNotFoundException("GameServer.exe missing: " + path);
+                    if (!System.IO.File.Exists(path))
+                        throw new System.IO.FileNotFoundException("GameServer.exe missing. Run Server/BuildServer.ps1 before multiplayer testing.");
                     System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = System.IO.Path.GetDirectoryName(path) });
                     ConnectionStatus = "Starting server...";
                 }
@@ -232,6 +199,29 @@ public class NetworkClient : MonoBehaviour
             playerId, position.x, position.y, position.z, noiseAmount
         );
         SendMessageToServer(message, "소음 정보 전송 실패");
+    }
+
+    public void SendNavigationMap(int seed, int width, int height, float originX,
+                                  float originZ, float step, float gateX, float gateZ,
+                                  float gateHalfWidth, Vector3 monster1, Vector3 monster2,
+                                  string edgeMask)
+    {
+        if (offlineMode || !isConnected || !HasAssignedPlayerId ||
+            string.IsNullOrEmpty(edgeMask) || edgeMask.Length != width * height) return;
+
+        string header = string.Format(CultureInfo.InvariantCulture,
+            "C_NAV_BEGIN|{0}|{1}|{2}|{3}|{4:F2}|{5:F2}|{6:F2}|{7:F2}|{8:F2}|{9:F2}|{10:F2}|{11:F2}|{12:F2}|{13:F2}|{14:F2}|{15:F2}\n",
+            playerId, seed, width, height, originX, originZ, step, gateX, gateZ,
+            gateHalfWidth, monster1.x, monster1.y, monster1.z,
+            monster2.x, monster2.y, monster2.z);
+        SendMessageToServer(header, "Navigation map header failed");
+
+        const int chunkSize = 1000;
+        for (int offset = 0, sequence = 0; offset < edgeMask.Length; offset += chunkSize, sequence++)
+            SendMessageToServer("C_NAV_CHUNK|" + playerId + "|" + sequence + "|" +
+                                edgeMask.Substring(offset, Mathf.Min(chunkSize, edgeMask.Length - offset)) +
+                                "\n", "Navigation map chunk failed");
+        SendMessageToServer("C_NAV_END|" + playerId + "\n", "Navigation map end failed");
     }
 
     public void SendItemPickupRequest(int itemId, ItemData itemData)
@@ -416,6 +406,13 @@ public class NetworkClient : MonoBehaviour
             case "ERROR":
                 ConnectionStatus = parts.Length > 1 ? parts[1] : "Server error";
                 break;
+            case "S_NAV_READY":
+                Debug.Log("[Network] Server navigation map confirmed by both clients; server AI active.");
+                break;
+            case "S_NAV_ERROR":
+                ConnectionStatus = parts.Length > 1 ? parts[1] : "Navigation map rejected";
+                Debug.LogError("[Network] " + ConnectionStatus);
+                break;
             case "S_PUZZLE_PADS":
                 if (CoopShapePuzzle.Instance != null) CoopShapePuzzle.Instance.SetPads(parts);
                 break;
@@ -489,7 +486,7 @@ public class NetworkClient : MonoBehaviour
         {
             bool isWalk = parts[9] == "1";
             bool isAttack = parts[10] == "1";
-            ApplyRemoteMonsterTransform(monsterId, new Vector3(x, y, z), Quaternion.Euler(0f, rotY, 0f), speed, isWalk, isAttack, attackSequence);
+            ApplyRemoteMonsterTransform(monsterId, new Vector3(x, y, z), Quaternion.Euler(0f, rotY, 0f), speed, isWalk, isAttack, attackSequence, parts[3]);
         }
     }
 
@@ -636,7 +633,7 @@ public class NetworkClient : MonoBehaviour
     }
 
     void ApplyRemoteMonsterTransform(int monsterId, Vector3 pos, Quaternion rot, float speed,
-                                     bool isWalk, bool isAttack, int attackSequence)
+                                     bool isWalk, bool isAttack, int attackSequence, string aiState)
     {
         if (monsterSetups == null || monsterSetups.Length == 0)
             monsterSetups = FindObjectsOfType<MonsterNetworkSetup>();
@@ -651,6 +648,7 @@ public class NetworkClient : MonoBehaviour
                 RemoteMonster remoteMonster = monster.GetComponent<RemoteMonster>();
                 if (remoteMonster != null)
                 {
+                    remoteMonster.PresentationState = aiState;
                     remoteMonster.SetState(pos, rot);
                     remoteMonster.SetAnimationState(speed, isWalk, isAttack, attackSequence);
                 }
@@ -679,7 +677,7 @@ public class NetworkClient : MonoBehaviour
             {
                 monsterSetups[i] = spawnedMonsters[i].GetComponent<MonsterNetworkSetup>();
                 if (monsterSetups[i] != null)
-                    monsterSetups[i].SetupMonster(offlineMode || playerId == 1);
+                    monsterSetups[i].SetupMonster(offlineMode);
             }
         }
 

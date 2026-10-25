@@ -53,6 +53,8 @@ public class SoundMonsterAI : MonoBehaviour
     private bool patrolWaiting = true;
     private float pauseUntil;
 
+    public string PresentationState => currentState.ToString();
+    public float PresentationAttackTime => lastAttackTime;
     public float NetworkSpeed { get; private set; }
     public bool NetworkIsWalking { get; private set; }
     public bool NetworkIsAttacking { get; private set; }
