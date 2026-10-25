@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.Net.Sockets;
 using System.Text;
@@ -486,7 +486,7 @@ public class NetworkClient : MonoBehaviour
         {
             bool isWalk = parts[9] == "1";
             bool isAttack = parts[10] == "1";
-            ApplyRemoteMonsterTransform(monsterId, new Vector3(x, y, z), Quaternion.Euler(0f, rotY, 0f), speed, isWalk, isAttack, attackSequence);
+            ApplyRemoteMonsterTransform(monsterId, new Vector3(x, y, z), Quaternion.Euler(0f, rotY, 0f), speed, isWalk, isAttack, attackSequence, parts[3]);
         }
     }
 
@@ -633,7 +633,7 @@ public class NetworkClient : MonoBehaviour
     }
 
     void ApplyRemoteMonsterTransform(int monsterId, Vector3 pos, Quaternion rot, float speed,
-                                     bool isWalk, bool isAttack, int attackSequence)
+                                     bool isWalk, bool isAttack, int attackSequence, string aiState)
     {
         if (monsterSetups == null || monsterSetups.Length == 0)
             monsterSetups = FindObjectsOfType<MonsterNetworkSetup>();
@@ -648,6 +648,7 @@ public class NetworkClient : MonoBehaviour
                 RemoteMonster remoteMonster = monster.GetComponent<RemoteMonster>();
                 if (remoteMonster != null)
                 {
+                    remoteMonster.PresentationState = aiState;
                     remoteMonster.SetState(pos, rot);
                     remoteMonster.SetAnimationState(speed, isWalk, isAttack, attackSequence);
                 }

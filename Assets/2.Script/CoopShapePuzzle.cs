@@ -29,6 +29,7 @@ public class CoopShapePuzzle : MonoBehaviour
     int totalRounds = 3;
     float wrongUntil;
 
+    public int WrongFeedbackVersion { get; private set; }
     public bool IsSolved => solved;
     public bool BluePadOccupied => pads[1];
     public bool OrangePadOccupied => pads[2];
@@ -76,6 +77,7 @@ public class CoopShapePuzzle : MonoBehaviour
         closedGatePosition = roomGate.position;
         for (int i = 0; i < shapeImages.Length; i++) shapeImages[i] = MakeShapeImage(i);
         configured = true;
+        gameObject.AddComponent<PuzzlePresentation>();
     }
 
     public void SetLockedClue(GameObject clue)
@@ -197,7 +199,7 @@ public class CoopShapePuzzle : MonoBehaviour
         { round = newRound; totalRounds = count; }
     }
 
-    public void SetWrong() { wrongUntil = Time.time + 2f; }
+    public void SetWrong() { if (solved) return; wrongUntil = Time.time + 2f; WrongFeedbackVersion++; }
     public void SetSolved()
     {
         solved = true;

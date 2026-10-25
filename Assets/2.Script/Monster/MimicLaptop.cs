@@ -30,11 +30,14 @@ public class MimicLaptop : MonoBehaviour
     private float idleIntensity;
     private int networkId;
 
+    public string PresentationState => state.ToString();
+    public int PresentationAttackSequence { get; private set; }
     public int NetworkId => networkId;
     public void SetNetworkId(int id) => networkId = id;
 
     private void Awake()
     {
+        if (GetComponent<MonsterPresentation>() == null) gameObject.AddComponent<MonsterPresentation>();
         if (laptopLight == null)
             laptopLight = GetComponentInChildren<Light>();
 
@@ -231,6 +234,7 @@ public class MimicLaptop : MonoBehaviour
             ? network.SendMimicFire(networkId, targetPlayerId, start, direction, projectileSpeed, damage)
             : 0;
         projectile.Launch(direction, projectileSpeed, damage, transform, shotId, targetPlayerId);
+        PresentationAttackSequence++;
     }
 
     private void SetState(State next)
@@ -258,6 +262,7 @@ public class MimicLaptop : MonoBehaviour
         MimicProjectile projectile = shot.GetComponent<MimicProjectile>();
         if (projectile == null) projectile = shot.AddComponent<MimicProjectile>();
         projectile.Launch(direction, speed, hitDamage, transform, shotId, targetPlayerId);
+        PresentationAttackSequence++;
     }
 
     private void OnValidate()

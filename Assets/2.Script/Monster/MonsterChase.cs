@@ -46,6 +46,8 @@ public class MonsterChase : MonoBehaviour
     private float pauseUntil;
     private bool patrolWaiting = true;
 
+    public string PresentationState => state.ToString();
+    public float PresentationAttackTime => lastAttackTime;
     public float NetworkSpeed { get; private set; }
     public bool NetworkIsWalking { get; private set; }
     public bool NetworkIsAttacking { get; private set; }

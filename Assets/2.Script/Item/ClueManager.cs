@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
@@ -23,6 +23,7 @@ public class ClueManager : MonoBehaviour
     void Awake()
     {
         instance = this;
+        GamePresentation.Ensure();
 
         if (clueIcon != null)
         {

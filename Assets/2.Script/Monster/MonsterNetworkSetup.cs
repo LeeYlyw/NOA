@@ -14,6 +14,11 @@ public class MonsterNetworkSetup : MonoBehaviour
     public bool IsAuthority { get; private set; }
     private bool isConfigured;
 
+    void Awake()
+    {
+        if (GetComponent<MonsterPresentation>() == null) gameObject.AddComponent<MonsterPresentation>();
+    }
+
     void Start()
     {
         if (isConfigured) return;

@@ -15,6 +15,8 @@ public class RemoteMonster : MonoBehaviour
     private bool targetIsAttack;
 
     private int lastAttackSequence;
+    public string PresentationState { get; set; } = "Idle";
+    public int PresentationAttackSequence => lastAttackSequence;
 
     void Awake()
     {
