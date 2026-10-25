@@ -18,7 +18,7 @@ public class ObjectiveHUD : MonoBehaviour
     Text roleHint;
     Font font;
     InventoryManager inventory;
-    readonly NavMeshPath roomPath = new NavMeshPath();
+    NavMeshPath roomPath;
     float nextRoomRouteUpdate;
     string roomRouteHint = "잠긴 방 위치를 확인하세요.";
     readonly Color accent = new Color(0.32f, 0.88f, 0.81f);
@@ -26,6 +26,7 @@ public class ObjectiveHUD : MonoBehaviour
 
     void Awake()
     {
+        roomPath = new NavMeshPath();
         font = Font.CreateDynamicFontFromOSFont(
             new[] { "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans CJK KR", "Arial" }, 20);
         GameObject root = new GameObject("Mission HUD", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));

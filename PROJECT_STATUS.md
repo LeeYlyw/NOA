@@ -22,6 +22,8 @@
 
 ## 검증 상태 — 세 단계 구분
 
+2026-10-26 직업 3 실측 결함: Unity 편집기에서 `ObjectiveHUD`의 `NavMeshPath` 필드 초기화 예외와 직업 3 공중 스폰·아이템 접촉 무반응이 보고됐다. `NavMeshPath`는 `Awake` 생성으로 옮기고, 직업 3·4의 원점 중심 캡슐/스케일을 생성 시 바닥 기준으로 보정하며, 아이템은 태그 대신 로컬 `PlayerController`로 접촉 대상을 식별하도록 수정했다. C# 컴파일은 통과했으나 Unity 재실행·두 PC 실측은 아직 필요하다. 사용자가 편집 중인 씬·프리팹 변경은 보존한다.
+
 1. **구현:** 위 코드는 `codex/demo-flow-p0` 브랜치에 있다. 새 채팅에서는 현재 Git 상태를 재확인한다. 브랜치는 아직 푸시하지 않았다.
 2. **자동 확인:** `Assembly-CSharp.csproj` 컴파일 오류 0개, C++ Release 서버 빌드, `ServerNavigationSmoke.py`의 맵 실패·아이템 목록 불일치·종류/거리 거절·몬스터 공격·치유, `ServerMimicSmoke.py`의 동료 교차 피격, `ServerPuzzleSmoke.py`의 3라운드 통과. 두 시연 씬의 3·4번 프리팹 GUID와 루트 fileID를 정적으로 확인했다.
 3. **실제 확인:** Unity 화면 및 두 PC 플레이는 **미완료**. Unity 6000.0.44f1 배치 실행은 LicensingClient IPC 시간 초과로 종료 코드 199였다. C# 컴파일이나 로컬 소켓 검사를 실제 화면·멀티 확인으로 표시하지 않는다.

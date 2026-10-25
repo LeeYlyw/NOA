@@ -35,22 +35,18 @@ public class PotionItem : MonoBehaviour
         if (isPicked || isRequestingPickup || Time.unscaledTime < nextPickupAttemptAt)
             return;
 
-        if (!other.CompareTag("Player"))
-            return;
-
         PlayerController player = other.GetComponent<PlayerController>();
         if (player == null)
             player = other.GetComponentInParent<PlayerController>();
-
-        // 내 화면에서 상대 플레이어가 닿은 경우 내 요청을 보내지 않음
-        if (player != null && !player.isLocalPlayer)
+        // CharacterController belongs to the player root, even when the
+        // imported character prefab does not carry the Player tag.
+        if (player == null || !player.isLocalPlayer || player.IsDeadState)
             return;
 
         if (itemData == null) return;
         nextPickupAttemptAt = Time.unscaledTime + 0.75f;
 
-        PlayerRoleSetup role = other.GetComponent<PlayerRoleSetup>();
-        if (role == null) role = other.GetComponentInParent<PlayerRoleSetup>();
+        PlayerRoleSetup role = player.GetComponent<PlayerRoleSetup>();
 
         if (itemData.type == ItemData.ItemType.Clue && (role == null || !role.IsExplorer))
         {

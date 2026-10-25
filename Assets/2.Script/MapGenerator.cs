@@ -1067,12 +1067,14 @@ public class MapGenerator : MonoBehaviour
         }
         GameObject p1 = Instantiate(firstPrefab, p1Pos, Quaternion.identity);
         p1.name = "Player1";
+        AlignPlayerToFloor(p1, p1Pos);
         spawnedEntities.Add(p1);
 
         // Keep both players close enough to find the cooperative puzzle during a demo.
         Vector3 p2Pos = GetNearbySpawnPoint(p1Pos);
         GameObject p2 = Instantiate(secondPrefab, p2Pos, Quaternion.identity);
         p2.name = "Player2";
+        AlignPlayerToFloor(p2, p2Pos);
         spawnedEntities.Add(p2);
 
         Vector3 monsterPos = GetFarthestSpawnPoint(p1Pos, minMonsterDistance);
@@ -1186,6 +1188,39 @@ public class MapGenerator : MonoBehaviour
         if (selected != null) return selected;
         Debug.LogError("[MapGenerator] Missing character prefab for role " + role + "; using slot fallback.");
         return fallback;
+    }
+
+    void AlignPlayerToFloor(GameObject player, Vector3 spawnPoint)
+    {
+        CharacterController capsule = player.GetComponent<CharacterController>();
+        if (capsule == null) return;
+
+        // Imported role 3/4 variants use a scaled root and a capsule centered
+        // at zero. That puts half the capsule below the spawn point; Unity
+        // resolves the overlap by lifting the whole player and camera.
+        bool centeredAtOrigin = Mathf.Abs(capsule.center.y) < 0.1f;
+        if (centeredAtOrigin)
+        {
+            Vector3 scale = player.transform.lossyScale;
+            float heightScale = Mathf.Max(0.01f, Mathf.Abs(scale.y));
+            float widthScale = Mathf.Max(0.01f, Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z)));
+            capsule.height = 2f / heightScale;
+            capsule.radius = Mathf.Min(0.5f / widthScale, capsule.height * 0.45f);
+            capsule.center = Vector3.up * (capsule.height * 0.5f);
+        }
+
+        if (NavMesh.SamplePosition(spawnPoint, out NavMeshHit floor, 2f, NavMesh.AllAreas))
+            player.transform.position = floor.position;
+        if (centeredAtOrigin)
+        {
+            Camera view = player.GetComponentInChildren<Camera>(true);
+            if (view != null)
+            {
+                Vector3 cameraPosition = view.transform.position;
+                cameraPosition.y = player.transform.position.y + 1.65f;
+                view.transform.position = cameraPosition;
+            }
+        }
     }
 
     PotionItem CreateCluePickup(Vector3 floorPosition, ItemData clueData, int id)
