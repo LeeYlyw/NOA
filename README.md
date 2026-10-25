@@ -1,5 +1,7 @@
 ﻿# NOA
 
+진행 현황, 시연 범위와 검증 상태는 `PROJECT_STATUS.md`를 먼저 확인하세요.
+
 게임은 `Assets/1.Scenes/MapGeneration_Test.unity`에서 실행합니다 (`offlineMode = false`).
 로컬 서버가 없으면 게임이 `GameServer.exe`를 창 없이 실행하고 로비에 접속합니다.
 같은 실행 파일을 두 번 실행하면 같은 로비에 접속합니다. 플레이어별로 따로 빌드할 필요가 없습니다.
