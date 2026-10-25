@@ -233,7 +233,7 @@ public class MimicLaptop : MonoBehaviour
         int shotId = online
             ? network.SendMimicFire(networkId, targetPlayerId, start, direction, projectileSpeed, damage)
             : 0;
-        projectile.Launch(direction, projectileSpeed, damage, transform, shotId, targetPlayerId);
+        projectile.Launch(direction, projectileSpeed, damage, transform, shotId);
         PresentationAttackSequence++;
     }
 
@@ -261,7 +261,7 @@ public class MimicLaptop : MonoBehaviour
             : MimicProjectile.CreateDefault(start, direction);
         MimicProjectile projectile = shot.GetComponent<MimicProjectile>();
         if (projectile == null) projectile = shot.AddComponent<MimicProjectile>();
-        projectile.Launch(direction, speed, hitDamage, transform, shotId, targetPlayerId);
+        projectile.Launch(direction, speed, hitDamage, transform, shotId);
         PresentationAttackSequence++;
     }
 

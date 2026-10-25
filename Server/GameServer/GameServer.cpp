@@ -48,7 +48,7 @@ static ServerNavigation navigation;
 static NavigationUpload navigationUploads[3];
 static double gateOpeningTime = 0.0;
 static int matchRoles[3] = {-1, -1, -1};
-static double nextHealAt[3][3] = {};
+static double nextHealAt[3] = {};
 static int matchResult = 0; // 0 playing, 1 clear, 2 defeat
 static bool restartVotes[3] = {};
 static bool restartRequested = false;
@@ -97,6 +97,10 @@ struct MimicShot
     int mimicId = 0;
     int targetPlayerId = 0;
     int damage = 0;
+    Vec3 start;
+    Vec3 direction;
+    float speed = 0.0f;
+    double firedAt = 0.0;
     double expiresAt = 0.0;
 };
 
@@ -548,6 +552,9 @@ bool ResolvePendingMonsterAttack(MonsterState& monster, PlayerState players[],
         << monster.monsterId;
 
     BroadcastPacket(clientSocket1, clientSocket2, oss.str());
+    BroadcastPacket(clientSocket1, clientSocket2,
+        "S_PLAYER_HP|" + std::to_string(target.playerId) + "|" +
+        std::to_string(target.hp));
 
     std::cout << "[SERVER DAMAGE] monster "
         << monster.monsterId
@@ -1400,7 +1407,13 @@ void ProcessClientPacket(
         for (auto it = mimicShots.begin(); it != mimicShots.end(); )
             it = it->second.expiresAt < now ? mimicShots.erase(it) : std::next(it);
         if (mimicShots.find(shotId) != mimicShots.end()) return;
-        mimicShots[shotId] = { mimicId, targetId, damage, now + 6.0 };
+        float directionLength = std::sqrt(direction.x * direction.x +
+            direction.y * direction.y + direction.z * direction.z);
+        direction.x /= directionLength;
+        direction.y /= directionLength;
+        direction.z /= directionLength;
+        mimicShots[shotId] = { mimicId, targetId, damage, start,
+            direction, speed, now, now + 6.0 };
 
         std::ostringstream fire;
         fire << "S_MIMIC_FIRE|" << mimicId << "|" << shotId << "|" << targetId;
@@ -1415,9 +1428,40 @@ void ProcessClientPacket(
         if (parts.size() != 3 || !TryParseInt(parts[1], playerId) ||
             playerId != senderPlayerId || !TryParseInt(parts[2], shotId)) return;
         auto it = mimicShots.find(shotId);
-        if (it == mimicShots.end() || it->second.targetPlayerId != playerId ||
-            GetTimeSeconds() > it->second.expiresAt || players[playerId].isDead) return;
+        if (it == mimicShots.end() || GetTimeSeconds() > it->second.expiresAt ||
+            !players[playerId].hasState || players[playerId].isDead) return;
         MimicShot shot = it->second;
+        // A teammate may intercept a shot intended for the other player. Check
+        // the reporting player's current position against the shot trajectory.
+        Vec3 offset = {
+            players[playerId].position.x - shot.start.x,
+            players[playerId].position.y + 1.0f - shot.start.y,
+            players[playerId].position.z - shot.start.z
+        };
+        float along = offset.x * shot.direction.x + offset.y * shot.direction.y +
+            offset.z * shot.direction.z;
+        float distanceSquared = offset.x * offset.x + offset.y * offset.y +
+            offset.z * offset.z - along * along;
+        float maxTravel = shot.speed * static_cast<float>(GetTimeSeconds() - shot.firedAt + 0.75);
+        if (along < -0.5f || along > maxTravel || distanceSquared > 2.25f)
+            return;
+        for (int otherId = 1; otherId <= 2; ++otherId)
+        {
+            if (otherId == playerId || !players[otherId].hasState || players[otherId].isDead)
+                continue;
+            Vec3 otherOffset = {
+                players[otherId].position.x - shot.start.x,
+                players[otherId].position.y + 1.0f - shot.start.y,
+                players[otherId].position.z - shot.start.z
+            };
+            float otherAlong = otherOffset.x * shot.direction.x +
+                otherOffset.y * shot.direction.y + otherOffset.z * shot.direction.z;
+            float otherDistanceSquared = otherOffset.x * otherOffset.x +
+                otherOffset.y * otherOffset.y + otherOffset.z * otherOffset.z - otherAlong * otherAlong;
+            if (otherAlong >= 0.0f && otherAlong + 0.5f < along &&
+                otherDistanceSquared <= 1.0f)
+                return;
+        }
         mimicShots.erase(it);
         players[playerId].hp = std::max(0, players[playerId].hp - shot.damage);
         if (players[playerId].hp == 0) players[playerId].isDead = true;
@@ -1540,44 +1584,34 @@ void ProcessClientPacket(
 
     if (type == "C_PLAYER_HEAL")
     {
-        if (parts.size() < 4) return;
-
+        if (parts.size() != 2) return;
         int reqPlayerId = 0;
-        int targetPlayerId = 0;
-        int healAmount = 0;
-
-        if (!TryParseInt(parts[1], reqPlayerId) || reqPlayerId != senderPlayerId ||
-            !TryParseInt(parts[2], targetPlayerId) || targetPlayerId < 1 || targetPlayerId > 2 ||
-            !TryParseInt(parts[3], healAmount) || healAmount <= 0 || healAmount > 100)
+        if (!TryParseInt(parts[1], reqPlayerId) || reqPlayerId != senderPlayerId)
             return;
-
         double now = GetTimeSeconds();
-        if (matchRoles[reqPlayerId] != 2 || !players[reqPlayerId].hasState ||
-            players[reqPlayerId].isDead || !players[targetPlayerId].hasState ||
-            players[targetPlayerId].isDead ||
-            Distance2D(players[reqPlayerId].position, players[targetPlayerId].position) > 5.0f ||
-            std::fabs(players[reqPlayerId].position.y - players[targetPlayerId].position.y) > 2.0f ||
-            now < nextHealAt[reqPlayerId][targetPlayerId])
+        bool validCast = matchResult == 0 && matchRoles[reqPlayerId] == 2 &&
+            players[reqPlayerId].hasState && !players[reqPlayerId].isDead &&
+            now >= nextHealAt[reqPlayerId];
+        int healedCount = 0;
+        if (validCast)
         {
-            std::cout << "[HEAL DENY] Role, state, range, or cooldown invalid. player "
-                      << reqPlayerId << std::endl;
-            return;
+            for (int targetId = 1; targetId <= 2; ++targetId)
+            {
+                PlayerState& target = players[targetId];
+                if (!target.hasState || target.isDead || target.hp >= target.maxHp ||
+                    Distance2D(players[reqPlayerId].position, target.position) > 5.0f ||
+                    std::fabs(players[reqPlayerId].position.y - target.position.y) > 2.0f)
+                    continue;
+                target.hp = std::min(target.maxHp, target.hp + 30);
+                ++healedCount;
+                BroadcastPacket(clientSocket1, clientSocket2,
+                    "S_PLAYER_HP|" + std::to_string(targetId) + "|" + std::to_string(target.hp));
+            }
         }
-
-        nextHealAt[reqPlayerId][targetPlayerId] = now + 10.0;
-        players[targetPlayerId].hp += std::min(healAmount, 30);
-        if (players[targetPlayerId].hp > players[targetPlayerId].maxHp)
-        {
-            players[targetPlayerId].hp = players[targetPlayerId].maxHp;
-        }
-
-        std::ostringstream oss;
-        oss << "S_PLAYER_HP|" << targetPlayerId << "|" << players[targetPlayerId].hp;
-        BroadcastPacket(clientSocket1, clientSocket2, oss.str());
-
-        std::cout << "[SKILL HEAL] Player " << reqPlayerId << " healed Player " << targetPlayerId
-            << " (Amount: " << healAmount << ", Current HP: " << players[targetPlayerId].hp << ")" << std::endl;
-
+        if (healedCount > 0) nextHealAt[reqPlayerId] = now + 10.0;
+        SendPacket(reqPlayerId == 1 ? clientSocket1 : clientSocket2,
+            "S_PLAYER_HEAL_RESULT|" + std::to_string(reqPlayerId) +
+            "|" + std::to_string(healedCount > 0 ? 1 : 0));
         return;
     }
 

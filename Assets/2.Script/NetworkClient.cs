@@ -317,30 +317,12 @@ public class NetworkClient : MonoBehaviour
     }
 
     // [추가] 힐러 스킬: 서버로 특정 플레이어의 체력 회복을 요청합니다.
-    public void SendPlayerHealRequest(int targetPlayerId, int healAmount)
+    public bool SendPlayerHealRequest()
     {
-        if (offlineMode)
-        {
-            // 오프라인 모드에서는 서버 없이 즉시 로컬 적용
-            GameObject targetObj = (targetPlayerId == 1) ? player1Object : player2Object;
-            if (targetObj != null)
-            {
-                PlayerController controller = targetObj.GetComponent<PlayerController>();
-                if (controller != null)
-                {
-                    controller.SetHp(controller.CurrentHp + healAmount);
-                }
-            }
-            return;
-        }
-
-        // C_PLAYER_HEAL | 시전자ID | 대상ID | 회복량
-        string message = string.Format(
-            CultureInfo.InvariantCulture,
-            "C_PLAYER_HEAL|{0}|{1}|{2}\n",
-            playerId, targetPlayerId, healAmount
-        );
-        SendMessageToServer(message, "힐 요청 전송 실패");
+        if (offlineMode || !isConnected || !HasAssignedPlayerId || stream == null)
+            return false;
+        SendMessageToServer("C_PLAYER_HEAL|" + playerId + "\n", "Heal request failed");
+        return isConnected;
     }
 
     void ApplyOfflineItemPickup(int itemId)
@@ -489,6 +471,7 @@ public class NetworkClient : MonoBehaviour
             case "S_NOISE": ProcessNoisePacket(parts); break;
             case "S_PLAYER_DAMAGE": ProcessPlayerDamagePacket(parts); break;
             case "S_PLAYER_HP": ProcessPlayerHpPacket(parts); break;
+            case "S_PLAYER_HEAL_RESULT": ProcessPlayerHealResultPacket(parts); break;
             case "S_ITEM_PICKUP": ProcessItemPickupPacket(parts); break;
             case "S_ITEM_USED": ProcessItemUsedPacket(parts); break;
             case "S_ITEM_USE_DENIED": ProcessItemUseDeniedPacket(parts); break;
@@ -623,6 +606,15 @@ public class NetworkClient : MonoBehaviour
                 if (controller != null) controller.SetHp(hp);
             }
         }
+    }
+
+    void ProcessPlayerHealResultPacket(string[] parts)
+    {
+        if (parts.Length < 3 || !int.TryParse(parts[1], out int healerId) ||
+            healerId != playerId || !int.TryParse(parts[2], out int accepted)) return;
+        GameObject healer = playerId == 1 ? player1Object : player2Object;
+        HealerSkill skill = healer != null ? healer.GetComponent<HealerSkill>() : null;
+        if (skill != null) skill.OnServerHealResult(accepted == 1);
     }
 
     void ApplyPlayerDamage(int targetPlayerId, int damage)

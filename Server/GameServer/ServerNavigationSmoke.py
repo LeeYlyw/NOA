@@ -146,7 +146,16 @@ def main():
             f"damage arrived before attack windup: {preceding[-10:]}"
         )
         read_until(sockets, lambda line: line.startswith("S_PLAYER_DAMAGE|1|"), 3)
-        print("PASS: map accepted; sound monster routes around wall; wall blocks attack; attack windup precedes melee damage")
+        # One cast must heal the wounded teammate and acknowledge the healer.
+        send(sockets[1], "MOVE|2|0|0|2|0|0|0|0|1|0")
+        send(sockets[1], "C_PLAYER_HEAL|2")
+        result, seen = read_until(
+            sockets, lambda line: line == "S_PLAYER_HEAL_RESULT|2|1", 3
+        )
+        assert any(line.startswith("S_PLAYER_HP|1|") for line in seen), seen[-10:]
+        send(sockets[1], "C_PLAYER_HEAL|2")
+        read_until(sockets, lambda line: line == "S_PLAYER_HEAL_RESULT|2|0", 3)
+        print("PASS: map, monster windup/damage, healer acknowledgement and cooldown")
     finally:
         for sock in sockets:
             sock.close()
