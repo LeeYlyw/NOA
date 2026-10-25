@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.AI;
 
 public class Slot : MonoBehaviour
 {
@@ -159,6 +160,11 @@ public class Slot : MonoBehaviour
             : teammate.position + teammate.right * 1.2f;
 
         CharacterController cc = localPlayer.GetComponent<CharacterController>();
+        if (!TrySafeTeleportDestination(localPlayer, teammate, destination, cc, out destination))
+        {
+            Debug.LogWarning("[Teleport] No clear floor beside teammate. Item was not consumed.");
+            return;
+        }
         Vector3 originPos = localPlayer.position;
 
         if (ItemEffectManager.Instance != null)
@@ -177,6 +183,33 @@ public class Slot : MonoBehaviour
 
         Debug.Log("텔레포트 아이템 사용 완료 [cite: 12]");
         ClearSlot();
+    }
+
+    private bool TrySafeTeleportDestination(Transform localPlayer, Transform teammate,
+        Vector3 requested, CharacterController controller, out Vector3 safe)
+    {
+        safe = requested;
+        if (!NavMesh.SamplePosition(requested, out NavMeshHit floor, 0.75f, NavMesh.AllAreas))
+            return false;
+        if (Vector2.Distance(new Vector2(requested.x, requested.z),
+                             new Vector2(floor.position.x, floor.position.z)) > 0.5f ||
+            Mathf.Abs(requested.y - floor.position.y) > 1f ||
+            NavMesh.Raycast(teammate.position, floor.position, out _, NavMesh.AllAreas))
+            return false;
+
+        float radius = controller != null ? controller.radius : 0.4f;
+        float height = controller != null ? controller.height : 1.8f;
+        Vector3 foot = floor.position + Vector3.up * (radius + 0.05f);
+        Vector3 head = floor.position + Vector3.up * Mathf.Max(radius, height - radius);
+        foreach (Collider obstacle in Physics.OverlapCapsule(foot, head, radius * 0.9f,
+                     ~0, QueryTriggerInteraction.Ignore))
+        {
+            if (obstacle.transform.IsChildOf(localPlayer) || obstacle.transform.IsChildOf(teammate))
+                continue;
+            return false;
+        }
+        safe = floor.position;
+        return true;
     }
 
     private void UseResurrectionItem()

@@ -105,9 +105,12 @@ public class DoorInteraction : MonoBehaviour
     {
         if (!other.CompareTag("Player"))
             return;
+        PlayerController player = other.GetComponentInParent<PlayerController>();
+        if (player == null || !player.isLocalPlayer)
+            return;
 
         isNear = true;
-        nearbyPlayer = other.transform;
+        nearbyPlayer = player.transform;
 
         if (interactionUI != null)
             interactionUI.SetActive(true);
@@ -117,11 +120,12 @@ public class DoorInteraction : MonoBehaviour
     {
         if (!other.CompareTag("Player"))
             return;
+        PlayerController player = other.GetComponentInParent<PlayerController>();
+        if (player == null || !player.isLocalPlayer || nearbyPlayer != player.transform)
+            return;
 
         isNear = false;
-
-        if (nearbyPlayer == other.transform)
-            nearbyPlayer = null;
+        nearbyPlayer = null;
 
         if (interactionUI != null)
             interactionUI.SetActive(false);
