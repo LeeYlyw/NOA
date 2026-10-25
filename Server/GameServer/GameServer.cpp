@@ -154,6 +154,9 @@ struct MonsterState
     bool isWalk = false;
     bool isAttack = false;
     int attackSequence = 0;
+    int pendingAttackTargetId = 0;
+    double attackImpactTime = 0.0;
+    bool attackPending = false;
     std::vector<int> path;
     int pathGoal = -1;
     size_t pathCursor = 0;
@@ -506,8 +509,31 @@ void SendPlayerDamageIfPossible(
     monster.attackSequence++;
     monster.isAttack = true;
     monster.state = MonsterAIState::Attack;
+    monster.attackPending = true;
+    monster.pendingAttackTargetId = target.playerId;
+    monster.attackImpactTime = now + 0.35;
+}
 
-    // [수정된 부분] 서버 내부에서 직접 체력을 깎고 사망 여부를 확정합니다.
+bool ResolvePendingMonsterAttack(MonsterState& monster, PlayerState players[],
+                                 SOCKET clientSocket1, SOCKET clientSocket2, double now)
+{
+    if (!monster.attackPending) return false;
+    monster.state = MonsterAIState::Attack;
+    monster.isWalk = false;
+    monster.currentSpeed = 0.0f;
+    monster.isAttack = true;
+    if (now < monster.attackImpactTime) return true;
+
+    monster.attackPending = false;
+    monster.isAttack = false;
+    if (monster.pendingAttackTargetId < 1 || monster.pendingAttackTargetId > 2) return true;
+    PlayerState& target = players[monster.pendingAttackTargetId];
+    if (!target.hasState || target.isDead ||
+        Distance2D(monster.position, target.position) > monster.attackRange ||
+        !navigation.HasLineOfSight(monster.position, target.position))
+        return true;
+
+    // Damage is committed after the windup only if the target is still hittable.
     target.hp -= monster.damage;
     if (target.hp <= 0)
     {
@@ -529,8 +555,9 @@ void SendPlayerDamageIfPossible(
         << target.playerId
         << " damage "
         << monster.damage
-        << " (Current HP: " << target.hp << ")" // 추가된 로그
+        << " (Current HP: " << target.hp << ")"
         << std::endl;
+    return true;
 }
 
 Vec3 PickReachablePoint(const MonsterState& monster, const Vec3& center, float radius)
@@ -621,6 +648,7 @@ void UpdateVisionMonster(
     double now)
 {
     monster.isAttack = false;
+    if (ResolvePendingMonsterAttack(monster, players, clientSocket1, clientSocket2, now)) return;
     PlayerState* visiblePlayer = FindVisiblePlayer(monster, players);
     if (visiblePlayer != nullptr)
     {
@@ -671,6 +699,7 @@ void UpdateSoundMonster(
     double now)
 {
     monster.isAttack = false;
+    if (ResolvePendingMonsterAttack(monster, players, clientSocket1, clientSocket2, now)) return;
     PlayerState* visiblePlayer = FindVisiblePlayer(monster, players);
     if (visiblePlayer != nullptr)
     {

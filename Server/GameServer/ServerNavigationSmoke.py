@@ -136,8 +136,17 @@ def main():
         )
         state_parts = monster_state.split("|")
         send(sockets[0], f"MOVE|1|{state_parts[4]}|0|{state_parts[6]}|0|0|0|0|1|0")
+        attack, preceding = read_until(
+            sockets,
+            lambda line: line.startswith("S_MONSTER_STATE|1|Vision|Attack|")
+            and line.split("|")[10] == "1",
+            3,
+        )
+        assert not any(line.startswith("S_PLAYER_DAMAGE|1|") for line in preceding), (
+            f"damage arrived before attack windup: {preceding[-10:]}"
+        )
         read_until(sockets, lambda line: line.startswith("S_PLAYER_DAMAGE|1|"), 3)
-        print("PASS: matching map accepted; server routes sound monster around wall; wall blocks attack; clear melee damages player")
+        print("PASS: map accepted; sound monster routes around wall; wall blocks attack; attack windup precedes melee damage")
     finally:
         for sock in sockets:
             sock.close()
