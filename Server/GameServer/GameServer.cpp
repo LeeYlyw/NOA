@@ -45,6 +45,7 @@ static ServerNavigation navigation;
 static NavigationUpload navigationUploads[3];
 static double gateOpeningTime = 0.0;
 static int matchRoles[3] = {-1, -1, -1};
+static double nextHealAt[3][3] = {};
 
 enum class MonsterType
 {
@@ -1306,13 +1307,21 @@ void ProcessClientPacket(
             !TryParseInt(parts[3], healAmount) || healAmount <= 0 || healAmount > 100)
             return;
 
-        if (players[targetPlayerId].isDead)
+        double now = GetTimeSeconds();
+        if (matchRoles[reqPlayerId] != 2 || !players[reqPlayerId].hasState ||
+            players[reqPlayerId].isDead || !players[targetPlayerId].hasState ||
+            players[targetPlayerId].isDead ||
+            Distance2D(players[reqPlayerId].position, players[targetPlayerId].position) > 5.0f ||
+            std::fabs(players[reqPlayerId].position.y - players[targetPlayerId].position.y) > 2.0f ||
+            now < nextHealAt[reqPlayerId][targetPlayerId])
         {
-            std::cout << "[HEAL DENY] Target player " << targetPlayerId << " is dead." << std::endl;
+            std::cout << "[HEAL DENY] Role, state, range, or cooldown invalid. player "
+                      << reqPlayerId << std::endl;
             return;
         }
 
-        players[targetPlayerId].hp += healAmount;
+        nextHealAt[reqPlayerId][targetPlayerId] = now + 10.0;
+        players[targetPlayerId].hp += std::min(healAmount, 30);
         if (players[targetPlayerId].hp > players[targetPlayerId].maxHp)
         {
             players[targetPlayerId].hp = players[targetPlayerId].maxHp;
