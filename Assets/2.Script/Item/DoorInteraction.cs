@@ -17,6 +17,10 @@ public class DoorInteraction : MonoBehaviour
     public AudioClip openSound;
     public AudioClip closeSound;
 
+    public int NetworkId { get; private set; }
+    public void SetNetworkId(int id) { NetworkId = id; }
+    public Vector3 GetNetworkAnchor() => doorHinge != null ? doorHinge.position : transform.position;
+
     private AudioSource audioSource;
     private bool isNear;
     private bool isOpen;
@@ -63,15 +67,31 @@ public class DoorInteraction : MonoBehaviour
         if (!isNear || !Input.GetKeyDown(KeyCode.F))
             return;
 
-        isOpen = !isOpen;
+        int direction = 1;
+        if (!isOpen)
+        {
+            Quaternion positive = closedRotation * Quaternion.Euler(0f, Mathf.Abs(openAngle), 0f);
+            direction = Quaternion.Angle(GetAwayRotation(), positive) < 1f ? 1 : -1;
+        }
+        NetworkClient network = NetworkClient.Instance;
+        if (network != null && !network.offlineMode)
+        {
+            network.SendDoorToggle(NetworkId, direction);
+            return;
+        }
+        ApplyServerState(!isOpen, direction);
+    }
 
-        if (doorCoroutine != null)
-            StopCoroutine(doorCoroutine);
-
-        if (isOpen && openSound != null)
+    public void ApplyServerState(bool open, int direction)
+    {
+        if (doorHinge == null || isOpen == open) return;
+        isOpen = open;
+        if (doorCoroutine != null) StopCoroutine(doorCoroutine);
+        if (isOpen && openSound != null && audioSource != null)
             audioSource.PlayOneShot(openSound);
-
-        Quaternion targetRotation = isOpen ? GetAwayRotation() : closedRotation;
+        Quaternion targetRotation = isOpen
+            ? closedRotation * Quaternion.Euler(0f, Mathf.Abs(openAngle) * (direction >= 0 ? 1 : -1), 0f)
+            : closedRotation;
         doorCoroutine = StartCoroutine(RotateDoor(targetRotation, isOpen));
     }
 

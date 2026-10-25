@@ -11,6 +11,14 @@
 // A compact, server-owned copy of the actual Unity NavMesh connectivity.
 // Each cell stores edges to +X, -X, +Z, -Z. The server never asks a client
 // where a monster should go after this map has been accepted.
+struct NavigationDoor
+{
+    int id = 0;
+    Vec3 position;
+    bool open = false;
+    int direction = 1;
+};
+
 struct ServerNavigation
 {
     int width = 0;
@@ -24,6 +32,7 @@ struct ServerNavigation
     bool gateOpen = false;
     bool ready = false;
     std::vector<uint8_t> edges;
+    std::vector<NavigationDoor> doors;
 
     int Index(int x, int z) const
     {
@@ -79,6 +88,22 @@ struct ServerNavigation
             Vec3 a = Center(from), b = Center(to);
             if ((a.z - gateZ) * (b.z - gateZ) <= 0.0f &&
                 std::fabs(a.x - gateX) <= gateHalfWidth + step * 0.5f)
+                return false;
+        }
+        Vec3 a = Center(from), b = Center(to);
+        for (const NavigationDoor& door : doors)
+        {
+            if (door.open) continue;
+            float dx = b.x - a.x, dz = b.z - a.z;
+            float lengthSquared = dx * dx + dz * dz;
+            float t = lengthSquared > 0.0f
+                ? std::max(0.0f, std::min(1.0f,
+                    ((door.position.x - a.x) * dx +
+                     (door.position.z - a.z) * dz) / lengthSquared))
+                : 0.0f;
+            float distanceX = a.x + t * dx - door.position.x;
+            float distanceZ = a.z + t * dz - door.position.z;
+            if (distanceX * distanceX + distanceZ * distanceZ < 1.5f * 1.5f)
                 return false;
         }
         return true;

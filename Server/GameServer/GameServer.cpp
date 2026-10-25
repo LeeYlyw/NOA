@@ -36,6 +36,7 @@ struct NavigationUpload
     bool complete = false;
     std::string header;
     std::string mask;
+    std::map<int, Vec3> doors;
     Vec3 monsterSpawns[2];
     float originX = 0.0f, originZ = 0.0f, step = 2.0f;
     float gateX = 0.0f, gateZ = 0.0f, gateHalfWidth = 0.0f;
@@ -977,13 +978,41 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
         return;
     }
 
+    if (parts[0] == "C_NAV_DOOR")
+    {
+        int doorId = 0;
+        Vec3 position;
+        if (parts.size() != 6 || !upload.begun || upload.complete ||
+            !TryParseInt(parts[2], doorId) || doorId <= 0 || doorId > 64 ||
+            !TryParseFloat(parts[3], position.x) ||
+            !TryParseFloat(parts[4], position.y) ||
+            !TryParseFloat(parts[5], position.z) ||
+            !std::isfinite(position.x) || !std::isfinite(position.y) ||
+            !std::isfinite(position.z) || upload.doors.count(doorId) != 0 ||
+            std::fabs(position.x - upload.originX) > upload.width * upload.step ||
+            std::fabs(position.z - upload.originZ) > upload.height * upload.step)
+            return;
+        upload.doors[doorId] = position;
+        return;
+    }
+
     if (parts[0] != "C_NAV_END" || parts.size() != 2 || !upload.begun ||
         upload.mask.size() != static_cast<size_t>(upload.width * upload.height)) return;
     upload.complete = true;
     if (!navigationUploads[1].complete || !navigationUploads[2].complete) return;
 
+    bool doorsMatch = navigationUploads[1].doors.size() == navigationUploads[2].doors.size();
+    for (const auto& entry : navigationUploads[1].doors)
+    {
+        auto other = navigationUploads[2].doors.find(entry.first);
+        if (other == navigationUploads[2].doors.end() ||
+            std::fabs(entry.second.x - other->second.x) > 0.05f ||
+            std::fabs(entry.second.y - other->second.y) > 0.05f ||
+            std::fabs(entry.second.z - other->second.z) > 0.05f)
+            doorsMatch = false;
+    }
     if (navigationUploads[1].header != navigationUploads[2].header ||
-        navigationUploads[1].mask != navigationUploads[2].mask)
+        navigationUploads[1].mask != navigationUploads[2].mask || !doorsMatch)
     {
         BroadcastPacket(clientSocket1, clientSocket2, "S_NAV_ERROR|Map geometry differs between clients");
         std::cout << "[NAV ERROR] Client maps differ" << std::endl;
@@ -999,6 +1028,9 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
     navigation.gateX = source.gateX;
     navigation.gateZ = source.gateZ;
     navigation.gateHalfWidth = source.gateHalfWidth;
+    navigation.doors.clear();
+    for (const auto& entry : source.doors)
+        navigation.doors.push_back({ entry.first, entry.second, false, 1 });
     navigation.edges.resize(source.mask.size());
     for (size_t i = 0; i < source.mask.size(); ++i)
     {
@@ -1066,6 +1098,34 @@ void ProcessClientPacket(
     if (StartsWith(type, "C_NAV_"))
     {
         ProcessNavigationPacket(parts, senderPlayerId, clientSocket1, clientSocket2, monsters);
+        return;
+    }
+    if (type == "C_DOOR_TOGGLE")
+    {
+        int playerId = 0, doorId = 0, direction = 0;
+        if (parts.size() != 4 || !navigation.ready ||
+            !TryParseInt(parts[1], playerId) || playerId != senderPlayerId ||
+            !TryParseInt(parts[2], doorId) ||
+            !TryParseInt(parts[3], direction) || (direction != -1 && direction != 1) ||
+            !players[playerId].hasState || players[playerId].isDead) return;
+        for (NavigationDoor& door : navigation.doors)
+        {
+            if (door.id != doorId) continue;
+            if (Distance2D(players[playerId].position, door.position) > 4.5f ||
+                std::fabs(players[playerId].position.y - door.position.y) > 5.0f) return;
+            door.open = !door.open;
+            if (door.open) door.direction = direction;
+            for (int i = 0; i < 2; ++i)
+            {
+                monsters[i].path.clear();
+                monsters[i].pathGoal = -1;
+            }
+            BroadcastPacket(clientSocket1, clientSocket2,
+                "S_DOOR_STATE|" + std::to_string(door.id) + "|" +
+                std::to_string(door.open ? 1 : 0) + "|" +
+                std::to_string(door.direction));
+            return;
+        }
         return;
     }
     static std::map<int, MimicShot> mimicShots;

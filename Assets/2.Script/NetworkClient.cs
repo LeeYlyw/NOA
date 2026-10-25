@@ -35,6 +35,7 @@ public class NetworkClient : MonoBehaviour
 
     [Header("Item Sync")]
     public PotionItem[] potionItems;
+    private DoorInteraction[] networkDoors = Array.Empty<DoorInteraction>();
 
     private MonsterNetworkSetup[] monsterSetups;
     private TcpClient client;
@@ -204,7 +205,7 @@ public class NetworkClient : MonoBehaviour
     public void SendNavigationMap(int seed, int width, int height, float originX,
                                   float originZ, float step, float gateX, float gateZ,
                                   float gateHalfWidth, Vector3 monster1, Vector3 monster2,
-                                  string edgeMask)
+                                  string edgeMask, DoorInteraction[] doors)
     {
         if (offlineMode || !isConnected || !HasAssignedPlayerId ||
             string.IsNullOrEmpty(edgeMask) || edgeMask.Length != width * height) return;
@@ -216,12 +217,35 @@ public class NetworkClient : MonoBehaviour
             monster2.x, monster2.y, monster2.z);
         SendMessageToServer(header, "Navigation map header failed");
 
+        if (doors != null)
+            foreach (DoorInteraction door in doors)
+            {
+                if (door == null) continue;
+                Vector3 anchor = door.GetNetworkAnchor();
+                string doorPacket = string.Format(CultureInfo.InvariantCulture,
+                    "C_NAV_DOOR|{0}|{1}|{2:F2}|{3:F2}|{4:F2}\n",
+                    playerId, door.NetworkId, anchor.x, anchor.y, anchor.z);
+                SendMessageToServer(doorPacket, "Navigation door upload failed");
+            }
+
         const int chunkSize = 1000;
         for (int offset = 0, sequence = 0; offset < edgeMask.Length; offset += chunkSize, sequence++)
             SendMessageToServer("C_NAV_CHUNK|" + playerId + "|" + sequence + "|" +
                                 edgeMask.Substring(offset, Mathf.Min(chunkSize, edgeMask.Length - offset)) +
                                 "\n", "Navigation map chunk failed");
         SendMessageToServer("C_NAV_END|" + playerId + "\n", "Navigation map end failed");
+    }
+
+    public void RegisterDoors(DoorInteraction[] doors)
+    {
+        networkDoors = doors ?? Array.Empty<DoorInteraction>();
+    }
+
+    public void SendDoorToggle(int doorId, int openingDirection)
+    {
+        if (offlineMode || doorId <= 0) return;
+        SendMessageToServer($"C_DOOR_TOGGLE|{playerId}|{doorId}|{openingDirection}\n",
+            "Door toggle failed");
     }
 
     public bool SendItemPickupRequest(int itemId, ItemData itemData)
@@ -441,6 +465,7 @@ public class NetworkClient : MonoBehaviour
             case "S_PLAYER_DAMAGE": ProcessPlayerDamagePacket(parts); break;
             case "S_PLAYER_HP": ProcessPlayerHpPacket(parts); break;
             case "S_ITEM_PICKUP": ProcessItemPickupPacket(parts); break;
+            case "S_DOOR_STATE": ProcessDoorStatePacket(parts); break;
             case "S_ITEM_PICKUP_DENIED": ProcessItemPickupDeniedPacket(parts); break;
             case "S_CLUE_COUNT": ProcessClueCountPacket(parts); break;
             case "S_PLAYER_REVIVE": ProcessPlayerRevivePacket(parts); break;
@@ -594,6 +619,18 @@ public class NetworkClient : MonoBehaviour
                 }
             }
         }
+    }
+
+    void ProcessDoorStatePacket(string[] parts)
+    {
+        if (parts.Length != 4 || !int.TryParse(parts[1], out int doorId) ||
+            !int.TryParse(parts[2], out int open) || !int.TryParse(parts[3], out int direction)) return;
+        foreach (DoorInteraction door in networkDoors)
+            if (door != null && door.NetworkId == doorId)
+            {
+                door.ApplyServerState(open == 1, direction);
+                return;
+            }
     }
 
     void ProcessItemPickupDeniedPacket(string[] parts)

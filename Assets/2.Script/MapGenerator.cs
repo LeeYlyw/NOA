@@ -55,6 +55,7 @@ public class MapGenerator : MonoBehaviour
     private readonly List<List<long>> emptyRegionCandidates = new List<List<long>>();
     private readonly List<GameObject> spawnedWalls = new List<GameObject>();
     private readonly List<GameObject> spawnedEntities = new List<GameObject>();
+    private readonly List<DoorInteraction> spawnedDoors = new List<DoorInteraction>();
     private Vector3 puzzleRoomCenter;
     private bool hasPuzzleRoom;
 
@@ -104,6 +105,7 @@ public class MapGenerator : MonoBehaviour
             openEmptyEdges.Clear();
             emptyRegionCandidates.Clear();
             spawnedWalls.Clear();
+            spawnedDoors.Clear();
             hasPuzzleRoom = false;
 
             if (!PlaceRooms()) { roomFailures++; continue; }
@@ -138,6 +140,7 @@ public class MapGenerator : MonoBehaviour
 
         Debug.Log($"[MapGenerator] Seed {selectedSeed}: {roomDoors.Count} rooms, {validSpawnPoints.Count} safe spawn points.");
         NetworkClient network = NetworkClient.Instance;
+        if (network != null) network.RegisterDoors(spawnedDoors.ToArray());
         string navigationMask = network != null && !network.offlineMode && network.IsConnected
             ? BuildServerNavigationMask() : null;
         SpawnEntities();
@@ -178,7 +181,7 @@ public class MapGenerator : MonoBehaviour
         Vector3 gate = puzzleRoomCenter + Vector3.back * (tileSize * 0.5f);
         network.SendNavigationMap(seed, width, height, origin, origin, step,
                                   gate.x, gate.z, tileSize * 0.5f - 0.2f,
-                                  monsterPositions[0], monsterPositions[1], edgeMask);
+                                  monsterPositions[0], monsterPositions[1], edgeMask, spawnedDoors.ToArray());
     }
 
     string BuildServerNavigationMask()
@@ -243,8 +246,31 @@ public class MapGenerator : MonoBehaviour
 
         navMeshSurface.collectObjects = CollectObjects.All;
         navMeshSurface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
-        navMeshSurface.RemoveData();
-        navMeshSurface.BuildNavMesh();
+        // Bake the potential route through each room door. The server applies
+        // the live closed/open state to these edges after both maps agree.
+        List<Collider> doorLeaves = new List<Collider>();
+        foreach (DoorInteraction door in spawnedDoors)
+        {
+            if (door == null || door.doorHinge == null) continue;
+            foreach (Collider leaf in door.doorHinge.GetComponentsInChildren<Collider>(true))
+                if (leaf.enabled && !leaf.isTrigger)
+                {
+                    leaf.enabled = false;
+                    doorLeaves.Add(leaf);
+                }
+        }
+        Physics.SyncTransforms();
+        try
+        {
+            navMeshSurface.RemoveData();
+            navMeshSurface.BuildNavMesh();
+        }
+        finally
+        {
+            foreach (Collider leaf in doorLeaves)
+                if (leaf != null) leaf.enabled = true;
+            Physics.SyncTransforms();
+        }
     }
 
     bool ValidateNavMeshConnectivity()
@@ -322,6 +348,7 @@ public class MapGenerator : MonoBehaviour
         float startOffset = -(mapSize * tileSize) / 2f + (tileSize / 2f);
         bool centralRoomPlaced = false;
         int nextMimicId = 1;
+        int nextDoorId = 1;
 
         for (int i = 0; i < roomsToSpawn.Count; i++)
         {
@@ -376,6 +403,11 @@ public class MapGenerator : MonoBehaviour
                                                           Quaternion.identity, transform);
                     foreach (MimicLaptop mimic in roomInstance.GetComponentsInChildren<MimicLaptop>(true))
                         mimic.SetNetworkId(nextMimicId++);
+                    foreach (DoorInteraction door in roomInstance.GetComponentsInChildren<DoorInteraction>(true))
+                    {
+                        door.SetNetworkId(nextDoorId++);
+                        spawnedDoors.Add(door);
+                    }
 
                     placed = true;
                     centralRoomPlaced = true;
