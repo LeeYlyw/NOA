@@ -892,16 +892,11 @@ public class NetworkClient : MonoBehaviour
         PlayerRoleSetup p2RoleSetup = player2Object.GetComponent<PlayerRoleSetup>();
         if (p2RoleSetup != null) p2RoleSetup.Setup(2, playerId, role2);
 
-        if (role2 == PlayerRole.Detector && player2Object.GetComponent<ClueDetector>() == null)
-        {
-            ClueDetector detector = player2Object.AddComponent<ClueDetector>();
-            AudioSource source = player2Object.AddComponent<AudioSource>();
-            ClueDetector firstDetector = player1Object.GetComponent<ClueDetector>();
-            source.clip = firstDetector != null && firstDetector.beepSound != null
-                ? firstDetector.beepSound.clip : null;
-            detector.beepSound = source;
-            detector.maxDetectionDist = firstDetector != null ? firstDetector.maxDetectionDist : 40f;
-        }
+        MapGenerator map = FindObjectOfType<MapGenerator>();
+        ClueDetector detectorTemplate = map != null && map.player1Prefab != null
+            ? map.player1Prefab.GetComponent<ClueDetector>() : null;
+        EnsureRoleComponents(player1Object, role1, detectorTemplate);
+        EnsureRoleComponents(player2Object, role2, detectorTemplate);
 
         // [추가] 각 캐릭터의 직업(역할)에 따른 스탯 적용 (러너 스탯 등)
         PlayerController p1Controller = player1Object.GetComponent<PlayerController>();
@@ -944,5 +939,20 @@ public class NetworkClient : MonoBehaviour
                 localController.BindUI(hpSl, stSl);
             }
         }
+    }
+
+    static void EnsureRoleComponents(GameObject player, PlayerRole role, ClueDetector detectorTemplate)
+    {
+        if (player == null) return;
+        if (role == PlayerRole.Healer && player.GetComponent<HealerSkill>() == null)
+            player.AddComponent<HealerSkill>();
+        if (role != PlayerRole.Detector || player.GetComponent<ClueDetector>() != null) return;
+
+        ClueDetector detector = player.AddComponent<ClueDetector>();
+        AudioSource source = player.AddComponent<AudioSource>();
+        source.clip = detectorTemplate != null && detectorTemplate.beepSound != null
+            ? detectorTemplate.beepSound.clip : null;
+        detector.beepSound = source;
+        detector.maxDetectionDist = detectorTemplate != null ? detectorTemplate.maxDetectionDist : 40f;
     }
 }

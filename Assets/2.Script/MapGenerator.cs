@@ -29,6 +29,8 @@ public class MapGenerator : MonoBehaviour
     [Header("스폰할 프리팹 설정")]
     public GameObject player1Prefab;
     public GameObject player2Prefab;
+    public GameObject player3Prefab;
+    public GameObject player4Prefab;
     public GameObject monsterPrefab;
     public GameObject monster2Prefab;
     public GameObject[] itemPrefabs;
@@ -1010,13 +1012,18 @@ public class MapGenerator : MonoBehaviour
         }
 
         Vector3 p1Pos = GetRandomSpawnPoint(removePoint: true);
-        GameObject p1 = Instantiate(player1Prefab, p1Pos, Quaternion.identity);
+        NetworkClient network = NetworkClient.Instance;
+        GameObject firstPrefab = PlayerPrefabForRole(network != null ? network.Role1 : PlayerRole.Detector,
+            player1Prefab);
+        GameObject secondPrefab = PlayerPrefabForRole(network != null ? network.Role2 : PlayerRole.Explorer,
+            player2Prefab);
+        GameObject p1 = Instantiate(firstPrefab, p1Pos, Quaternion.identity);
         p1.name = "Player1";
         spawnedEntities.Add(p1);
 
         // Keep both players close enough to find the cooperative puzzle during a demo.
         Vector3 p2Pos = GetNearbySpawnPoint(p1Pos);
-        GameObject p2 = Instantiate(player2Prefab, p2Pos, Quaternion.identity);
+        GameObject p2 = Instantiate(secondPrefab, p2Pos, Quaternion.identity);
         p2.name = "Player2";
         spawnedEntities.Add(p2);
 
@@ -1127,6 +1134,16 @@ public class MapGenerator : MonoBehaviour
             Debug.Log("[MapGenerator] 맵 생성 완료 및 네트워크 연동 완료");
         }
 
+    }
+
+    GameObject PlayerPrefabForRole(PlayerRole role, GameObject fallback)
+    {
+        GameObject selected = role == PlayerRole.Detector ? player1Prefab :
+            role == PlayerRole.Explorer ? player2Prefab :
+            role == PlayerRole.Healer ? player3Prefab : player4Prefab;
+        if (selected != null) return selected;
+        Debug.LogError("[MapGenerator] Missing character prefab for role " + role + "; using slot fallback.");
+        return fallback;
     }
 
     PotionItem CreateCluePickup(Vector3 floorPosition, ItemData clueData, int id)

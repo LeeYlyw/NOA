@@ -1782,6 +1782,8 @@ MonoBehaviour:
     sizeZ: 1
   player1Prefab: {fileID: 7591597519033843459, guid: 9d195bbb3f484bb4195372bd4cc331e4, type: 3}
   player2Prefab: {fileID: 4091962786130940608, guid: 93b99b8c5eb6b614b93cc23f94867341, type: 3}
+  player3Prefab: {fileID: 6740849719197884261, guid: b0c67943ccabdc342bd608942a500ce5, type: 3}
+  player4Prefab: {fileID: 6036594217573863477, guid: c5766a28e4923fc4b9eda8116cf0646a, type: 3}
   monsterPrefab: {fileID: 4942356607274114158, guid: a679e6e11fe139943a77428ead951d0d, type: 3}
   monster2Prefab: {fileID: 1194915530965120890, guid: 939b111c95217f0458c2c1094b19fffd, type: 3}
   itemPrefabs:
