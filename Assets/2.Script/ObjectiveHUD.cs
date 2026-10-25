@@ -58,7 +58,7 @@ public class ObjectiveHUD : MonoBehaviour
         NetworkClient network = NetworkClient.Instance;
         bool playing = manager != null && network != null &&
             (network.offlineMode || network.GameStarted);
-        canvas.enabled = playing && !(manager.IsEnding && manager.endingPanel != null);
+        canvas.enabled = playing && !manager.IsEnding;
         if (!canvas.enabled) return;
 
         CoopShapePuzzle lockPuzzle = CoopShapePuzzle.Instance;

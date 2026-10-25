@@ -22,6 +22,7 @@ public class ClueManager : MonoBehaviour
     private bool waitingForRestart;
     private string resultTitle = "MISSION COMPLETE";
     public bool IsEnding => isEnding;
+    public bool IsVictory { get; private set; }
 
     void Awake()
     {
@@ -91,6 +92,7 @@ public class ClueManager : MonoBehaviour
             return;
 
         isEnding = true;
+        IsVictory = true;
         resultTitle = "MISSION COMPLETE";
         Debug.Log("엔딩 패널 활성화");
 

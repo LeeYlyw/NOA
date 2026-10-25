@@ -79,7 +79,7 @@ public class GamePresentation : MonoBehaviour
             if (manager.clueCount > lastClues && !manager.IsEnding)
                 Notify("단서 확보 · " + manager.clueCount + " / " + manager.needClueCount + "  —  동료와 공유되었습니다", "clue");
             lastClues = manager.clueCount;
-            if (manager.IsEnding && !ended)
+            if (manager.IsEnding && manager.IsVictory && !ended)
             {
                 Notify("모든 단서 확보 · 임무 완료", "solved");
             }
