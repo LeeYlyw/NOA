@@ -224,13 +224,13 @@ public class NetworkClient : MonoBehaviour
         SendMessageToServer("C_NAV_END|" + playerId + "\n", "Navigation map end failed");
     }
 
-    public void SendItemPickupRequest(int itemId, ItemData itemData)
+    public bool SendItemPickupRequest(int itemId, ItemData itemData)
     {
         if (offlineMode)
         {
             // 오프라인 모드에서는 서버 응답 없이 로컬에서 즉시 획득 처리
             ApplyOfflineItemPickup(itemId);
-            return;
+            return true;
         }
 
         string itemType = itemData != null ? itemData.type.ToString() : "Unknown";
@@ -239,7 +239,9 @@ public class NetworkClient : MonoBehaviour
             "C_ITEM_PICKUP|{0}|{1}|{2}\n",
             playerId, itemId, itemType
         );
+        if (!isConnected || !HasAssignedPlayerId || stream == null) return false;
         SendMessageToServer(message, "아이템 획득 요청 전송 실패");
+        return isConnected;
     }
 
     public void SendItemUseRequest(string itemType)
@@ -439,6 +441,7 @@ public class NetworkClient : MonoBehaviour
             case "S_PLAYER_DAMAGE": ProcessPlayerDamagePacket(parts); break;
             case "S_PLAYER_HP": ProcessPlayerHpPacket(parts); break;
             case "S_ITEM_PICKUP": ProcessItemPickupPacket(parts); break;
+            case "S_ITEM_PICKUP_DENIED": ProcessItemPickupDeniedPacket(parts); break;
             case "S_CLUE_COUNT": ProcessClueCountPacket(parts); break;
             case "S_PLAYER_REVIVE": ProcessPlayerRevivePacket(parts); break;
             case "S_GAME_CLEAR":
@@ -591,6 +594,15 @@ public class NetworkClient : MonoBehaviour
                 }
             }
         }
+    }
+
+    void ProcessItemPickupDeniedPacket(string[] parts)
+    {
+        if (parts.Length < 2 || !int.TryParse(parts[1], out int itemId)) return;
+        if (potionItems == null || potionItems.Length == 0)
+            potionItems = FindObjectsOfType<PotionItem>(true);
+        foreach (PotionItem item in potionItems)
+            if (item != null && item.itemId == itemId) { item.DenyPickup(); return; }
     }
 
     void ProcessClueCountPacket(string[] parts)

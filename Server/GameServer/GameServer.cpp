@@ -44,6 +44,7 @@ struct NavigationUpload
 static ServerNavigation navigation;
 static NavigationUpload navigationUploads[3];
 static double gateOpeningTime = 0.0;
+static int matchRoles[3] = {-1, -1, -1};
 
 enum class MonsterType
 {
@@ -851,9 +852,15 @@ void ProcessItemPickupPacket(
     if (playerId != senderPlayerId || itemId <= 0)
         return;
 
+    auto denyPickup = [&]() {
+        SendPacket(GetSocketByPlayerId(senderPlayerId, clientSocket1, clientSocket2),
+            "S_ITEM_PICKUP_DENIED|" + std::to_string(itemId));
+    };
+
     if (!players[playerId].hasState || players[playerId].isDead)
     {
         std::cout << "[ITEM DENY] invalid or dead player request. player " << playerId << std::endl;
+        denyPickup();
         return;
     }
 
@@ -870,6 +877,14 @@ void ProcessItemPickupPacket(
     if (item.isPicked)
     {
         std::cout << "[ITEM DENY] already picked itemId " << itemId << std::endl;
+        denyPickup();
+        return;
+    }
+
+    if (item.type == ItemType::Clue && matchRoles[playerId] != 1)
+    {
+        std::cout << "[ITEM DENY] Only Explorer may collect clues. player " << playerId << std::endl;
+        denyPickup();
         return;
     }
 
@@ -1230,7 +1245,11 @@ void ProcessClientPacket(
         {
             bool reportsClue = parts[3] == "Clue";
             if (reportsClue != (requestedId >= 1 && requestedId <= 3) ||
-                (requestedId == 3 && !puzzleSolved)) return;
+                (requestedId == 3 && !puzzleSolved)) {
+                SendPacket(GetSocketByPlayerId(senderPlayerId, clientSocket1, clientSocket2),
+                    "S_ITEM_PICKUP_DENIED|" + std::to_string(requestedId));
+                return;
+            }
         }
         ProcessItemPickupPacket(parts, senderPlayerId, clientSocket1, clientSocket2, players, items, clueCount, needClueCount);
         return;
@@ -1553,7 +1572,13 @@ int main()
                 int value;
                 if(parts[0]=="C_ROLE" && parts.size()==2 && TryParseInt(parts[1],value) && value>=0 && value<=3) { roles[i]=value; ready[i]=false; publish(); }
                 else if(parts[0]=="C_READY" && parts.size()==2 && TryParseInt(parts[1],value) && (value==0||value==1) && roles[i]>=0) { ready[i]=value==1; publish(); }
-                else if(parts[0]=="C_START" && i==host && slots[1]!=INVALID_SOCKET && slots[2]!=INVALID_SOCKET && ready[1] && ready[2]) { started=true; break; }
+                else if(parts[0]=="C_START" && i==host && slots[1]!=INVALID_SOCKET && slots[2]!=INVALID_SOCKET && ready[1] && ready[2]) {
+                    if (roles[1] != 1 && roles[2] != 1) {
+                        SendPacket(slots[i], "ERROR|At least one Explorer is required to collect clues");
+                    } else {
+                        started=true; break;
+                    }
+                }
             }
             if(pending[i].size()>4096) pending[i].clear();
         }
@@ -1563,6 +1588,8 @@ int main()
     std::random_device rd;
     int mapSeed=1+rd()%999999;
     BroadcastPacket(clientSocket1,clientSocket2,"START|"+std::to_string(mapSeed)+"|"+std::to_string(roles[1])+"|"+std::to_string(roles[2]));
+    matchRoles[1] = roles[1];
+    matchRoles[2] = roles[2];
 
     PlayerState players[3];
     players[1].playerId = 1;

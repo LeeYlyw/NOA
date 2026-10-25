@@ -1082,6 +1082,7 @@ public class MapGenerator : MonoBehaviour
     {
         GameObject clue = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         clue.name = id == 3 ? "Locked room clue" : "Field clue " + id;
+        clue.tag = "Clue";
         clue.transform.position = floorPosition + Vector3.up * 0.85f;
         clue.transform.localScale = Vector3.one * 0.55f;
         Shader shader = Shader.Find("Universal Render Pipeline/Lit");

@@ -51,9 +51,10 @@ public class LobbyManager : MonoBehaviour
         GUILayout.EndHorizontal();
         GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && !net.GameStarted && roles[Mathf.Clamp(net.playerId,1,2)] >= 0;
         if (GUILayout.Button(localReady ? "Cancel ready" : "Ready", GUILayout.Height(40))) net.SetReady(!localReady);
-        GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && !net.GameStarted && net.playerId == host && connected[1] && connected[2] && ready[1] && ready[2];
+        bool hasExplorer = roles[1] == (int)PlayerRole.Explorer || roles[2] == (int)PlayerRole.Explorer;
+        GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && !net.GameStarted && net.playerId == host && connected[1] && connected[2] && ready[1] && ready[2] && hasExplorer;
         if (GUILayout.Button("Start game (Host)", GUILayout.Height(40))) StartGame();
         GUI.enabled = true;
-        GUILayout.Label("Both players must choose a class and be ready.");
+        GUILayout.Label(hasExplorer ? "Both players must choose a class and be ready." : "At least one player must be Explorer to collect clues.");
     }
 }

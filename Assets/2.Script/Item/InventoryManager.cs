@@ -1,8 +1,23 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 public class InventoryManager : MonoBehaviour
 {
     public Slot[] slots;
+    private readonly HashSet<int> pendingPickups = new HashSet<int>();
+
+    public bool TryReservePickup(int itemId)
+    {
+        if (slots == null || !pendingPickups.Add(itemId)) return false;
+        int freeSlots = 0;
+        foreach (Slot slot in slots)
+            if (slot != null && slot.item == null) freeSlots++;
+        if (freeSlots >= pendingPickups.Count) return true;
+        pendingPickups.Remove(itemId);
+        return false;
+    }
+
+    public void ReleasePickup(int itemId) { pendingPickups.Remove(itemId); }
 
     public void AddItem(ItemData newItem)
     {
