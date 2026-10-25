@@ -6,21 +6,26 @@ public class MouseLook : MonoBehaviour
     public Transform playerBody;
 
     float xRotation = 0f;
+    PlayerController playerController;
 
     void Start()
     {
+        if (playerBody != null) playerController = playerBody.GetComponent<PlayerController>();
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
     }
 
     void Update()
     {
-        PlayerController controller = playerBody.GetComponent<PlayerController>();
-        if (controller != null && !controller.isLocalPlayer)
+        if (playerBody == null || (playerController != null && !playerController.isLocalPlayer) ||
+            Cursor.lockState != CursorLockMode.Locked)
             return;
 
-        float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity * Time.deltaTime;
-        float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity * Time.deltaTime;
+        // Mouse axes already report movement for this frame. Multiplying by the
+        // frame time makes a pickup hitch turn the camera farther than intended.
+        float degreesPerAxisUnit = mouseSensitivity / 60f;
+        float mouseX = Input.GetAxis("Mouse X") * degreesPerAxisUnit;
+        float mouseY = Input.GetAxis("Mouse Y") * degreesPerAxisUnit;
 
         xRotation -= mouseY;
         xRotation = Mathf.Clamp(xRotation, -80f, 80f);

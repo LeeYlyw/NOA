@@ -78,17 +78,16 @@ public class PotionItem : MonoBehaviour
     {
         if (isPicked) return;
 
+        InventoryManager inventory = requestingInventory;
         isPicked = true;
         DenyPickup();
 
-        bool isLocal = (NetworkClient.Instance != null && pickedPlayerId == NetworkClient.Instance.playerId);
-        Debug.Log($"[PickupDebug] isLocal={isLocal}, pickedPlayerId={pickedPlayerId}, itemData={itemData?.itemName}");
-
+        bool isLocal = NetworkClient.Instance != null &&
+            pickedPlayerId == NetworkClient.Instance.playerId;
         if (isLocal && itemData != null && itemData.type != ItemData.ItemType.Clue)
         {
-            InventoryManager inv = FindObjectOfType<InventoryManager>();
-            Debug.Log($"[PickupDebug] InventoryManager found={inv != null}");
-            if (inv == null || !inv.AddItem(itemData, itemId))
+            if (inventory == null) inventory = FindObjectOfType<InventoryManager>();
+            if (inventory == null || !inventory.AddItem(itemData, itemId))
                 Debug.LogError("[Item] Server pickup could not be placed in local inventory.");
         }
 
