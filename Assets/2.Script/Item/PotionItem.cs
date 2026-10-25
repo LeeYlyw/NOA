@@ -88,7 +88,8 @@ public class PotionItem : MonoBehaviour
         {
             InventoryManager inv = FindObjectOfType<InventoryManager>();
             Debug.Log($"[PickupDebug] InventoryManager found={inv != null}");
-            if (inv != null) inv.AddItem(itemData);
+            if (inv == null || !inv.AddItem(itemData, itemId))
+                Debug.LogError("[Item] Server pickup could not be placed in local inventory.");
         }
 
         gameObject.SetActive(false);

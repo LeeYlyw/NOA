@@ -268,40 +268,18 @@ public class NetworkClient : MonoBehaviour
         return isConnected;
     }
 
-    public void SendItemUseRequest(string itemType)
+    public bool SendItemUseRequest(int itemId, ItemData.ItemType itemType,
+        int targetPlayerId, Vector3 destination)
     {
-        if (offlineMode)
-        {
-            // 오프라인 모드에서는 서버 응답 없이 로컬에서 효과 즉시 적용
-            if (itemType == "Heal" && localPlayerController != null)
-            {
-                localPlayerController.SetHp(100);
-            }
-            else if (itemType == "Stealth" && player1Object != null)
-            {
-                PlayerStealth stealth = player1Object.GetComponent<PlayerStealth>();
-                if (stealth != null) stealth.ActivateStealth();
-            }
-            return;
-        }
-
+        if (offlineMode || !isConnected || !HasAssignedPlayerId || stream == null) return false;
         string message = string.Format(
             CultureInfo.InvariantCulture,
-            "C_ITEM_USE|{0}|{1}\n",
-            playerId, itemType
+            "C_ITEM_USE|{0}|{1}|{2}|{3}|{4:F2}|{5:F2}|{6:F2}\n",
+            playerId, itemId, itemType, targetPlayerId,
+            destination.x, destination.y, destination.z
         );
-        SendMessageToServer(message, "아이템 사용 요청 전송 실패");
-    }
-
-    public void SendPlayerReviveRequest(int targetPlayerId)
-    {
-        if (offlineMode) return;
-        string message = string.Format(
-            CultureInfo.InvariantCulture,
-            "C_PLAYER_REVIVE|{0}|{1}\n",
-            playerId, targetPlayerId
-        );
-        SendMessageToServer(message, "부활 요청 전송 실패");
+        SendMessageToServer(message, "Item use request failed");
+        return isConnected;
     }
 
     // [추가] 힐러 스킬: 서버로 특정 플레이어의 체력 회복을 요청합니다.
@@ -465,10 +443,13 @@ public class NetworkClient : MonoBehaviour
             case "S_PLAYER_DAMAGE": ProcessPlayerDamagePacket(parts); break;
             case "S_PLAYER_HP": ProcessPlayerHpPacket(parts); break;
             case "S_ITEM_PICKUP": ProcessItemPickupPacket(parts); break;
+            case "S_ITEM_USED": ProcessItemUsedPacket(parts); break;
+            case "S_ITEM_USE_DENIED": ProcessItemUseDeniedPacket(parts); break;
             case "S_DOOR_STATE": ProcessDoorStatePacket(parts); break;
             case "S_ITEM_PICKUP_DENIED": ProcessItemPickupDeniedPacket(parts); break;
             case "S_CLUE_COUNT": ProcessClueCountPacket(parts); break;
             case "S_PLAYER_REVIVE": ProcessPlayerRevivePacket(parts); break;
+            case "S_PLAYER_STEALTH": ProcessPlayerStealthPacket(parts); break;
             case "S_GAME_CLEAR":
                 if (ClueManager.instance != null) ClueManager.instance.ShowEnding();
                 break;
@@ -631,6 +612,75 @@ public class NetworkClient : MonoBehaviour
                 door.ApplyServerState(open == 1, direction);
                 return;
             }
+    }
+
+    void ProcessItemUsedPacket(string[] parts)
+    {
+        if (parts.Length != 8 || !int.TryParse(parts[1], out int ownerId) ||
+            !int.TryParse(parts[2], out int itemId) ||
+            !int.TryParse(parts[4], out int targetId) ||
+            !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) ||
+            !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) ||
+            !float.TryParse(parts[7], NumberStyles.Float, CultureInfo.InvariantCulture, out float z)) return;
+
+        GameObject owner = ownerId == 1 ? player1Object : ownerId == 2 ? player2Object : null;
+        if (owner == null) return;
+        if (parts[3] == "Teleport")
+        {
+            Vector3 destination = new Vector3(x, y, z);
+            if (ItemEffectManager.Instance != null)
+                ItemEffectManager.Instance.PlayTeleportEffect(owner.transform.position);
+            CharacterController controller = owner.GetComponent<CharacterController>();
+            if (controller != null) controller.enabled = false;
+            owner.transform.position = destination;
+            if (controller != null) controller.enabled = true;
+            if (ownerId != playerId) targetRemotePosition = destination;
+            if (ItemEffectManager.Instance != null)
+                ItemEffectManager.Instance.PlayTeleportEffect(destination);
+        }
+        else if (parts[3] == "Heal")
+        {
+            if (ItemEffectManager.Instance != null)
+                ItemEffectManager.Instance.PlayHealEffect(owner.transform.position);
+        }
+        else if (parts[3] == "Stealth")
+        {
+            PlayerStealth stealth = owner.GetComponent<PlayerStealth>();
+            if (stealth != null)
+            {
+                stealth.onlyLocalPlayerCanUse = false;
+                stealth.ActivateStealth();
+            }
+            if (ItemEffectManager.Instance != null)
+                ItemEffectManager.Instance.PlayStealthEffect(owner.transform.position);
+        }
+        else if (parts[3] == "Resurrection")
+        {
+            GameObject target = targetId == 1 ? player1Object : targetId == 2 ? player2Object : null;
+            if (target != null && ItemEffectManager.Instance != null)
+                ItemEffectManager.Instance.PlayResurrectionEffect(target.transform.position);
+        }
+        if (ownerId == playerId)
+        {
+            InventoryManager inventory = FindObjectOfType<InventoryManager>();
+            if (inventory != null) inventory.ApplyItemUse(itemId, true);
+        }
+    }
+
+    void ProcessItemUseDeniedPacket(string[] parts)
+    {
+        if (parts.Length != 2 || !int.TryParse(parts[1], out int itemId)) return;
+        InventoryManager inventory = FindObjectOfType<InventoryManager>();
+        if (inventory != null) inventory.ApplyItemUse(itemId, false);
+        Debug.LogWarning("[Item] Server rejected item use " + itemId);
+    }
+
+    void ProcessPlayerStealthPacket(string[] parts)
+    {
+        if (parts.Length != 3 || !int.TryParse(parts[1], out int targetId) || parts[2] != "0") return;
+        GameObject target = targetId == 1 ? player1Object : targetId == 2 ? player2Object : null;
+        PlayerStealth stealth = target != null ? target.GetComponent<PlayerStealth>() : null;
+        if (stealth != null) stealth.EndStealth();
     }
 
     void ProcessItemPickupDeniedPacket(string[] parts)

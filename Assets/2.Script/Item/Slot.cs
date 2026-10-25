@@ -6,20 +6,28 @@ public class Slot : MonoBehaviour
 {
     public ItemData item;
     public Image iconImage;
+    public int ItemId { get; private set; }
+    private bool pendingUse;
 
-    public void SetItem(ItemData newItem)
+    public void SetItem(ItemData newItem) { SetItem(newItem, 0); }
+
+    public void SetItem(ItemData newItem, int itemId)
     {
         item = newItem;
-        if (iconImage != null && item != null && item.icon != null)
+        ItemId = itemId;
+        pendingUse = false;
+        if (iconImage != null)
         {
-            iconImage.sprite = item.icon;
-            iconImage.enabled = true;
+            iconImage.sprite = item != null ? item.icon : null;
+            iconImage.enabled = iconImage.sprite != null;
         }
     }
 
     public void ClearSlot()
     {
         item = null;
+        ItemId = 0;
+        pendingUse = false;
         if (iconImage != null)
         {
             iconImage.sprite = null;
@@ -27,165 +35,107 @@ public class Slot : MonoBehaviour
         }
     }
 
-    // 기존 if-else if 구조 유지 [cite: 12]
+    public void ConfirmUse() { ClearSlot(); }
+    public void CancelUse() { pendingUse = false; }
+
     public void OnClickSlot()
     {
-        if (item == null)
-            return;
+        if (item == null || pendingUse) return;
+        NetworkClient network = NetworkClient.Instance;
+        if (network == null || network.localPlayerTransform == null) return;
 
-        Debug.Log($"[Slot] 클릭 감지됨: {item.itemName} (Type: {item.type}) [cite: 12]");
+        Transform local = network.localPlayerTransform;
+        Transform teammate = network.remotePlayerTransform;
+        PlayerController controller = local.GetComponent<PlayerController>();
+        if (controller == null || controller.IsDeadState) return;
 
-        if (item.type == ItemData.ItemType.Heal)
+        int targetId = 0;
+        Vector3 destination = Vector3.zero;
+        switch (item.type)
         {
-            UseHealItem();
-        }
-        else if (item.type == ItemData.ItemType.Stealth)
-        {
-            UseStealthItem();
-        }
-        else if (item.type == ItemData.ItemType.Teleport)
-        {
-            UseTeleportItem();
-        }
-        else if (item.type == ItemData.ItemType.Resurrection)
-        {
-            UseResurrectionItem();
-        }
-    }
-
-    #region Helper Methods (공통 중복 정리)
-    private Transform GetPlayerTransform(bool isRemote)
-    {
-        if (NetworkClient.Instance == null)
-        {
-            Debug.LogError("NetworkClient.Instance가 없습니다. [cite: 12]");
-            return null;
-        }
-
-        Transform target = isRemote
-            ? NetworkClient.Instance.remotePlayerTransform
-            : NetworkClient.Instance.localPlayerTransform;
-
-        if (target == null)
-        {
-            Debug.LogError(isRemote
-                ? "NetworkClient.remotePlayerTransform이 설정되지 않았습니다. [cite: 12]"
-                : "NetworkClient.localPlayerTransform이 설정되지 않았습니다. [cite: 12]");
-        }
-        return target;
-    }
-
-    private Transform GetLocalPlayer() => GetPlayerTransform(false);
-    private Transform GetRemotePlayer() => GetPlayerTransform(true);
-
-    private bool IsOfflineMode()
-    {
-        return NetworkClient.Instance != null && NetworkClient.Instance.offlineMode;
-    }
-    #endregion
-
-    private void UseHealItem()
-    {
-        Transform localPlayer = GetLocalPlayer();
-        if (localPlayer == null) return;
-
-        if (ItemEffectManager.Instance != null)
-        {
-            ItemEffectManager.Instance.PlayHealEffect(localPlayer.position);
-        }
-
-        if (IsOfflineMode())
-        {
-            var pc = localPlayer.GetComponent<PlayerController>();
-            if (pc != null) pc.HealToFull();
-        }
-        else if (NetworkClient.Instance != null)
-        {
-            NetworkClient.Instance.SendItemUseRequest("Heal");
-        }
-
-        Debug.Log("[아이템] 회복 아이템 사용 완료 [cite: 12]");
-        ClearSlot();
-    }
-
-    private void UseStealthItem()
-    {
-        Transform localPlayer = GetLocalPlayer();
-        if (localPlayer == null) return;
-
-        if (ItemEffectManager.Instance != null)
-        {
-            ItemEffectManager.Instance.PlayStealthEffect(localPlayer.position);
-        }
-
-        if (IsOfflineMode())
-        {
-            var stealth = localPlayer.GetComponent<PlayerStealth>();
-            if (stealth != null) stealth.ActivateStealth();
-        }
-        else if (NetworkClient.Instance != null)
-        {
-            NetworkClient.Instance.SendItemUseRequest("Stealth");
-        }
-
-        Debug.Log("[아이템] 은신 아이템 사용 완료 [cite: 12]");
-        ClearSlot();
-    }
-
-    private void UseTeleportItem()
-    {
-        Transform localPlayer = GetLocalPlayer();
-        if (localPlayer == null) return;
-
-        Transform teammate = GetRemotePlayer();
-        if (teammate == null || !teammate.gameObject.activeInHierarchy ||
-            (!IsOfflineMode() && !NetworkClient.Instance.HasRemotePlayerState))
-        {
-            Debug.LogWarning("[Teleport] Teammate is not available yet.");
-            return;
-        }
-
-        Transform targetPoint = null;
-        foreach (Transform child in teammate.GetComponentsInChildren<Transform>(true))
-        {
-            if (child != teammate && child.CompareTag("TeleportPoint"))
-            {
-                targetPoint = child;
+            case ItemData.ItemType.Heal:
+                if (controller.CurrentHp >= controller.maxHealth) return;
                 break;
-            }
+            case ItemData.ItemType.Stealth:
+                break;
+            case ItemData.ItemType.Resurrection:
+                if (teammate == null || !teammate.gameObject.activeInHierarchy ||
+                    (!network.offlineMode && !network.HasRemotePlayerState) ||
+                    Vector3.Distance(local.position, teammate.position) > 5f) return;
+                PlayerController targetController = teammate.GetComponent<PlayerController>();
+                if (targetController == null || !targetController.IsDeadState) return;
+                targetId = 3 - network.playerId;
+                break;
+            case ItemData.ItemType.Teleport:
+                if (teammate == null || !teammate.gameObject.activeInHierarchy ||
+                    (!network.offlineMode && !network.HasRemotePlayerState)) return;
+                Transform point = null;
+                foreach (Transform child in teammate.GetComponentsInChildren<Transform>(true))
+                    if (child != teammate && child.CompareTag("TeleportPoint"))
+                    {
+                        point = child;
+                        break;
+                    }
+                Vector3 requested = point != null ? point.position : teammate.position + teammate.right * 1.2f;
+                if (!TrySafeTeleportDestination(local, teammate, requested,
+                        local.GetComponent<CharacterController>(), out destination))
+                {
+                    Debug.LogWarning("[Teleport] No clear floor beside teammate. Item was not consumed.");
+                    return;
+                }
+                targetId = 3 - network.playerId;
+                break;
+            default:
+                return;
         }
 
-        Vector3 destination = targetPoint != null
-            ? targetPoint.position
-            : teammate.position + teammate.right * 1.2f;
-
-        CharacterController cc = localPlayer.GetComponent<CharacterController>();
-        if (!TrySafeTeleportDestination(localPlayer, teammate, destination, cc, out destination))
+        if (network.offlineMode)
         {
-            Debug.LogWarning("[Teleport] No clear floor beside teammate. Item was not consumed.");
+            ApplyOfflineUse(local, teammate, controller, destination);
+            ClearSlot();
             return;
         }
-        Vector3 originPos = localPlayer.position;
-
-        if (ItemEffectManager.Instance != null)
-        {
-            ItemEffectManager.Instance.PlayTeleportEffect(originPos);
-        }
-
-        if (cc != null) cc.enabled = false;
-        localPlayer.position = destination;
-        if (cc != null) cc.enabled = true;
-
-        if (ItemEffectManager.Instance != null)
-        {
-            ItemEffectManager.Instance.PlayTeleportEffect(destination);
-        }
-
-        Debug.Log("텔레포트 아이템 사용 완료 [cite: 12]");
-        ClearSlot();
+        if (ItemId <= 0 || !network.SendItemUseRequest(ItemId, item.type, targetId, destination))
+            return;
+        pendingUse = true;
     }
 
-    private bool TrySafeTeleportDestination(Transform localPlayer, Transform teammate,
+    private void ApplyOfflineUse(Transform local, Transform teammate,
+        PlayerController controller, Vector3 destination)
+    {
+        switch (item.type)
+        {
+            case ItemData.ItemType.Heal:
+                controller.HealToFull();
+                if (ItemEffectManager.Instance != null)
+                    ItemEffectManager.Instance.PlayHealEffect(local.position);
+                break;
+            case ItemData.ItemType.Stealth:
+                PlayerStealth stealth = local.GetComponent<PlayerStealth>();
+                if (stealth != null) stealth.ActivateStealth();
+                if (ItemEffectManager.Instance != null)
+                    ItemEffectManager.Instance.PlayStealthEffect(local.position);
+                break;
+            case ItemData.ItemType.Resurrection:
+                PlayerController target = teammate != null ? teammate.GetComponent<PlayerController>() : null;
+                if (target != null) target.Revive();
+                if (ItemEffectManager.Instance != null && teammate != null)
+                    ItemEffectManager.Instance.PlayResurrectionEffect(teammate.position);
+                break;
+            case ItemData.ItemType.Teleport:
+                if (ItemEffectManager.Instance != null)
+                    ItemEffectManager.Instance.PlayTeleportEffect(local.position);
+                CharacterController cc = local.GetComponent<CharacterController>();
+                if (cc != null) cc.enabled = false;
+                local.position = destination;
+                if (cc != null) cc.enabled = true;
+                if (ItemEffectManager.Instance != null)
+                    ItemEffectManager.Instance.PlayTeleportEffect(destination);
+                break;
+        }
+    }
+
+    private bool TrySafeTeleportDestination(Transform local, Transform teammate,
         Vector3 requested, CharacterController controller, out Vector3 safe)
     {
         safe = requested;
@@ -197,6 +147,15 @@ public class Slot : MonoBehaviour
             NavMesh.Raycast(teammate.position, floor.position, out _, NavMesh.AllAreas))
             return false;
 
+        Vector3 rayStart = teammate.position + Vector3.up;
+        Vector3 rayEnd = floor.position + Vector3.up;
+        Vector3 ray = rayEnd - rayStart;
+        foreach (RaycastHit hit in Physics.RaycastAll(rayStart, ray.normalized, ray.magnitude,
+                     ~0, QueryTriggerInteraction.Ignore))
+            if (!hit.collider.transform.IsChildOf(teammate) &&
+                !hit.collider.transform.IsChildOf(local))
+                return false;
+
         float radius = controller != null ? controller.radius : 0.4f;
         float height = controller != null ? controller.height : 1.8f;
         Vector3 foot = floor.position + Vector3.up * (radius + 0.05f);
@@ -204,39 +163,11 @@ public class Slot : MonoBehaviour
         foreach (Collider obstacle in Physics.OverlapCapsule(foot, head, radius * 0.9f,
                      ~0, QueryTriggerInteraction.Ignore))
         {
-            if (obstacle.transform.IsChildOf(localPlayer) || obstacle.transform.IsChildOf(teammate))
+            if (obstacle.transform.IsChildOf(local) || obstacle.transform.IsChildOf(teammate))
                 continue;
             return false;
         }
         safe = floor.position;
         return true;
-    }
-
-    private void UseResurrectionItem()
-    {
-    RemotePlayerCheck:
-        Transform remotePlayer = GetRemotePlayer();
-        if (remotePlayer == null) return;
-
-        PlayerController teammateController = remotePlayer.GetComponent<PlayerController>();
-        if (teammateController == null || !teammateController.IsDead())
-        {
-            Debug.Log("동료가 살아있어서 부활 아이템을 사용할 수 없습니다. [cite: 12]");
-            return;
-        }
-
-        if (ItemEffectManager.Instance != null)
-        {
-            ItemEffectManager.Instance.PlayResurrectionEffect(remotePlayer.position);
-        }
-
-        int targetPlayerId = (NetworkClient.Instance.playerId == 1) ? 2 : 1;
-        if (NetworkClient.Instance != null)
-        {
-            NetworkClient.Instance.SendPlayerReviveRequest(targetPlayerId);
-        }
-
-        Debug.Log($"[부활 요청 송신] Target PlayerId: {targetPlayerId} [cite: 12]");
-        ClearSlot();
     }
 }

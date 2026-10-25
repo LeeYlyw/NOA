@@ -71,7 +71,8 @@ enum class ItemType
     Stealth,
     Heal,
     Resurrection,
-    Clue
+    Clue,
+    Flashlight
 };
 
 struct ItemState
@@ -80,6 +81,7 @@ struct ItemState
     ItemType type = ItemType::Unknown;
     int pickedByPlayerId = 0;
     bool isPicked = false;
+    bool isConsumed = false;
 };
 
 struct MimicShot
@@ -232,6 +234,7 @@ ItemType StringToItemType(const std::string& value)
     if (value == "Heal") return ItemType::Heal;
     if (value == "Resurrection") return ItemType::Resurrection;
     if (value == "Clue") return ItemType::Clue;
+    if (value == "Flashlight") return ItemType::Flashlight;
     return ItemType::Unknown;
 }
 
@@ -244,6 +247,7 @@ std::string ItemTypeToString(ItemType type)
     case ItemType::Heal: return "Heal";
     case ItemType::Resurrection: return "Resurrection";
     case ItemType::Clue: return "Clue";
+    case ItemType::Flashlight: return "Flashlight";
     default: return "Unknown";
     }
 }
@@ -883,6 +887,27 @@ void ProcessItemPickupPacket(
         return;
     }
 
+    if (item.type == ItemType::Unknown ||
+        (itemType != ItemType::Unknown && item.type != itemType))
+    {
+        denyPickup();
+        return;
+    }
+
+    if (item.type != ItemType::Clue)
+    {
+        int carried = 0;
+        for (const auto& entry : items)
+            if (entry.second.isPicked && !entry.second.isConsumed &&
+                entry.second.pickedByPlayerId == playerId &&
+                entry.second.type != ItemType::Clue) ++carried;
+        if (carried >= 6)
+        {
+            denyPickup();
+            return;
+        }
+    }
+
     if (item.type == ItemType::Clue && matchRoles[playerId] != 1)
     {
         std::cout << "[ITEM DENY] Only Explorer may collect clues. player " << playerId << std::endl;
@@ -1325,32 +1350,79 @@ void ProcessClientPacket(
 
     if (type == "C_ITEM_USE")
     {
-        if (parts.size() < 3) return;
-
-        int reqPlayerId = 0;
-        std::string itemType = parts[2];
-
-        if (!TryParseInt(parts[1], reqPlayerId) || reqPlayerId != senderPlayerId) return;
-
-        if (itemType == "Heal")
+        int playerId = 0, itemId = 0, targetId = 0;
+        Vec3 destination;
+        if (parts.size() != 8 || !TryParseInt(parts[1], playerId) ||
+            playerId != senderPlayerId || !TryParseInt(parts[2], itemId) || itemId <= 0 ||
+            !TryParseInt(parts[4], targetId) ||
+            !TryParseFloat(parts[5], destination.x) ||
+            !TryParseFloat(parts[6], destination.y) ||
+            !TryParseFloat(parts[7], destination.z) ||
+            !std::isfinite(destination.x) || !std::isfinite(destination.y) ||
+            !std::isfinite(destination.z)) return;
+        auto deny = [&]() {
+            SendPacket(GetSocketByPlayerId(playerId, clientSocket1, clientSocket2),
+                "S_ITEM_USE_DENIED|" + std::to_string(itemId));
+        };
+        auto item = items.find(itemId);
+        ItemType requestedType = StringToItemType(parts[3]);
+        if (item == items.end() || !item->second.isPicked || item->second.isConsumed ||
+            item->second.pickedByPlayerId != playerId ||
+            item->second.type != requestedType || !players[playerId].hasState ||
+            players[playerId].isDead)
         {
-            players[reqPlayerId].hp = players[reqPlayerId].maxHp;
-            std::ostringstream oss;
-            oss << "S_PLAYER_HP|" << reqPlayerId << "|" << players[reqPlayerId].hp;
-            BroadcastPacket(clientSocket1, clientSocket2, oss.str());
-            std::cout << "[ITEM USE] Player " << reqPlayerId << " Heal." << std::endl;
+            deny();
+            return;
         }
-        else if (itemType == "Stealth")
+        if (requestedType == ItemType::Heal)
         {
-            players[reqPlayerId].isStealth = true;
-            players[reqPlayerId].stealthEndTime = GetTimeSeconds() + 5.0;
-
-            std::ostringstream oss;
-            oss << "S_PLAYER_STEALTH|" << reqPlayerId << "|1";
-            BroadcastPacket(clientSocket1, clientSocket2, oss.str());
-
-            std::cout << "[ITEM USE] Player " << reqPlayerId << " Stealth Started (5s)." << std::endl;
+            if (players[playerId].hp >= players[playerId].maxHp) { deny(); return; }
+            players[playerId].hp = players[playerId].maxHp;
+            BroadcastPacket(clientSocket1, clientSocket2,
+                "S_PLAYER_HP|" + std::to_string(playerId) + "|" +
+                std::to_string(players[playerId].hp));
         }
+        else if (requestedType == ItemType::Stealth)
+        {
+            players[playerId].isStealth = true;
+            players[playerId].stealthEndTime = GetTimeSeconds() + 5.0;
+            BroadcastPacket(clientSocket1, clientSocket2,
+                "S_PLAYER_STEALTH|" + std::to_string(playerId) + "|1");
+        }
+        else if (requestedType == ItemType::Resurrection)
+        {
+            if (targetId != 3 - playerId || !players[targetId].hasState ||
+                !players[targetId].isDead ||
+                Distance2D(players[playerId].position, players[targetId].position) > 5.0f ||
+                std::fabs(players[playerId].position.y - players[targetId].position.y) > 2.0f)
+            { deny(); return; }
+            players[targetId].hp = players[targetId].maxHp;
+            players[targetId].isDead = false;
+            BroadcastPacket(clientSocket1, clientSocket2,
+                "S_PLAYER_REVIVE|" + std::to_string(targetId));
+            BroadcastPacket(clientSocket1, clientSocket2,
+                "S_PLAYER_HP|" + std::to_string(targetId) + "|" +
+                std::to_string(players[targetId].hp));
+        }
+        else if (requestedType == ItemType::Teleport)
+        {
+            if (targetId != 3 - playerId || !players[targetId].hasState ||
+                !navigation.ready ||
+                Distance2D(destination, players[targetId].position) > 2.5f ||
+                std::fabs(destination.y - players[targetId].position.y) > 2.0f ||
+                navigation.ClosestCell(destination) < 0 ||
+                !navigation.HasLineOfSight(players[targetId].position, destination))
+            { deny(); return; }
+            players[playerId].position = destination;
+        }
+        else { deny(); return; }
+
+        item->second.isConsumed = true;
+        std::ostringstream used;
+        used << "S_ITEM_USED|" << playerId << "|" << itemId << "|"
+             << ItemTypeToString(requestedType) << "|" << targetId << "|"
+             << destination.x << "|" << destination.y << "|" << destination.z;
+        BroadcastPacket(clientSocket1, clientSocket2, used.str());
         return;
     }
 
@@ -1399,27 +1471,9 @@ void ProcessClientPacket(
 
     if (type == "C_PLAYER_REVIVE")
     {
-        if (parts.size() < 3) return;
-        int reqPlayerId = 0;
-        int targetPlayerId = 0;
-        if (!TryParseInt(parts[1], reqPlayerId) || reqPlayerId != senderPlayerId ||
-            !TryParseInt(parts[2], targetPlayerId) || targetPlayerId < 1 || targetPlayerId > 2)
-            return;
-
-        // 1. 서버 메모리에서 대상 플레이어를 부활시키고 체력을 100으로 리셋! (가장 중요)
-        players[targetPlayerId].hp = players[targetPlayerId].maxHp;
-        players[targetPlayerId].isDead = false;
-
-        // 2. 부활시킨 사람과 부활한 사람 양쪽 화면 모두에 S_PLAYER_REVIVE 방송
-        std::ostringstream oss;
-        oss << "S_PLAYER_REVIVE|" << targetPlayerId;
-        BroadcastPacket(clientSocket1, clientSocket2, oss.str());
-
-        std::cout << "[REVIVE] Player " << reqPlayerId << " revived Player " << targetPlayerId << std::endl;
         return;
     }
-    // 아이템, 부활, 게임 클리어 등 아직 서버 판정으로 옮기지 않은 패킷은
-    // 기존 시연 기능 보존을 위해 임시로 상대 클라이언트에 전달한다.
+    // Relay remaining presentation packets that have no server-owned mutation.
     SOCKET otherSocket = GetOtherSocket(senderPlayerId, clientSocket1, clientSocket2);
     if (otherSocket != INVALID_SOCKET)
         SendPacket(otherSocket, packet);
