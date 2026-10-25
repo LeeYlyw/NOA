@@ -61,6 +61,17 @@ public class NetworkClient : MonoBehaviour
     void Awake()
     {
         Instance = this;
+        string[] args = Environment.GetCommandLineArgs();
+        for (int i = 0; i + 1 < args.Length; i++)
+        {
+            if (args[i] == "-serverIP") serverIP = args[++i];
+            else if (args[i] == "-serverPort" && int.TryParse(args[i + 1], out int port) &&
+                     port > 0 && port <= 65535)
+            {
+                serverPort = port;
+                i++;
+            }
+        }
         playerId = offlineMode ? 1 : 0;
         Application.runInBackground = true;
     }
