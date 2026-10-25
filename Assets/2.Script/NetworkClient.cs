@@ -641,6 +641,8 @@ public class NetworkClient : MonoBehaviour
         if (parts.Length < 3) return;
         if (int.TryParse(parts[1], out int itemId) && int.TryParse(parts[2], out int pickedPlayerId))
         {
+            if (parts.Length >= 4 && parts[3] == "Clue" && ClueManager.instance != null)
+                ClueManager.instance.RecordClue(itemId);
             if (potionItems == null || potionItems.Length == 0)
                 potionItems = FindObjectsOfType<PotionItem>(true);
 

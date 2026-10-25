@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Collections.Generic;
 
 public class ClueManager : MonoBehaviour
 {
@@ -21,6 +22,12 @@ public class ClueManager : MonoBehaviour
     private bool canRestartTogether = true;
     private bool waitingForRestart;
     private string resultTitle = "MISSION COMPLETE";
+    private readonly bool[] recordedClues = new bool[4];
+    private readonly List<int> clueOrder = new List<int>();
+    private Canvas evidenceCanvas;
+    private Font evidenceFont;
+    private Text evidenceText;
+    private bool journalOpen;
     public bool IsEnding => isEnding;
     public bool IsVictory { get; private set; }
 
@@ -46,6 +53,89 @@ public class ClueManager : MonoBehaviour
         // The mission HUD owns the shared clue counter.
         if (clueIcon != null) clueIcon.enabled = false;
         if (clueCountText != null) clueCountText.enabled = false;
+        CreateEvidenceJournal();
+    }
+
+    void Update()
+    {
+        NetworkClient network = NetworkClient.Instance;
+        if (network != null && network.GameStarted && Input.GetKeyDown(KeyCode.J))
+            journalOpen = !journalOpen;
+        if (evidenceCanvas != null)
+            evidenceCanvas.enabled = network != null && network.GameStarted &&
+                (journalOpen || (isEnding && IsVictory));
+    }
+
+    public void RecordClue(int itemId)
+    {
+        if (itemId < 1 || itemId > 3 || recordedClues[itemId]) return;
+        recordedClues[itemId] = true;
+        clueOrder.Add(itemId);
+        RefreshEvidenceJournal();
+    }
+
+    static readonly string[] EvidenceNames = {
+        "", "FIELD DOCUMENT", "VOICE TRANSCRIPT", "SEALED EVIDENCE"
+    };
+    static readonly string[] EvidenceDetails = {
+        "",
+        "The lock requires two operators at separate pads.",
+        "The sigil combines outline, color, and a center mark.",
+        "The final record was recovered from the locked room."
+    };
+
+    void CreateEvidenceJournal()
+    {
+        evidenceFont = Font.CreateDynamicFontFromOSFont(
+            new[] { "Malgun Gothic", "Apple SD Gothic Neo", "Arial" }, 18);
+        GameObject root = new GameObject("Evidence Journal", typeof(RectTransform),
+            typeof(Canvas), typeof(CanvasScaler));
+        UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(root, gameObject.scene);
+        evidenceCanvas = root.GetComponent<Canvas>();
+        evidenceCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        evidenceCanvas.sortingOrder = 30;
+        CanvasScaler scaler = root.GetComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
+        scaler.matchWidthOrHeight = 0.5f;
+
+        RectTransform panel = new GameObject("Journal panel", typeof(RectTransform)).GetComponent<RectTransform>();
+        panel.SetParent(root.transform, false);
+        panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(1f, 1f);
+        panel.anchoredPosition = new Vector2(-28f, -28f);
+        panel.sizeDelta = new Vector2(430f, 340f);
+        Image background = panel.gameObject.AddComponent<Image>();
+        background.color = new Color(0.025f, 0.045f, 0.065f, 0.95f);
+        background.raycastTarget = false;
+        evidenceText = new GameObject("Evidence list", typeof(RectTransform)).AddComponent<Text>();
+        evidenceText.transform.SetParent(panel, false);
+        RectTransform textRect = (RectTransform)evidenceText.transform;
+        textRect.anchorMin = Vector2.zero;
+        textRect.anchorMax = Vector2.one;
+        textRect.offsetMin = new Vector2(20f, 16f);
+        textRect.offsetMax = new Vector2(-20f, -16f);
+        evidenceText.font = evidenceFont;
+        evidenceText.fontSize = 17;
+        evidenceText.lineSpacing = 1.25f;
+        evidenceText.color = Color.white;
+        evidenceText.raycastTarget = false;
+        evidenceText.supportRichText = false;
+        evidenceText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        evidenceText.verticalOverflow = VerticalWrapMode.Overflow;
+        RefreshEvidenceJournal();
+        evidenceCanvas.enabled = false;
+    }
+
+    void RefreshEvidenceJournal()
+    {
+        if (evidenceText == null) return;
+        System.Text.StringBuilder text = new System.Text.StringBuilder("EVIDENCE JOURNAL  [J]\n");
+        text.Append("Shared discoveries: ").Append(clueOrder.Count).Append(" / 3\n\n");
+        if (clueOrder.Count == 0) text.Append("No evidence recovered yet.\n");
+        foreach (int id in clueOrder)
+            text.Append(clueOrder.IndexOf(id) + 1).Append(". ").Append(EvidenceNames[id])
+                .Append("\n   ").Append(EvidenceDetails[id]).Append("\n\n");
+        evidenceText.text = text.ToString();
     }
 
     public void SetClueCount(int count, int needCount)
@@ -151,5 +241,7 @@ public class ClueManager : MonoBehaviour
     private void OnDestroy()
     {
         if (instance == this) instance = null;
+        if (evidenceCanvas != null) Destroy(evidenceCanvas.gameObject);
+        if (evidenceFont != null) Destroy(evidenceFont);
     }
 }
