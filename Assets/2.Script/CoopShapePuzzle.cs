@@ -153,7 +153,10 @@ public class CoopShapePuzzle : MonoBehaviour
 
         Vector3 pad = network.playerId == 1 ? firstPad : secondPad;
         Vector3 player = network.localPlayerTransform.position;
-        bool onPad = new Vector2(player.x - pad.x, player.z - pad.z).magnitude <= 1.2f;
+        PlayerController controller = network.localPlayerTransform.GetComponent<PlayerController>();
+        bool onPad = controller != null && !controller.IsDeadState &&
+            Mathf.Abs(player.y - pad.y) <= 1f &&
+            new Vector2(player.x - pad.x, player.z - pad.z).magnitude <= 1.2f;
         if (onPad != locallyOnPad)
         {
             locallyOnPad = onPad;

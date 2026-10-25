@@ -91,7 +91,7 @@ public class NetworkClient : MonoBehaviour
         if (!isConnected || stream == null) return;
 
         if (client.Client.Poll(0, SelectMode.SelectRead) && client.Client.Available == 0)
-        { isConnected = false; ConnectionStatus = "Disconnected. Restart the game."; return; }
+        { HandleConnectionLost(); return; }
         ReceivePackets();
         if (!isConnected || !HasAssignedPlayerId || !GameStarted) return;
         SendLocalPlayerTransform();
@@ -252,6 +252,16 @@ public class NetworkClient : MonoBehaviour
                 SendMessageToServer(doorPacket, "Navigation door upload failed");
             }
 
+        if (CoopShapePuzzle.Instance != null)
+            for (int padId = 1; padId <= 2; padId++)
+            {
+                Vector3 pad = CoopShapePuzzle.Instance.GetAssignedPad(padId);
+                string padPacket = string.Format(CultureInfo.InvariantCulture,
+                    "C_NAV_PAD|{0}|{1}|{2:F2}|{3:F2}|{4:F2}\n",
+                    playerId, padId, pad.x, pad.y, pad.z);
+                SendMessageToServer(padPacket, "Navigation pad upload failed");
+            }
+
         const int chunkSize = 1000;
         for (int offset = 0, sequence = 0; offset < edgeMask.Length; offset += chunkSize, sequence++)
             SendMessageToServer("C_NAV_CHUNK|" + playerId + "|" + sequence + "|" +
@@ -359,9 +369,16 @@ public class NetworkClient : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogError(errorMessage + ": " + e.Message);
-            isConnected = false;
-            ConnectionStatus = "Disconnected. Restart the game.";
+            HandleConnectionLost();
         }
+    }
+
+    void HandleConnectionLost()
+    {
+        isConnected = false;
+        ConnectionStatus = "Connection lost. Return to lobby to reconnect.";
+        if (ClueManager.instance != null)
+            ClueManager.instance.ShowConnectionLost("CONNECTION LOST");
     }
 
     void ReceivePackets()
@@ -380,8 +397,7 @@ public class NetworkClient : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogError("[Network] 수신 실패: " + e.Message);
-            isConnected = false;
-            ConnectionStatus = "Disconnected. Restart the game.";
+            HandleConnectionLost();
         }
     }
 
@@ -440,6 +456,13 @@ public class NetworkClient : MonoBehaviour
             case "S_NAV_ERROR":
                 ConnectionStatus = parts.Length > 1 ? parts[1] : "Navigation map rejected";
                 Debug.LogError("[Network] " + ConnectionStatus);
+                if (ClueManager.instance != null)
+                    ClueManager.instance.ShowConnectionLost("MAP PREPARATION FAILED");
+                break;
+            case "S_PEER_LEFT":
+                ConnectionStatus = "Teammate disconnected. Return to lobby.";
+                if (ClueManager.instance != null)
+                    ClueManager.instance.ShowConnectionLost("TEAMMATE DISCONNECTED");
                 break;
             case "S_PUZZLE_PADS":
                 if (CoopShapePuzzle.Instance != null) CoopShapePuzzle.Instance.SetPads(parts);

@@ -37,6 +37,8 @@ struct NavigationUpload
     std::string header;
     std::string mask;
     std::map<int, Vec3> doors;
+    Vec3 pads[3];
+    bool hasPad[3] = {};
     Vec3 monsterSpawns[2];
     float originX = 0.0f, originZ = 0.0f, step = 2.0f;
     float gateX = 0.0f, gateZ = 0.0f, gateHalfWidth = 0.0f;
@@ -50,6 +52,9 @@ static double nextHealAt[3][3] = {};
 static int matchResult = 0; // 0 playing, 1 clear, 2 defeat
 static bool restartVotes[3] = {};
 static bool restartRequested = false;
+static Vec3 puzzlePadPositions[3];
+static bool puzzlePadsReady = false;
+static bool puzzlePad[3] = {};
 
 enum class MonsterType
 {
@@ -1027,6 +1032,26 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
         return;
     }
 
+    if (parts[0] == "C_NAV_PAD")
+    {
+        int padId = 0;
+        Vec3 position;
+        if (parts.size() != 6 || !upload.begun || upload.complete ||
+            !TryParseInt(parts[2], padId) || padId < 1 || padId > 2 ||
+            upload.hasPad[padId] ||
+            !TryParseFloat(parts[3], position.x) ||
+            !TryParseFloat(parts[4], position.y) ||
+            !TryParseFloat(parts[5], position.z) ||
+            !std::isfinite(position.x) || !std::isfinite(position.y) ||
+            !std::isfinite(position.z) ||
+            std::fabs(position.x - upload.originX) > upload.width * upload.step ||
+            std::fabs(position.z - upload.originZ) > upload.height * upload.step)
+            return;
+        upload.pads[padId] = position;
+        upload.hasPad[padId] = true;
+        return;
+    }
+
     if (parts[0] != "C_NAV_END" || parts.size() != 2 || !upload.begun ||
         upload.mask.size() != static_cast<size_t>(upload.width * upload.height)) return;
     upload.complete = true;
@@ -1042,8 +1067,19 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
             std::fabs(entry.second.z - other->second.z) > 0.05f)
             doorsMatch = false;
     }
+    bool padsMatch = true;
+    for (int padId = 1; padId <= 2; ++padId)
+    {
+        if (navigationUploads[1].hasPad[padId] != navigationUploads[2].hasPad[padId])
+            padsMatch = false;
+        if (navigationUploads[1].hasPad[padId] &&
+            (std::fabs(navigationUploads[1].pads[padId].x - navigationUploads[2].pads[padId].x) > 0.05f ||
+             std::fabs(navigationUploads[1].pads[padId].y - navigationUploads[2].pads[padId].y) > 0.05f ||
+             std::fabs(navigationUploads[1].pads[padId].z - navigationUploads[2].pads[padId].z) > 0.05f))
+            padsMatch = false;
+    }
     if (navigationUploads[1].header != navigationUploads[2].header ||
-        navigationUploads[1].mask != navigationUploads[2].mask || !doorsMatch)
+        navigationUploads[1].mask != navigationUploads[2].mask || !doorsMatch || !padsMatch)
     {
         BroadcastPacket(clientSocket1, clientSocket2, "S_NAV_ERROR|Map geometry differs between clients");
         std::cout << "[NAV ERROR] Client maps differ" << std::endl;
@@ -1062,6 +1098,9 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
     navigation.doors.clear();
     for (const auto& entry : source.doors)
         navigation.doors.push_back({ entry.first, entry.second, false, 1 });
+    puzzlePadsReady = source.hasPad[1] && source.hasPad[2];
+    for (int padId = 1; padId <= 2; ++padId)
+        if (source.hasPad[padId]) puzzlePadPositions[padId] = source.pads[padId];
     navigation.edges.resize(source.mask.size());
     for (size_t i = 0; i < source.mask.size(); ++i)
     {
@@ -1177,7 +1216,6 @@ void ProcessClientPacket(
 
     // One cooperative color/shape puzzle per match. Only the assigned client may
     // report its pad or submit a choice; the server owns the answer and result.
-    static bool puzzlePad[3] = {};
     static bool puzzleStarted = false;
     static bool puzzleSolved = false;
     static int puzzleAnswer = -1;
@@ -1185,6 +1223,12 @@ void ProcessClientPacket(
     static int puzzleRound = 0;
     static double puzzleRetryAt = 0.0;
     constexpr int puzzleRoundCount = 3;
+    auto validPadPosition = [&](int id) {
+        return puzzlePadsReady && navigation.ready && players[id].hasState &&
+            !players[id].isDead &&
+            Distance2D(players[id].position, puzzlePadPositions[id]) <= 1.2f &&
+            std::fabs(players[id].position.y - puzzlePadPositions[id].y) <= 1.0f;
+    };
     // Code = shape * 12 + color * 3 + center mark (4 x 4 x 3).
     auto sendPuzzleRound = [&]() {
         std::random_device random;
@@ -1211,6 +1255,7 @@ void ProcessClientPacket(
         if (parts.size() != 3 || !TryParseInt(parts[1], id) || id != senderPlayerId ||
             !TryParseInt(parts[2], active) || (active != 0 && active != 1) || puzzleSolved)
             return;
+        if (active == 1 && !validPadPosition(id)) return;
         if (puzzlePad[id] == (active == 1)) return;
         puzzlePad[id] = active == 1;
         BroadcastPacket(clientSocket1, clientSocket2,
@@ -1230,6 +1275,7 @@ void ProcessClientPacket(
         if (parts.size() != 3 || !TryParseInt(parts[1], id) || id != 2 || id != senderPlayerId ||
             !TryParseInt(parts[2], index) || index < 0 || index > 3 ||
             !puzzleStarted || puzzleSolved || !puzzlePad[1] || !puzzlePad[2] ||
+            !validPadPosition(1) || !validPadPosition(2) ||
             GetTimeSeconds() < puzzleRetryAt) return;
         if (puzzleChoices[index] == puzzleAnswer)
         {
@@ -1791,6 +1837,9 @@ int main()
             else
             {
                 std::cout << "Client 1 disconnected or recv failed." << std::endl;
+                puzzlePad[1] = puzzlePad[2] = false;
+                SendPacket(clientSocket2, "S_PUZZLE_PADS|0|0");
+                SendPacket(clientSocket2, "S_PEER_LEFT");
                 break;
             }
         }
@@ -1809,6 +1858,9 @@ int main()
             else
             {
                 std::cout << "Client 2 disconnected or recv failed." << std::endl;
+                puzzlePad[1] = puzzlePad[2] = false;
+                SendPacket(clientSocket1, "S_PUZZLE_PADS|0|0");
+                SendPacket(clientSocket1, "S_PEER_LEFT");
                 break;
             }
         }
@@ -1847,6 +1899,24 @@ int main()
         // 몬스터 AI 판단 및 이동 (은신 여부가 반영된 상태로 시야 판정 진행)
         if (navigation.ready && matchResult == 0)
             UpdateMonsters(monsters, players, clientSocket1, clientSocket2, deltaTime, now);
+
+        if (matchResult == 0 && puzzlePadsReady)
+        {
+            bool released = false;
+            for (int id = 1; id <= 2; ++id)
+                if (puzzlePad[id] &&
+                    (!players[id].hasState || players[id].isDead ||
+                     Distance2D(players[id].position, puzzlePadPositions[id]) > 1.2f ||
+                     std::fabs(players[id].position.y - puzzlePadPositions[id].y) > 1.0f))
+                {
+                    puzzlePad[id] = false;
+                    released = true;
+                }
+            if (released)
+                BroadcastPacket(clientSocket1, clientSocket2,
+                    "S_PUZZLE_PADS|" + std::to_string(puzzlePad[1] ? 1 : 0) + "|" +
+                    std::to_string(puzzlePad[2] ? 1 : 0));
+        }
 
         if (matchResult == 0 && players[1].hasState && players[2].hasState &&
             players[1].isDead && players[2].isDead)

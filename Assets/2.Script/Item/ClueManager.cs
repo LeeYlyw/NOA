@@ -18,8 +18,9 @@ public class ClueManager : MonoBehaviour
     public GameObject endingPanel;
 
     private bool isEnding = false;
-    private bool isDefeat;
+    private bool canRestartTogether = true;
     private bool waitingForRestart;
+    private string resultTitle = "MISSION COMPLETE";
     public bool IsEnding => isEnding;
 
     void Awake()
@@ -90,7 +91,7 @@ public class ClueManager : MonoBehaviour
             return;
 
         isEnding = true;
-        isDefeat = false;
+        resultTitle = "MISSION COMPLETE";
         Debug.Log("엔딩 패널 활성화");
 
         if (endingPanel != null)
@@ -104,7 +105,19 @@ public class ClueManager : MonoBehaviour
     {
         if (isEnding) return;
         isEnding = true;
-        isDefeat = true;
+        resultTitle = "MISSION FAILED - BOTH PLAYERS DOWN";
+        if (endingPanel != null) endingPanel.SetActive(false);
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+        Time.timeScale = 0f;
+    }
+
+    public void ShowConnectionLost(string reason)
+    {
+        if (isEnding) return;
+        isEnding = true;
+        canRestartTogether = false;
+        resultTitle = reason;
         if (endingPanel != null) endingPanel.SetActive(false);
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
@@ -116,12 +129,13 @@ public class ClueManager : MonoBehaviour
         if (!isEnding) return;
         NetworkClient network = NetworkClient.Instance;
         Rect panel = new Rect((Screen.width - 440f) / 2f, Screen.height - 185f, 440f, 170f);
-        GUI.Box(panel, isDefeat ? "MISSION FAILED - BOTH PLAYERS DOWN" : "MISSION COMPLETE");
+        GUI.Box(panel, resultTitle);
         if (network == null) return;
         GUI.Label(new Rect(panel.x + 20f, panel.y + 35f, 400f, 35f),
             waitingForRestart ? "Waiting for teammate to restart..." :
-            "Both players can restart together, or return to the lobby.");
-        GUI.enabled = !waitingForRestart && (network.IsConnected || network.offlineMode);
+            canRestartTogether ? "Both players can restart together, or return to the lobby." :
+            "Connection ended. Return to the lobby to reconnect.");
+        GUI.enabled = canRestartTogether && !waitingForRestart && (network.IsConnected || network.offlineMode);
         if (GUI.Button(new Rect(panel.x + 20f, panel.y + 82f, 185f, 46f), "Restart together"))
         {
             waitingForRestart = true;

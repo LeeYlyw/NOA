@@ -31,7 +31,7 @@ public class LobbyManager : MonoBehaviour
     void OnGUI()
     {
         var net = NetworkClient.Instance;
-        if (net == null || net.offlineMode || (net.GameStarted && net.IsConnected)) return;
+        if (net == null || net.offlineMode || net.GameStarted) return;
         GUI.ModalWindow(GetInstanceID(), new Rect((Screen.width-520)/2f, (Screen.height-370)/2f, 520, 370), DrawLobby, "NOA - Lobby");
     }
     void DrawLobby(int id)
