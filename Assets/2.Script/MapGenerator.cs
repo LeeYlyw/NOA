@@ -1015,6 +1015,12 @@ public class MapGenerator : MonoBehaviour
             }
         }
         validSpawnPoints.AddRange(largestArea);
+        // The locked room has its own fixed clue. No player, monster, field
+        // clue, or random supply may start behind its closed gate.
+        if (hasPuzzleRoom)
+            validSpawnPoints.RemoveAll(point =>
+                new Vector2(point.x - puzzleRoomCenter.x, point.z - puzzleRoomCenter.z).sqrMagnitude <
+                tileSize * tileSize * 0.16f);
         if (corridorAreas != 1)
             Debug.LogWarning($"[MapGenerator] Found {corridorAreas} separate corridor areas; retrying this layout.");
         return corridorAreas == 1;
@@ -1107,7 +1113,7 @@ public class MapGenerator : MonoBehaviour
         List<PotionItem> spawnedPotions = new List<PotionItem>();
         for (int clueId = 1; clueId <= 2; clueId++)
         {
-            Vector3 position = GetRandomSpawnPoint(removePoint: true);
+            Vector3 position = GetFieldClueSpawnPoint(clueId, p1Pos, p2Pos);
             PotionItem clue = CreateCluePickup(position, clueData, clueId);
             spawnedEntities.Add(clue.gameObject);
             spawnedPotions.Add(clue);
@@ -1275,6 +1281,32 @@ public class MapGenerator : MonoBehaviour
         Vector3 pos = validSpawnPoints[index];
         if (removePoint) validSpawnPoints.RemoveAt(index);
         return pos;
+    }
+
+    Vector3 GetFieldClueSpawnPoint(int clueId, Vector3 player1, Vector3 player2)
+    {
+        Vector3 start = (player1 + player2) * 0.5f;
+        Vector3 roomApproach = puzzleRoomCenter + Vector3.back * tileSize;
+        int bestIndex = -1;
+        float bestScore = float.MaxValue;
+        float minimumStartDistance = tileSize * (clueId == 1 ? 1.25f : 2f);
+        for (int i = 0; i < validSpawnPoints.Count; i++)
+        {
+            Vector3 candidate = validSpawnPoints[i];
+            float fromStart = Vector3.Distance(start, candidate);
+            if (fromStart < minimumStartDistance) continue;
+            float toRoom = Vector3.Distance(candidate, roomApproach);
+            float score = clueId == 1
+                ? fromStart + toRoom * 0.15f
+                : toRoom - fromStart * 0.2f;
+            if (score >= bestScore) continue;
+            bestIndex = i;
+            bestScore = score;
+        }
+        if (bestIndex < 0) return GetRandomSpawnPoint(removePoint: true);
+        Vector3 result = validSpawnPoints[bestIndex];
+        validSpawnPoints.RemoveAt(bestIndex);
+        return result;
     }
 
     Vector3 GetFarthestSpawnPoint(Vector3 fromPosition, float minRequiredDistance)

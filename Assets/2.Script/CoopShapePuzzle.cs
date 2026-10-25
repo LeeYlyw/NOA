@@ -8,14 +8,14 @@ public class CoopShapePuzzle : MonoBehaviour
 {
     public static CoopShapePuzzle Instance { get; private set; }
 
-    static readonly string[] ShapeNames = { "SQUARE", "TRIANGLE", "CIRCLE", "DIAMOND" };
-    static readonly string[] ColorNames = { "RED", "BLUE", "YELLOW", "GREEN" };
-    static readonly string[] MarkNames = { "DOT", "BAR", "CROSS" };
+    static readonly string[] ShapeNames = { "사각형", "삼각형", "원", "마름모" };
+    static readonly string[] ColorNames = { "빨강", "파랑", "노랑", "초록" };
+    static readonly string[] MarkNames = { "점", "막대", "십자" };
     static readonly Color[] ShapeColors = { new Color(0.95f, 0.2f, 0.2f), new Color(0.2f, 0.55f, 1f), new Color(1f, 0.85f, 0.1f), new Color(0.25f, 0.85f, 0.4f) };
 
     readonly bool[] pads = new bool[3];
     readonly int[] choices = { -1, -1, -1, -1 };
-    readonly Texture2D[] shapeImages = new Texture2D[48];
+    readonly Texture2D[] shapeImages = new Texture2D[48 * 3];
     Canvas puzzleCanvas;
     Font panelFont;
     Text roundLabel;
@@ -48,6 +48,7 @@ public class CoopShapePuzzle : MonoBehaviour
     public int CompletedRounds => solved ? totalRounds : Mathf.Clamp(round - 1, 0, totalRounds);
     public int TotalRounds => totalRounds;
     public Vector3 GetAssignedPad(int playerId) => playerId == 1 ? firstPad : secondPad;
+    public Vector3 LockedRoomApproach { get; private set; }
 
     public static GameObject Create(Vector3 player1Spawn, Vector3 player2Spawn, Vector3 roomCenter, float tileSize)
     {
@@ -68,6 +69,7 @@ public class CoopShapePuzzle : MonoBehaviour
 
     void Configure(Vector3 p1, Vector3 p2, Vector3 roomCenter, float tileSize)
     {
+        LockedRoomApproach = roomCenter + Vector3.back * tileSize;
         firstPad = FindPadPosition(p1, Vector3.zero);
         secondPad = FindPadPosition(p2, firstPad);
         CreatePad("Blue description pad", firstPad, new Color(0.1f, 0.7f, 1f));
@@ -88,7 +90,9 @@ public class CoopShapePuzzle : MonoBehaviour
         gateObstacle.carveOnlyStationary = false;
         roomGate = gate.transform;
         closedGatePosition = roomGate.position;
-        for (int i = 0; i < shapeImages.Length; i++) shapeImages[i] = MakeShapeImage(i);
+        for (int stage = 1; stage <= 3; stage++)
+            for (int id = 0; id < 48; id++)
+                shapeImages[(stage - 1) * 48 + id] = MakeShapeImage(id, stage);
         CreatePuzzlePanel();
         configured = true;
         gameObject.AddComponent<PuzzlePresentation>();
@@ -279,30 +283,32 @@ public class CoopShapePuzzle : MonoBehaviour
         puzzleCanvas.enabled = visible;
         if (!visible) return;
 
-        roundLabel.text = "COOPERATIVE SIGIL LOCK   " + Mathf.Max(1, round) + " / " + totalRounds;
+        roundLabel.text = "협동 문양 잠금 장치   " + Mathf.Max(1, round) + " / " + totalRounds;
         bool describing = network.playerId == 1;
         clueView.SetActive(describing);
         choicesView.SetActive(!describing);
         directionLabel.text = describing
-            ? (round <= 1 ? "Describe the outer shape to your teammate."
-                : round == 2 ? "Describe the shape and color."
-                : "Describe the shape, color, and center mark.")
-            : (round <= 1 ? "Match the outer shape. Press 1-4."
-                : round == 2 ? "Match the shape and color. Press 1-4."
-                : "Match all three details. Press 1-4.");
+            ? (round <= 1 ? "외곽 모양을 동료에게 설명하세요."
+                : round == 2 ? "모양과 색을 동료에게 설명하세요."
+                : "모양·색·중앙 표시를 모두 설명하세요.")
+            : (round <= 1 ? "외곽 모양을 맞추세요. 숫자 1~4"
+                : round == 2 ? "모양과 색을 맞추세요. 숫자 1~4"
+                : "세 가지 특징을 모두 맞추세요. 숫자 1~4");
         if (describing)
         {
-            clueImage.texture = clue >= 0 ? shapeImages[clue] : null;
-            clueDescription.text = clue >= 0 ? Describe(clue) : "Waiting for clue...";
+            clueImage.texture = clue >= 0 ? StageImage(clue) : null;
+            clueDescription.text = clue >= 0 ? Describe(clue, round) : "단서를 기다리는 중...";
         }
         else
             for (int i = 0; i < 4; i++)
             {
-                choiceImages[i].texture = choices[i] >= 0 ? shapeImages[choices[i]] : null;
-                choiceDescriptions[i].text = choices[i] >= 0 ? Describe(choices[i]) : "";
+                choiceImages[i].texture = choices[i] >= 0 ? StageImage(choices[i]) : null;
+                choiceDescriptions[i].text = choices[i] >= 0 ? Describe(choices[i], round) : "";
             }
-        warningLabel.text = Time.time < wrongUntil ? "Wrong choice. Compare the details and try again." : "";
+        warningLabel.text = Time.time < wrongUntil ? "오답입니다. 특징을 다시 비교하고 선택하세요." : "";
     }
+
+    Texture2D StageImage(int id) => shapeImages[(Mathf.Clamp(round, 1, 3) - 1) * 48 + id];
 
     static RectTransform PanelRect(Transform parent, string name, float x, float y, float width, float height)
     {
@@ -345,12 +351,15 @@ public class CoopShapePuzzle : MonoBehaviour
         return label;
     }
 
-    static string Describe(int id)
+    static string Describe(int id, int stage)
     {
-        return ColorNames[(id / 3) % 4] + " " + ShapeNames[id / 12] + " / " + MarkNames[id % 3];
+        string shape = ShapeNames[id / 12];
+        if (stage <= 1) return shape;
+        string description = ColorNames[(id / 3) % 4] + " " + shape;
+        return stage == 2 ? description : description + " / " + MarkNames[id % 3];
     }
 
-    static Texture2D MakeShapeImage(int id)
+    static Texture2D MakeShapeImage(int id, int stage)
     {
         Texture2D image = new Texture2D(64, 64, TextureFormat.RGBA32, false);
         image.filterMode = FilterMode.Bilinear;
@@ -371,7 +380,9 @@ public class CoopShapePuzzle : MonoBehaviour
                     mark == 1 ? Mathf.Abs(nx) < 0.075f && Mathf.Abs(ny) < 0.35f :
                     (Mathf.Abs(nx) < 0.065f && Mathf.Abs(ny) < 0.34f) ||
                     (Mathf.Abs(ny) < 0.065f && Mathf.Abs(nx) < 0.34f);
-                pixels[y * 64 + x] = !inside ? Color.clear : center ? Color.black : ShapeColors[color];
+                pixels[y * 64 + x] = !inside ? Color.clear :
+                    stage >= 3 && center ? Color.black :
+                    stage == 1 ? new Color(0.8f, 0.88f, 0.9f) : ShapeColors[color];
             }
         image.SetPixels(pixels);
         image.Apply();

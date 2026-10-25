@@ -75,13 +75,13 @@ public class ClueManager : MonoBehaviour
     }
 
     static readonly string[] EvidenceNames = {
-        "", "FIELD DOCUMENT", "VOICE TRANSCRIPT", "SEALED EVIDENCE"
+        "", "현장 문서", "녹음 기록", "봉인된 증거"
     };
     static readonly string[] EvidenceDetails = {
         "",
-        "The lock requires two operators at separate pads.",
-        "The sigil combines outline, color, and a center mark.",
-        "The final record was recovered from the locked room."
+        "잠긴 방의 장치는 두 발판에 한 명씩 서야 작동한다.",
+        "문양은 외곽 모양, 색, 중앙 표시의 순서로 복잡해진다.",
+        "마지막 기록은 협동 장치로 연 방 안에서 발견됐다."
     };
 
     void CreateEvidenceJournal()
@@ -129,9 +129,9 @@ public class ClueManager : MonoBehaviour
     void RefreshEvidenceJournal()
     {
         if (evidenceText == null) return;
-        System.Text.StringBuilder text = new System.Text.StringBuilder("EVIDENCE JOURNAL  [J]\n");
-        text.Append("Shared discoveries: ").Append(clueOrder.Count).Append(" / 3\n\n");
-        if (clueOrder.Count == 0) text.Append("No evidence recovered yet.\n");
+        System.Text.StringBuilder text = new System.Text.StringBuilder("공유 수집 기록  [J]\n");
+        text.Append("확보한 단서: ").Append(clueOrder.Count).Append(" / 3\n\n");
+        if (clueOrder.Count == 0) text.Append("아직 확보한 단서가 없습니다.\n");
         foreach (int id in clueOrder)
             text.Append(clueOrder.IndexOf(id) + 1).Append(". ").Append(EvidenceNames[id])
                 .Append("\n   ").Append(EvidenceDetails[id]).Append("\n\n");

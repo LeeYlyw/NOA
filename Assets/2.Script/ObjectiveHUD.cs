@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.UI;
 
 // Reads the same server-confirmed state used by gameplay. It never awards progress.
@@ -17,6 +18,9 @@ public class ObjectiveHUD : MonoBehaviour
     Text roleHint;
     Font font;
     InventoryManager inventory;
+    readonly NavMeshPath roomPath = new NavMeshPath();
+    float nextRoomRouteUpdate;
+    string roomRouteHint = "잠긴 방 위치를 확인하세요.";
     readonly Color accent = new Color(0.32f, 0.88f, 0.81f);
     readonly Color muted = new Color(0.53f, 0.59f, 0.65f);
 
@@ -93,7 +97,14 @@ public class ObjectiveHUD : MonoBehaviour
         else if (solved)
         {
             objective.text = "남은 단서를 찾으세요";
-            instruction.text = "잠긴 방이 열렸습니다.\n방 안과 맵의 단서를 모두 수집하세요.";
+            if (lockPuzzle != null && network.localPlayerTransform != null &&
+                Time.unscaledTime >= nextRoomRouteUpdate)
+            {
+                nextRoomRouteUpdate = Time.unscaledTime + 0.75f;
+                roomRouteHint = GetLockedRoomRoute(network.localPlayerTransform.position,
+                    lockPuzzle.LockedRoomApproach);
+            }
+            instruction.text = roomRouteHint + "\n남은 단서를 모두 찾으세요.";
         }
         else if (blue && orange)
         {
@@ -115,12 +126,37 @@ public class ObjectiveHUD : MonoBehaviour
                 float distance = Vector3.Distance(network.localPlayerTransform.position,
                     lockPuzzle.GetAssignedPad(network.playerId));
                 instruction.text = (network.playerId == 1 ? "파란" : "주황") + " 발판까지 " + distance.ToString("F0") +
-                    "m\n두 사람이 각자 발판에 올라가세요.";
+                    "m\n둘이 올라 잠긴 방을 여세요.";
             }
             else instruction.text = "단서 1개는 잠긴 방 안에 있습니다.";
         }
 
         UpdateTeamStatus(network);
+    }
+
+    string GetLockedRoomRoute(Vector3 player, Vector3 entrance)
+    {
+        Vector3 direction = entrance - player;
+        float distance = new Vector2(direction.x, direction.z).magnitude;
+        if (NavMesh.SamplePosition(player, out NavMeshHit start, 1.5f, NavMesh.AllAreas) &&
+            NavMesh.SamplePosition(entrance, out NavMeshHit end, 1.5f, NavMesh.AllAreas) &&
+            NavMesh.CalculatePath(start.position, end.position, NavMesh.AllAreas, roomPath) &&
+            roomPath.status == NavMeshPathStatus.PathComplete)
+        {
+            distance = 0f;
+            Vector3[] corners = roomPath.corners;
+            for (int i = 1; i < corners.Length; i++)
+            {
+                Vector3 step = corners[i] - corners[i - 1];
+                distance += new Vector2(step.x, step.z).magnitude;
+                if ((corners[i - 1] - player).sqrMagnitude <= 1f)
+                    direction = corners[i] - player;
+            }
+        }
+        string heading = Mathf.Abs(direction.x) > Mathf.Abs(direction.z)
+            ? (direction.x >= 0f ? "동쪽" : "서쪽")
+            : (direction.z >= 0f ? "북쪽" : "남쪽");
+        return "잠긴 방 " + heading + " · 약 " + Mathf.CeilToInt(distance) + "m";
     }
 
     void UpdateTeamStatus(NetworkClient network)
