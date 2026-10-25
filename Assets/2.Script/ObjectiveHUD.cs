@@ -98,9 +98,12 @@ public class ObjectiveHUD : MonoBehaviour
         else if (blue && orange)
         {
             objective.text = "동료와 도형을 맞추세요";
+            int activeRound = Mathf.Clamp(completed + 1, 1, 3);
+            string detail = activeRound == 1 ? "외곽 모양을" :
+                activeRound == 2 ? "모양과 색을" : "모양·색·중앙 표시를";
             instruction.text = network.playerId == 1
-                ? "도형의 모양·색·중앙 표시를\n동료에게 설명하세요."
-                : "동료의 설명을 듣고\n숫자 1~4로 도형을 선택하세요.";
+                ? detail + "\n동료에게 설명하세요."
+                : detail + " 듣고\n숫자 1~4로 선택하세요.";
         }
         else
         {
