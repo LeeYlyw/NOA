@@ -296,6 +296,10 @@ PrefabInstance:
       value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6866173659768513114, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
+      propertyPath: m_Avatar
+      value: 
+      objectReference: {fileID: 9000000, guid: bfdd525a7fc55894ba5ae6214a23c376, type: 3}
+    - target: {fileID: 6866173659768513114, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}
       propertyPath: m_WarningMessage
       value: 
       objectReference: {fileID: 0}
@@ -392,21 +396,6 @@ MonoBehaviour:
   ownerClientId: 0
   myClientId: 0
   role: 0
---- !u!114 &777000000000000001
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7591597519033843459}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 0c100bef37ebf5b4abe99626fcb61fe5, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
-  healRadius: 5
-  healAmount: 30
-  skillCooldown: 10
 --- !u!114 &6559373799377515313
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -604,6 +593,21 @@ Rigidbody:
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0
+--- !u!114 &777000000000000001
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7591597519033843459}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0c100bef37ebf5b4abe99626fcb61fe5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  healRadius: 5
+  healAmount: 30
+  skillCooldown: 10
 --- !u!4 &8948090210161884570 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 1699745965030645763, guid: a053bb550d3a61c43bf11b5bfa048bb3, type: 3}

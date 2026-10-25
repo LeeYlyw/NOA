@@ -210,7 +210,7 @@ Animator:
   m_GameObject: {fileID: 1194915530965120890}
   m_Enabled: 1
   m_Avatar: {fileID: 9000000, guid: faab311a84f2e2c43b9af74ff42cc9aa, type: 3}
-  m_Controller: {fileID: 9100000, guid: f238bed7b8bd01745b0fda4b9715b19a, type: 2}
+  m_Controller: {fileID: 9100000, guid: bbae9e61027e79c41a724ba8f47f7aef, type: 2}
   m_CullingMode: 1
   m_UpdateMode: 0
   m_ApplyRootMotion: 0
@@ -292,6 +292,8 @@ MonoBehaviour:
   chaseSpeed: 3.5
   searchSpeed: 2
   investigateWaitTime: 2
+  searchDuration: 6
+  searchRadius: 3
   attackRange: 2
   damage: 10
   attackCooldown: 1.5
