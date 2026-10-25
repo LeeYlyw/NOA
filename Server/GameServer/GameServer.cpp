@@ -25,6 +25,12 @@ struct Vec3
     float z = 0.0f;
 };
 
+struct ItemSpawn
+{
+    std::string type;
+    Vec3 position;
+};
+
 #include "ServerNavigation.h"
 
 struct NavigationUpload
@@ -37,6 +43,7 @@ struct NavigationUpload
     std::string header;
     std::string mask;
     std::map<int, Vec3> doors;
+    std::map<int, ItemSpawn> items;
     Vec3 pads[3];
     bool hasPad[3] = {};
     Vec3 monsterSpawns[2];
@@ -46,6 +53,8 @@ struct NavigationUpload
 
 static ServerNavigation navigation;
 static NavigationUpload navigationUploads[3];
+static std::map<int, ItemSpawn> trustedItemSpawns;
+static bool navigationFailed = false;
 static double gateOpeningTime = 0.0;
 static int matchRoles[3] = {-1, -1, -1};
 static double nextHealAt[3] = {};
@@ -873,7 +882,8 @@ void ProcessItemPickupPacket(
     PlayerState players[],
     std::map<int, ItemState>& items,
     int& clueCount,
-    int needClueCount)
+    int needClueCount,
+    bool puzzleSolved)
 {
     // C_ITEM_PICKUP|playerId|itemId|itemType
     // legacy: ITEM_PICKUP|itemId|playerId
@@ -907,9 +917,18 @@ void ProcessItemPickupPacket(
             "S_ITEM_PICKUP_DENIED|" + std::to_string(itemId));
     };
 
-    if (!players[playerId].hasState || players[playerId].isDead)
+    auto trusted = trustedItemSpawns.find(itemId);
+    if (parts[0] == "ITEM_PICKUP" && trusted != trustedItemSpawns.end())
+        itemType = StringToItemType(trusted->second.type);
+    if (!navigation.ready || trusted == trustedItemSpawns.end() ||
+        trusted->second.type != ItemTypeToString(itemType) ||
+        !players[playerId].hasState || players[playerId].isDead ||
+        Distance2D(players[playerId].position, trusted->second.position) > 2.0f ||
+        std::fabs(players[playerId].position.y - trusted->second.position.y) > 2.5f ||
+        (itemId == 3 && !puzzleSolved))
     {
-        std::cout << "[ITEM DENY] invalid or dead player request. player " << playerId << std::endl;
+        std::cout << "[ITEM DENY] Item map, range, puzzle, or player state invalid. player "
+                  << playerId << " item " << itemId << std::endl;
         denyPickup();
         return;
     }
@@ -1088,6 +1107,29 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
         return;
     }
 
+    if (parts[0] == "C_NAV_ITEM")
+    {
+        int itemId = 0;
+        ItemSpawn spawn;
+        if (parts.size() != 7 || !upload.begun || upload.complete ||
+            !TryParseInt(parts[2], itemId) || itemId < 1 || itemId > 256 ||
+            (itemId <= 3 && parts[3] != "Clue") ||
+            (itemId > 3 && parts[3] == "Clue") ||
+            StringToItemType(parts[3]) == ItemType::Unknown ||
+            upload.items.count(itemId) != 0 ||
+            !TryParseFloat(parts[4], spawn.position.x) ||
+            !TryParseFloat(parts[5], spawn.position.y) ||
+            !TryParseFloat(parts[6], spawn.position.z) ||
+            !std::isfinite(spawn.position.x) || !std::isfinite(spawn.position.y) ||
+            !std::isfinite(spawn.position.z) ||
+            std::fabs(spawn.position.x - upload.originX) > upload.width * upload.step ||
+            std::fabs(spawn.position.z - upload.originZ) > upload.height * upload.step)
+            return;
+        spawn.type = parts[3];
+        upload.items[itemId] = spawn;
+        return;
+    }
+
     if (parts[0] != "C_NAV_END" || parts.size() != 2 || !upload.begun ||
         upload.mask.size() != static_cast<size_t>(upload.width * upload.height)) return;
     upload.complete = true;
@@ -1114,15 +1156,35 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
              std::fabs(navigationUploads[1].pads[padId].z - navigationUploads[2].pads[padId].z) > 0.05f))
             padsMatch = false;
     }
-    if (navigationUploads[1].header != navigationUploads[2].header ||
-        navigationUploads[1].mask != navigationUploads[2].mask || !doorsMatch || !padsMatch)
+    bool itemsMatch = navigationUploads[1].items.size() == navigationUploads[2].items.size();
+    for (int clueId = 1; clueId <= 3; ++clueId)
     {
-        BroadcastPacket(clientSocket1, clientSocket2, "S_NAV_ERROR|Map geometry differs between clients");
-        std::cout << "[NAV ERROR] Client maps differ" << std::endl;
+        auto clue = navigationUploads[1].items.find(clueId);
+        if (clue == navigationUploads[1].items.end() || clue->second.type != "Clue")
+            itemsMatch = false;
+    }
+    for (const auto& entry : navigationUploads[1].items)
+    {
+        auto other = navigationUploads[2].items.find(entry.first);
+        if (other == navigationUploads[2].items.end() ||
+            entry.second.type != other->second.type ||
+            std::fabs(entry.second.position.x - other->second.position.x) > 0.05f ||
+            std::fabs(entry.second.position.y - other->second.position.y) > 0.05f ||
+            std::fabs(entry.second.position.z - other->second.position.z) > 0.05f)
+            itemsMatch = false;
+    }
+    if (navigationUploads[1].header != navigationUploads[2].header ||
+        navigationUploads[1].mask != navigationUploads[2].mask ||
+        !doorsMatch || !padsMatch || !itemsMatch)
+    {
+        navigationFailed = true;
+        BroadcastPacket(clientSocket1, clientSocket2, "S_NAV_ERROR|Map or item layout differs between clients");
+        std::cout << "[NAV ERROR] Client maps or items differ" << std::endl;
         return;
     }
 
     const NavigationUpload& source = navigationUploads[1];
+    trustedItemSpawns = source.items;
     navigation.width = source.width;
     navigation.height = source.height;
     navigation.originX = source.originX;
@@ -1154,6 +1216,7 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
             ((edge & 4) != 0) != (up >= 0 && (navigation.edges[up] & 8) != 0) ||
             (x == 0 && (edge & 2) != 0) || (z == 0 && (edge & 8) != 0))
         {
+            navigationFailed = true;
             BroadcastPacket(clientSocket1, clientSocket2, "S_NAV_ERROR|Invalid navigation edges");
             return;
         }
@@ -1164,6 +1227,7 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
         if (navigation.ClosestCell(source.monsterSpawns[i]) < 0)
         {
             navigation.ready = false;
+            navigationFailed = true;
             BroadcastPacket(clientSocket1, clientSocket2, "S_NAV_ERROR|Monster spawn is not walkable");
             return;
         }
@@ -1215,6 +1279,17 @@ void ProcessClientPacket(
         return;
     }
     if (matchResult != 0) return;
+    if (type == "C_NAV_FAIL")
+    {
+        int playerId = 0;
+        if (parts.size() != 2 || !TryParseInt(parts[1], playerId) ||
+            playerId != senderPlayerId || navigation.ready || navigationFailed) return;
+        navigationFailed = true;
+        BroadcastPacket(clientSocket1, clientSocket2,
+            "S_NAV_ERROR|Map generation failed on Player " + std::to_string(playerId));
+        return;
+    }
+    if (navigationFailed && StartsWith(type, "C_NAV_")) return;
     if (StartsWith(type, "C_NAV_"))
     {
         ProcessNavigationPacket(parts, senderPlayerId, clientSocket1, clientSocket2, monsters);
@@ -1493,7 +1568,8 @@ void ProcessClientPacket(
                 return;
             }
         }
-        ProcessItemPickupPacket(parts, senderPlayerId, clientSocket1, clientSocket2, players, items, clueCount, needClueCount);
+        ProcessItemPickupPacket(parts, senderPlayerId, clientSocket1, clientSocket2,
+            players, items, clueCount, needClueCount, puzzleSolved);
         return;
     }
 
@@ -1946,7 +2022,7 @@ int main()
         }
 
         double now = GetTimeSeconds();
-        if (!navigation.ready && !navigationTimeoutReported && now >= navigationDeadline)
+        if (!navigation.ready && !navigationFailed && !navigationTimeoutReported && now >= navigationDeadline)
         {
             BroadcastPacket(clientSocket1, clientSocket2,
                 "S_NAV_ERROR|Timed out waiting for matching navigation maps");

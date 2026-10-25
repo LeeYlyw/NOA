@@ -7,13 +7,32 @@ public class PotionItem : MonoBehaviour
     private bool isPicked = false;
     private bool isRequestingPickup = false;
     private InventoryManager requestingInventory;
+    private float nextPickupAttemptAt;
 
     [Header("Item Data")]
     public ItemData itemData;
 
     private void OnTriggerEnter(Collider other)
     {
-        if (isPicked || isRequestingPickup)
+        TryPickup(other);
+    }
+
+    private void OnTriggerStay(Collider other)
+    {
+        TryPickup(other);
+    }
+
+    private void Update()
+    {
+        NetworkClient network = NetworkClient.Instance;
+        if (isRequestingPickup && (network == null ||
+            (!network.offlineMode && !network.IsConnected)))
+            DenyPickup();
+    }
+
+    private void TryPickup(Collider other)
+    {
+        if (isPicked || isRequestingPickup || Time.unscaledTime < nextPickupAttemptAt)
             return;
 
         if (!other.CompareTag("Player"))
@@ -28,6 +47,7 @@ public class PotionItem : MonoBehaviour
             return;
 
         if (itemData == null) return;
+        nextPickupAttemptAt = Time.unscaledTime + 0.75f;
 
         PlayerRoleSetup role = other.GetComponent<PlayerRoleSetup>();
         if (role == null) role = other.GetComponentInParent<PlayerRoleSetup>();
@@ -67,6 +87,7 @@ public class PotionItem : MonoBehaviour
     public void DenyPickup()
     {
         isRequestingPickup = false;
+        nextPickupAttemptAt = Time.unscaledTime + 0.75f;
         if (requestingInventory != null) requestingInventory.ReleasePickup(itemId);
         requestingInventory = null;
     }

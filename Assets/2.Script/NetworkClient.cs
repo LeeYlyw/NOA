@@ -226,6 +226,15 @@ public class NetworkClient : MonoBehaviour
         SendMessageToServer(message, "소음 정보 전송 실패");
     }
 
+    public void ReportMapPreparationFailure(string reason)
+    {
+        ConnectionStatus = reason;
+        if (ClueManager.instance != null)
+            ClueManager.instance.ShowConnectionLost("MAP PREPARATION FAILED");
+        if (!offlineMode && isConnected && HasAssignedPlayerId)
+            SendMessageToServer("C_NAV_FAIL|" + playerId + "\n", "Map failure report failed");
+    }
+
     public void SendNavigationMap(int seed, int width, int height, float originX,
                                   float originZ, float step, float gateX, float gateZ,
                                   float gateHalfWidth, Vector3 monster1, Vector3 monster2,
@@ -260,6 +269,18 @@ public class NetworkClient : MonoBehaviour
                     "C_NAV_PAD|{0}|{1}|{2:F2}|{3:F2}|{4:F2}\n",
                     playerId, padId, pad.x, pad.y, pad.z);
                 SendMessageToServer(padPacket, "Navigation pad upload failed");
+            }
+
+        if (potionItems != null)
+            foreach (PotionItem item in potionItems)
+            {
+                if (item == null || item.itemData == null || item.itemId <= 0) continue;
+                Vector3 position = item.transform.position;
+                string itemPacket = string.Format(CultureInfo.InvariantCulture,
+                    "C_NAV_ITEM|{0}|{1}|{2}|{3:F2}|{4:F2}|{5:F2}\n",
+                    playerId, item.itemId, item.itemData.type,
+                    position.x, position.y, position.z);
+                SendMessageToServer(itemPacket, "Navigation item upload failed");
             }
 
         const int chunkSize = 1000;

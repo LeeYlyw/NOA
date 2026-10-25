@@ -92,6 +92,12 @@ def main():
         send(sockets[0], "C_START")
         start, _ = read_until(sockets, lambda line: line.startswith("START|"))
         seed = start.split("|")[1]
+        if "--map-failure" in sys.argv:
+            send(sockets[0], "C_NAV_FAIL|1")
+            for sock in sockets:
+                read_until([sock], lambda line: line == "S_NAV_ERROR|Map generation failed on Player 1", 2)
+            print("PASS: map generation failure reaches both clients immediately")
+            return
         if real_map:
             fixture = Path(__file__).resolve().parents[2] / "Library" / "CodexNavigationFixture.txt"
             header, mask = fixture.read_text(encoding="utf-8").splitlines()[:2]
@@ -102,9 +108,17 @@ def main():
             header = f"{seed}|5|5|0|0|2|4|4|1|0|0|4|0|0|4"
         for player_id, sock in enumerate(sockets, start=1):
             send(sock, f"C_NAV_BEGIN|{player_id}|{header}")
+            for item_id in range(1, 4):
+                item_type = "Heal" if "--item-mismatch" in sys.argv and player_id == 2 and item_id == 1 else "Clue"
+                send(sock, f"C_NAV_ITEM|{player_id}|{item_id}|{item_type}|0|0.85|2")
             for sequence, offset in enumerate(range(0, len(mask), 1000)):
                 send(sock, f"C_NAV_CHUNK|{player_id}|{sequence}|{mask[offset:offset + 1000]}")
             send(sock, f"C_NAV_END|{player_id}")
+        if "--item-mismatch" in sys.argv:
+            for sock in sockets:
+                read_until([sock], lambda line: line == "S_NAV_ERROR|Map or item layout differs between clients", 2)
+            print("PASS: mismatched item manifests reject the map")
+            return
         read_until(sockets, lambda line: line == "S_NAV_READY")
         if real_map:
             read_until(
@@ -117,6 +131,16 @@ def main():
             print("PASS: real Unity map accepted by server; server-driven patrol moved monster")
             return
         send(sockets[0], "MOVE|1|0|0|2|0|0|0|0|1|0")
+        send(sockets[0], "C_ITEM_PICKUP|1|3|Clue")
+        read_until(sockets, lambda line: line == "S_ITEM_PICKUP_DENIED|3", 2)
+        send(sockets[0], "C_ITEM_PICKUP|1|1|Heal")
+        read_until(sockets, lambda line: line == "S_ITEM_PICKUP_DENIED|1", 2)
+        send(sockets[0], "MOVE|1|4|0|4|0|0|0|0|1|0")
+        send(sockets[0], "C_ITEM_PICKUP|1|1|Clue")
+        read_until(sockets, lambda line: line == "S_ITEM_PICKUP_DENIED|1", 2)
+        send(sockets[0], "MOVE|1|0|0|2|0|0|0|0|1|0")
+        send(sockets[0], "C_ITEM_PICKUP|1|1|Clue")
+        read_until(sockets, lambda line: line.startswith("S_ITEM_PICKUP|1|1|Clue|"), 2)
         send(sockets[0], "C_NOISE|1|0|0|2|4")
         read_until(
             sockets,

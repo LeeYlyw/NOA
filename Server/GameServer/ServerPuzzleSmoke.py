@@ -41,6 +41,8 @@ def main():
             send(sock, f"C_NAV_BEGIN|{player_id}|{header}")
             send(sock, f"C_NAV_PAD|{player_id}|1|1|0|1")
             send(sock, f"C_NAV_PAD|{player_id}|2|3|0|1")
+            for item_id in range(1, 4):
+                send(sock, f"C_NAV_ITEM|{player_id}|{item_id}|Clue|1|0.85|1")
             send(sock, f"C_NAV_CHUNK|{player_id}|0|{make_mask()}")
             send(sock, f"C_NAV_END|{player_id}")
         read_until(sockets, lambda line: line == "S_NAV_READY")

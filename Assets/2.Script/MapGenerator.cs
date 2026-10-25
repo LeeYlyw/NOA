@@ -75,6 +75,7 @@ public class MapGenerator : MonoBehaviour
         if (mapSize < 5 || tileSize <= 0f || roomsToSpawn == null || roomsToSpawn.Count == 0)
         {
             Debug.LogError("[MapGenerator] Map size, tile size, and room prefabs must be configured.");
+            ReportGenerationFailure("Invalid map configuration");
             return;
         }
         for (int i = 0; i < roomsToSpawn.Count; i++)
@@ -82,6 +83,7 @@ public class MapGenerator : MonoBehaviour
             if (roomsToSpawn[i] == null || roomsToSpawn[i].prefab == null)
             {
                 Debug.LogError($"[MapGenerator] Room entry {i} has a missing prefab; map generation cancelled.");
+                ReportGenerationFailure("Missing room prefab");
                 return;
             }
         }
@@ -121,7 +123,9 @@ public class MapGenerator : MonoBehaviour
             SpawnPrefabsSafely();
             Physics.SyncTransforms();
             if (!RepairBlockedEmptyOpenings()) { openingFailures++; continue; }
-            if (!CollectReachableSpawnPoints() || validSpawnPoints.Count < 6) { spawnFailures++; continue; }
+            if (!CollectReachableSpawnPoints() ||
+                validSpawnPoints.Count < 6 + RequiredSupplySpawnCount())
+            { spawnFailures++; continue; }
             RebuildNavMesh();
             if (!ValidateNavMeshConnectivity() || !ValidatePuzzleRoomAccess()) { navigationFailures++; continue; }
 
@@ -137,6 +141,7 @@ public class MapGenerator : MonoBehaviour
                            $"(rooms {roomFailures}, topology {topologyFailures}, empty regions {emptyFailures}, " +
                            $"blocked openings {openingFailures}, spawn points {spawnFailures}, " +
                            $"navigation {navigationFailures}).");
+            ReportGenerationFailure("All map layout attempts failed");
             return;
         }
 
@@ -145,8 +150,35 @@ public class MapGenerator : MonoBehaviour
         if (network != null) network.RegisterDoors(spawnedDoors.ToArray());
         string navigationMask = network != null && !network.offlineMode && network.IsConnected
             ? BuildServerNavigationMask() : null;
-        SpawnEntities();
+        if (!SpawnEntities())
+        {
+            ReportGenerationFailure("Required map entities could not be spawned");
+            return;
+        }
         SendServerNavigationMap(selectedSeed, navigationMask);
+    }
+
+    void ReportGenerationFailure(string reason)
+    {
+        foreach (GameObject entity in spawnedEntities)
+            DisposeGeneratedObject(entity);
+        spawnedEntities.Clear();
+        NetworkClient network = NetworkClient.Instance;
+        if (network != null) network.ReportMapPreparationFailure(reason);
+    }
+
+    int RequiredSupplySpawnCount()
+    {
+        bool hasHeal = false, hasRevive = false;
+        if (itemPrefabs != null)
+            foreach (GameObject prefab in itemPrefabs)
+            {
+                PotionItem pickup = prefab != null ? prefab.GetComponent<PotionItem>() : null;
+                if (pickup == null || pickup.itemData == null) continue;
+                hasHeal |= pickup.itemData.type == ItemData.ItemType.Heal;
+                hasRevive |= pickup.itemData.type == ItemData.ItemType.Resurrection;
+            }
+        return (hasHeal ? 2 : 0) + (hasRevive ? 1 : 0);
     }
 
     // Send the actual baked walkable geometry, rather than asking the C++ server to
@@ -171,6 +203,7 @@ public class MapGenerator : MonoBehaviour
         if (!foundMonster[0] || !foundMonster[1])
         {
             Debug.LogError("[MapGenerator] Cannot send navigation map without both monster spawns.");
+            ReportGenerationFailure("Monster spawn missing from navigation map");
             return;
         }
 
@@ -179,7 +212,11 @@ public class MapGenerator : MonoBehaviour
         int width = Mathf.CeilToInt(worldSize / step);
         int height = width;
         float origin = -worldSize * 0.5f + step * 0.5f;
-        if (string.IsNullOrEmpty(edgeMask) || edgeMask.Length != width * height) return;
+        if (string.IsNullOrEmpty(edgeMask) || edgeMask.Length != width * height)
+        {
+            ReportGenerationFailure("Navigation map could not be built");
+            return;
+        }
         Vector3 gate = puzzleRoomCenter + Vector3.back * (tileSize * 0.5f);
         network.SendNavigationMap(seed, width, height, origin, origin, step,
                                   gate.x, gate.z, tileSize * 0.5f - 0.2f,
@@ -1003,12 +1040,12 @@ public class MapGenerator : MonoBehaviour
         return !Physics.CheckCapsule(bottom, top, radius, ~0, QueryTriggerInteraction.Ignore);
     }
 
-    void SpawnEntities()
+    bool SpawnEntities()
     {
         if (validSpawnPoints.Count < 4)
         {
             Debug.LogError("[MapGenerator] 유효한 스폰 포인트가 부족합니다.");
-            return;
+            return false;
         }
 
         Vector3 p1Pos = GetRandomSpawnPoint(removePoint: true);
@@ -1017,6 +1054,11 @@ public class MapGenerator : MonoBehaviour
             player1Prefab);
         GameObject secondPrefab = PlayerPrefabForRole(network != null ? network.Role2 : PlayerRole.Explorer,
             player2Prefab);
+        if (firstPrefab == null || secondPrefab == null || monsterPrefab == null || monster2Prefab == null)
+        {
+            Debug.LogError("[MapGenerator] A required player or monster prefab is missing.");
+            return false;
+        }
         GameObject p1 = Instantiate(firstPrefab, p1Pos, Quaternion.identity);
         p1.name = "Player1";
         spawnedEntities.Add(p1);
@@ -1035,12 +1077,6 @@ public class MapGenerator : MonoBehaviour
         GameObject monster = Instantiate(monsterPrefab, monsterPos, Quaternion.identity);
         monster.name = "Monster1";
         spawnedEntities.Add(monster);
-
-        if (monster2Prefab == null)
-        {
-            Debug.LogError("[MapGenerator] Monster2 prefab is not assigned.");
-            return;
-        }
 
         Vector3 monster2Pos = GetFarthestSpawnPointFromAll(p1Pos, p2Pos, monsterPos);
         if (NavMesh.SamplePosition(monster2Pos, out NavMeshHit monster2Hit, tileSize, NavMesh.AllAreas))
@@ -1065,7 +1101,7 @@ public class MapGenerator : MonoBehaviour
         if (clueData == null || !hasPuzzleRoom || validSpawnPoints.Count < 2)
         {
             Debug.LogError("[MapGenerator] Three fixed clues require a clue item prefab, a 1x1 room, and two free spawn points.");
-            return;
+            return false;
         }
 
         List<PotionItem> spawnedPotions = new List<PotionItem>();
@@ -1103,7 +1139,7 @@ public class MapGenerator : MonoBehaviour
             if (revivePrefab != null) guaranteedItems.Add(revivePrefab);
             else Debug.LogWarning("[MapGenerator] No resurrection prefab configured for guaranteed supplies.");
 
-            for (int i = 0; i < itemSpawnCount; i++)
+            for (int i = 0; i < Mathf.Max(itemSpawnCount, guaranteedItems.Count); i++)
             {
                 if (validSpawnPoints.Count == 0)
                 {
@@ -1133,7 +1169,7 @@ public class MapGenerator : MonoBehaviour
             NetworkClient.Instance.SetupNetworkEntities(p1, p2, spawnedMonsters, spawnedPotions.ToArray(), NetworkClient.Instance.Role1, NetworkClient.Instance.Role2);
             Debug.Log("[MapGenerator] 맵 생성 완료 및 네트워크 연동 완료");
         }
-
+        return true;
     }
 
     GameObject PlayerPrefabForRole(PlayerRole role, GameObject fallback)
