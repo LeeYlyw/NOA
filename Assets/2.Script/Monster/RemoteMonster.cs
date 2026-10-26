@@ -6,6 +6,8 @@ public class RemoteMonster : MonoBehaviour
 
     private Vector3 targetPosition;
     private Quaternion targetRotation;
+    private Vector3 displayedPosition;
+    private Quaternion displayedRotation;
     private bool isInitialized = false;
 
     private Animator animator;
@@ -27,6 +29,8 @@ public class RemoteMonster : MonoBehaviour
 
         targetPosition = transform.position;
         targetRotation = transform.rotation;
+        displayedPosition = targetPosition;
+        displayedRotation = targetRotation;
     }
 
     void Update()
@@ -34,17 +38,19 @@ public class RemoteMonster : MonoBehaviour
         if (!isInitialized)
             return;
 
-        transform.position = Vector3.Lerp(
-            transform.position,
+        displayedPosition = Vector3.Lerp(
+            displayedPosition,
             targetPosition,
             Time.deltaTime * smoothSpeed
         );
 
-        transform.rotation = Quaternion.Lerp(
-            transform.rotation,
+        displayedRotation = Quaternion.Lerp(
+            displayedRotation,
             targetRotation,
             Time.deltaTime * smoothSpeed
         );
+
+        transform.SetPositionAndRotation(displayedPosition, displayedRotation);
 
         if (animator != null)
         {
@@ -59,6 +65,15 @@ public class RemoteMonster : MonoBehaviour
         }
     }
 
+    void LateUpdate()
+    {
+        if (!isInitialized) return;
+        // Monster animation clips contain curves on the root Transform. Unity
+        // evaluates them after Update, so they can pull both server monsters
+        // back near the scene origin. Restore the interpolated server pose last.
+        transform.SetPositionAndRotation(displayedPosition, displayedRotation);
+    }
+
     public void SetState(Vector3 position, Quaternion rotation)
     {
         targetPosition = position;
@@ -66,8 +81,9 @@ public class RemoteMonster : MonoBehaviour
 
         if (!isInitialized)
         {
-            transform.position = position;
-            transform.rotation = rotation;
+            displayedPosition = position;
+            displayedRotation = rotation;
+            transform.SetPositionAndRotation(position, rotation);
             isInitialized = true;
         }
     }

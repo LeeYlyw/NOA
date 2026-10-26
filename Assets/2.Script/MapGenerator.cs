@@ -271,7 +271,8 @@ public class MapGenerator : MonoBehaviour
             Vector3 center = new Vector3(origin + x * step, 0f, origin + z * step);
             if (NavMesh.SamplePosition(center, out NavMeshHit hit, 0.4f, NavMesh.AllAreas) &&
                 Vector2.Distance(new Vector2(center.x, center.z),
-                                 new Vector2(hit.position.x, hit.position.z)) <= 0.4f)
+                                 new Vector2(hit.position.x, hit.position.z)) <= 0.4f &&
+                IsMonsterBodyClear(hit.position, 0.65f))
             {
                 walkable[index] = true;
                 points[index] = hit.position;
@@ -284,12 +285,14 @@ public class MapGenerator : MonoBehaviour
             int index = z * width + x;
             if (!walkable[index]) continue;
             if (x + 1 < width && walkable[index + 1] &&
+                IsMonsterBodyClear((points[index] + points[index + 1]) * 0.5f, 0.65f) &&
                 !NavMesh.Raycast(points[index], points[index + 1], out _, NavMesh.AllAreas))
             {
                 edges[index] |= 1;
                 edges[index + 1] |= 2;
             }
             if (z + 1 < height && walkable[index + width] &&
+                IsMonsterBodyClear((points[index] + points[index + width]) * 0.5f, 0.65f) &&
                 !NavMesh.Raycast(points[index], points[index + width], out _, NavMesh.AllAreas))
             {
                 edges[index] |= 4;
@@ -1215,6 +1218,9 @@ public class MapGenerator : MonoBehaviour
         GameObject monster2 = Instantiate(monster2Prefab, monster2Pos, Quaternion.identity, monstersRoot);
         monster2.name = "Monster2";
         spawnedEntities.Add(monster2);
+        Debug.Log($"[MapGenerator] Monster roots: 1={monster.transform.position}, 2={monster2.transform.position}, separation={Vector3.Distance(monster.transform.position, monster2.transform.position):F1}m.");
+        LogMonsterVisualOffset(monster);
+        LogMonsterVisualOffset(monster2);
         if (NavMesh.FindClosestEdge(monster2Pos, out NavMeshHit monster2Edge, NavMesh.AllAreas))
             Debug.Log($"[MapGenerator] Monster 2 spawn {monster2Pos}, NavMesh edge clearance {monster2Edge.distance:F2}m, bed blockers {bedVisualBounds.Count}.");
         GameObject[] spawnedMonsters = new GameObject[] { monster, monster2 };
@@ -1535,24 +1541,39 @@ public class MapGenerator : MonoBehaviour
         if (!NavMesh.FindClosestEdge(floor.position, out NavMeshHit edge, NavMesh.AllAreas) ||
             edge.distance < edgeClearance)
             return false;
-        // Imported concave bed meshes can leave walkable NavMesh under the
-        // visible mattress. Their triangles may not overlap a capsule whose
-        // center is inside the volume, so also reject the visual footprint.
-        const float bedClearance = 1.25f;
+        return IsMonsterBodyClear(floor.position, 1.25f);
+    }
+
+    // Server waypoints also need body clearance. NavMesh point/edge checks
+    // alone can put a server-driven monster inside a bed or wall.
+    bool IsMonsterBodyClear(Vector3 position, float bedClearance)
+    {
+        // Imported concave beds can leave walkable NavMesh under the visible
+        // mattress, so exclude their full visual footprint as well.
         foreach (Bounds bed in bedVisualBounds)
         {
-            if (floor.position.y > bed.max.y + 0.1f ||
-                floor.position.y + 1.7f < bed.min.y) continue;
-            float closestX = Mathf.Clamp(floor.position.x, bed.min.x, bed.max.x);
-            float closestZ = Mathf.Clamp(floor.position.z, bed.min.z, bed.max.z);
-            float dx = floor.position.x - closestX;
-            float dz = floor.position.z - closestZ;
+            if (position.y > bed.max.y + 0.1f ||
+                position.y + 1.7f < bed.min.y) continue;
+            float closestX = Mathf.Clamp(position.x, bed.min.x, bed.max.x);
+            float closestZ = Mathf.Clamp(position.z, bed.min.z, bed.max.z);
+            float dx = position.x - closestX;
+            float dz = position.z - closestZ;
             if (dx * dx + dz * dz < bedClearance * bedClearance) return false;
         }
         const float radius = 0.6f;
-        Vector3 bottom = floor.position + Vector3.up * (radius + 0.1f);
-        Vector3 top = floor.position + Vector3.up * 1.5f;
+        Vector3 bottom = position + Vector3.up * (radius + 0.1f);
+        Vector3 top = position + Vector3.up * 1.5f;
         return !Physics.CheckCapsule(bottom, top, radius, ~0, QueryTriggerInteraction.Ignore);
+    }
+
+    static void LogMonsterVisualOffset(GameObject monster)
+    {
+        foreach (SkinnedMeshRenderer visual in monster.GetComponentsInChildren<SkinnedMeshRenderer>())
+        {
+            float offset = Vector3.Distance(visual.bounds.center, monster.transform.position);
+            if (offset > 5f)
+                Debug.LogWarning($"[MapGenerator] {monster.name} mesh '{visual.name}' is {offset:F1}m from its root at spawn; mesh center={visual.bounds.center}.");
+        }
     }
 
 }

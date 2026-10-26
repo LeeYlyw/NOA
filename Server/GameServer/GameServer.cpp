@@ -1251,7 +1251,11 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
     matchStartedAt = GetTimeSeconds();
     BroadcastPacket(clientSocket1, clientSocket2, "S_NAV_READY");
     std::cout << "[NAV READY] " << source.width << "x" << source.height
-              << " cells confirmed by both clients" << std::endl;
+              << " cells confirmed by both clients; monster roots: 1=("
+              << monsters[0].position.x << "," << monsters[0].position.y << ","
+              << monsters[0].position.z << "), 2=("
+              << monsters[1].position.x << "," << monsters[1].position.y << ","
+              << monsters[1].position.z << ")" << std::endl;
 }
 
 void ProcessClientPacket(
