@@ -8,11 +8,21 @@ public class InventoryUI : MonoBehaviour
     void Start()
     {
         // 게임 시작할 때는 인벤토리를 꺼둠
-        inventoryPanel.SetActive(false);
+        if (inventoryPanel != null) inventoryPanel.SetActive(false);
     }
 
     void Update()
     {
+        NetworkClient network = NetworkClient.Instance;
+        bool ending = ClueManager.instance != null && ClueManager.instance.IsEnding;
+        bool playing = network != null && (network.offlineMode || (network.GameStarted && network.IsConnected));
+        if (inventoryPanel == null || ending || !playing)
+        {
+            if (inventoryPanel != null) inventoryPanel.SetActive(false);
+            activeInventory = false;
+            // Lobby and result screens own the cursor; Tab must not lock it.
+            return;
+        }
         // Tab 키를 눌렀을 때
         if (Input.GetKeyDown(KeyCode.Tab))
         {

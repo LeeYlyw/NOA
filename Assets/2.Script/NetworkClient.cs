@@ -901,6 +901,11 @@ public class NetworkClient : MonoBehaviour
 
         localPlayerController = localPlayerTransform.GetComponent<PlayerController>();
 
+        // Hide only the local first-person body's pixels; keep its shadows and
+        // the remote character's full mesh visible to the other client.
+        foreach (SkinnedMeshRenderer body in localPlayerTransform.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            body.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;
+
         RemotePlayer p1Remote = player1Object.GetComponent<RemotePlayer>();
         if (p1Remote != null) p1Remote.SetupPlayer(isPlayer1Local);
 
@@ -934,6 +939,11 @@ public class NetworkClient : MonoBehaviour
         Camera localCamera = localPlayerTransform.GetComponentInChildren<Camera>(true);
         if (localCamera != null)
         {
+            // Role 4's prefab excludes the Player layer to hide its own mesh.
+            // Restore that layer here so this camera can still see its teammate;
+            // the local mesh is hidden separately with ShadowsOnly above.
+            int playerLayer = LayerMask.NameToLayer("Player");
+            if (playerLayer >= 0) localCamera.cullingMask |= 1 << playerLayer;
             localCamera.enabled = true;
             AudioListener localListener = localCamera.GetComponent<AudioListener>();
             if (localListener != null) localListener.enabled = true;

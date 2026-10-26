@@ -206,9 +206,9 @@ public class ClueManager : MonoBehaviour
 
     public void ShowConnectionLost(string reason)
     {
-        if (isEnding) return;
         isEnding = true;
         canRestartTogether = false;
+        waitingForRestart = false;
         resultTitle = reason;
         if (endingPanel != null) endingPanel.SetActive(false);
         Cursor.lockState = CursorLockMode.None;

@@ -76,9 +76,7 @@ public class Slot : MonoBehaviour
                         point = child;
                         break;
                     }
-                Vector3 requested = point != null ? point.position : teammate.position + teammate.right * 1.2f;
-                if (!TrySafeTeleportDestination(local, teammate, requested,
-                        local.GetComponent<CharacterController>(), out destination))
+                if (!TryTeleportBesideTeammate(local, teammate, point, out destination))
                 {
                     Debug.LogWarning("[Teleport] No clear floor beside teammate. Item was not consumed.");
                     return;
@@ -135,6 +133,27 @@ public class Slot : MonoBehaviour
         }
     }
 
+    private bool TryTeleportBesideTeammate(Transform local, Transform teammate,
+        Transform marker, out Vector3 destination)
+    {
+        CharacterController controller = local.GetComponent<CharacterController>();
+        // Old prefab markers can be far outside the teammate's hierarchy origin.
+        if (marker != null && Vector3.Distance(marker.position, teammate.position) <= 2.5f &&
+            TrySafeTeleportDestination(local, teammate, marker.position, controller, out destination))
+            return true;
+
+        // A blocked preferred side must not make the item unusable in an open room.
+        for (int i = 0; i < 8; i++)
+        {
+            Vector3 offset = Quaternion.AngleAxis(i * 45f, Vector3.up) * teammate.right * 1.5f;
+            if (TrySafeTeleportDestination(local, teammate, teammate.position + offset,
+                    controller, out destination))
+                return true;
+        }
+        destination = Vector3.zero;
+        return false;
+    }
+
     private bool TrySafeTeleportDestination(Transform local, Transform teammate,
         Vector3 requested, CharacterController controller, out Vector3 safe)
     {
@@ -156,8 +175,9 @@ public class Slot : MonoBehaviour
                 !hit.collider.transform.IsChildOf(local))
                 return false;
 
-        float radius = controller != null ? controller.radius : 0.4f;
-        float height = controller != null ? controller.height : 1.8f;
+        Vector3 scale = local.lossyScale;
+        float radius = controller != null ? controller.radius * Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z)) : 0.4f;
+        float height = controller != null ? Mathf.Max(2f * radius, controller.height * Mathf.Abs(scale.y)) : 1.8f;
         Vector3 foot = floor.position + Vector3.up * (radius + 0.05f);
         Vector3 head = floor.position + Vector3.up * Mathf.Max(radius, height - radius);
         foreach (Collider obstacle in Physics.OverlapCapsule(foot, head, radius * 0.9f,

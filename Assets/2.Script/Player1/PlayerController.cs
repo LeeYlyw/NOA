@@ -133,7 +133,7 @@ public class PlayerController : MonoBehaviour
         float x = Input.GetAxis("Horizontal");
         float z = Input.GetAxis("Vertical");
 
-        Vector3 move = transform.right * x + transform.forward * z;
+        Vector3 move = Vector3.ClampMagnitude(transform.right * x + transform.forward * z, 1f);
 
         bool hasInput = move.magnitude > 0.1f;
         bool runInput = Input.GetKey(KeyCode.LeftShift);

@@ -7,10 +7,14 @@ public class ClueDetector : MonoBehaviour
     public float maxDetectionDist = 15f;
 
     private PlayerRoleSetup roleSetup;
+    private PlayerController player;
+    private GameObject[] cachedClues = new GameObject[0];
+    private float nextScanAt;
 
     void Start()
     {
         roleSetup = GetComponent<PlayerRoleSetup>();
+        player = GetComponent<PlayerController>();
 
         if (beepSound != null)
         {
@@ -31,7 +35,12 @@ public class ClueDetector : MonoBehaviour
             return;
         }
 
-        GameObject[] clues = GameObject.FindGameObjectsWithTag("Clue");
+        if (Time.unscaledTime >= nextScanAt)
+        {
+            cachedClues = GameObject.FindGameObjectsWithTag("Clue");
+            nextScanAt = Time.unscaledTime + 0.5f;
+        }
+        GameObject[] clues = cachedClues;
 
         if (clues.Length == 0)
         {
@@ -43,6 +52,7 @@ public class ClueDetector : MonoBehaviour
 
         foreach (GameObject clue in clues)
         {
+            if (clue == null || !clue.activeInHierarchy) continue;
             float dist = Vector3.Distance(transform.position, clue.transform.position);
 
             if (dist < closestDist)
@@ -70,7 +80,7 @@ public class ClueDetector : MonoBehaviour
 
     private bool CanUseDetector()
     {
-        if (roleSetup == null)
+        if (roleSetup == null || player == null || player.IsDeadState || (ClueManager.instance != null && ClueManager.instance.IsEnding))
             return false;
 
         // 감지자 역할이 아니면 사용 불가
@@ -84,6 +94,8 @@ public class ClueDetector : MonoBehaviour
 
         return true;
     }
+
+    private void OnDisable() { StopBeep(); }
 
     private void StopBeep()
     {
