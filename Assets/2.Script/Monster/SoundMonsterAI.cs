@@ -41,9 +41,18 @@ public class SoundMonsterAI : MonoBehaviour
     public int damage = 10;
     public float attackCooldown = 1.5f;
     public float rotateSpeed = 5f;
-    private float lastAttackTime = 0f;
+    private const float AttackImpactSeconds = 0.55f;
+    private const float AttackCycleSeconds = 1.5f;
+    private float lastAttackTime = -100f;
     private float pendingHitAt = -1f;
     private Transform pendingTarget;
+    private Vector3 lastMotionPosition;
+    private float nextMotionCheckAt;
+    private int stuckChecks;
+    private float nextNavMeshWarningAt;
+    private Vector3 lastFramePosition;
+    private bool movedThisFrame;
+    private Quaternion navigationRotation;
 
     private State currentState = State.Idle;
     private Vector3 investigatePosition;
@@ -69,6 +78,7 @@ public class SoundMonsterAI : MonoBehaviour
     void OnDisable()
     {
         PlayerNoiseEmitter.OnNoiseEmitted -= OnNoiseHeard;
+        if (animator != null) animator.speed = 1f;
     }
 
     void Start()
@@ -78,12 +88,33 @@ public class SoundMonsterAI : MonoBehaviour
 
         animator = GetComponent<Animator>();
         if (animator == null) animator = GetComponentInChildren<Animator>();
+        // MonsterRun and MonsterAttack contain curves on the Animator root.
+        // Let the NavMeshAgent simulate independently so those curves cannot
+        // keep pulling the agent back to the same point each frame.
+        if (agent != null && agent.enabled) agent.updatePosition = false;
+        if (animator != null) animator.applyRootMotion = false;
+        navigationRotation = transform.rotation;
+        lastMotionPosition = transform.position;
+        lastFramePosition = transform.position;
+        nextMotionCheckAt = Time.time + 1f;
         pauseUntil = Time.time + patrolPause;
     }
 
     void Update()
     {
-        if (agent == null || !agent.enabled || !agent.isOnNavMesh) return;
+        if (agent == null || !agent.enabled) return;
+        if (!agent.isOnNavMesh)
+        {
+            SetAnimationState(0f, false, false);
+            if (Time.time >= nextNavMeshWarningAt)
+            {
+                nextNavMeshWarningAt = Time.time + 10f;
+                Debug.LogError($"[SoundMonsterAI] Agent is off NavMesh at {transform.position}; movement disabled until the map or spawn is fixed.");
+            }
+            return;
+        }
+        movedThisFrame = (transform.position - lastFramePosition).sqrMagnitude > 0.000025f;
+        lastFramePosition = transform.position;
 
         Transform visible = FindNearestVisiblePlayer();
         if (visible != null)
@@ -118,6 +149,38 @@ public class SoundMonsterAI : MonoBehaviour
                 UpdateAttack();
                 break;
         }
+        CheckForStuckMovement();
+        if (animator != null) animator.speed = currentState == State.Attack ? 2f : 1f;
+        navigationRotation = transform.rotation;
+    }
+
+    void LateUpdate()
+    {
+        if (agent == null || !agent.enabled || !agent.isOnNavMesh) return;
+        // Animation evaluation runs after Update. Keep the world position and
+        // facing produced by navigation/attack, regardless of root curves.
+        transform.SetPositionAndRotation(agent.nextPosition, navigationRotation);
+    }
+
+    private void CheckForStuckMovement()
+    {
+        if (Time.time < nextMotionCheckAt) return;
+        bool shouldMove = !agent.isStopped && !agent.pathPending && agent.hasPath &&
+            !float.IsInfinity(agent.remainingDistance) &&
+            agent.remainingDistance > agent.stoppingDistance + 1f;
+        float moved = Vector3.Distance(transform.position, lastMotionPosition);
+        stuckChecks = shouldMove && moved < 0.15f ? stuckChecks + 1 : 0;
+        lastMotionPosition = transform.position;
+        nextMotionCheckAt = Time.time + 1f;
+        if (stuckChecks < 3) return;
+
+        Debug.LogWarning($"[SoundMonsterAI] Stuck at {transform.position}, agent next {agent.nextPosition}, velocity {agent.velocity}, destination {agent.destination}, path {agent.pathStatus}, remaining {agent.remainingDistance:F1}m; clearing path in place.");
+        stuckChecks = 0;
+        agent.ResetPath();
+        currentState = State.Idle;
+        patrolWaiting = true;
+        pauseUntil = Time.time + patrolPause;
+        SetAnimationState(0f, false, false);
     }
 
     void UpdateIdle()
@@ -151,7 +214,7 @@ public class SoundMonsterAI : MonoBehaviour
             pauseUntil = Time.time + patrolPause;
             agent.isStopped = true;
         }
-        bool walking = !agent.isStopped && agent.velocity.sqrMagnitude > 0.01f;
+        bool walking = !agent.isStopped && movedThisFrame;
         SetAnimationState(walking ? 1f : 0f, walking, false);
     }
 
@@ -190,8 +253,7 @@ public class SoundMonsterAI : MonoBehaviour
                 agent.SetDestination(destination);
         }
 
-        SetAnimationState(agent.velocity.sqrMagnitude > 0.01f ? 1f : 0f,
-                          agent.velocity.sqrMagnitude > 0.01f, false);
+        SetAnimationState(movedThisFrame ? 1f : 0f, movedThisFrame, false);
     }
 
     void UpdateChase()
@@ -230,13 +292,15 @@ public class SoundMonsterAI : MonoBehaviour
             return;
         }
 
-        SetAnimationState(1f, true, false);
-
         if (agent.enabled && agent.isOnNavMesh)
         {
             agent.isStopped = false;
-            agent.SetDestination(lastSeenPosition);
+            if (!agent.pathPending && (!agent.hasPath ||
+                Vector3.Distance(agent.destination, lastSeenPosition) > 1f))
+                agent.SetDestination(lastSeenPosition);
         }
+        bool moving = movedThisFrame;
+        SetAnimationState(moving ? 1f : 0f, moving, false);
     }
 
     void UpdateAttack()
@@ -299,7 +363,7 @@ public class SoundMonsterAI : MonoBehaviour
             pendingTarget = null;
         }
 
-        if (pendingHitAt < 0f && Time.time >= lastAttackTime + attackCooldown)
+        if (pendingHitAt < 0f && Time.time >= lastAttackTime + Mathf.Max(attackCooldown, AttackCycleSeconds))
         {
             PlayerRoleSetup roleSetup = player.GetComponent<PlayerRoleSetup>();
             if (roleSetup != null)
@@ -311,7 +375,7 @@ public class SoundMonsterAI : MonoBehaviour
                     else animator.SetTrigger("Attack");
                 }
                 pendingTarget = player;
-                pendingHitAt = Time.time + 0.35f;
+                pendingHitAt = Time.time + AttackImpactSeconds;
                 lastAttackTime = Time.time;
             }
         }

@@ -169,7 +169,9 @@ struct MonsterState
     int attackSequence = 0;
     int pendingAttackTargetId = 0;
     double attackImpactTime = 0.0;
+    double attackRecoveryTime = 0.0;
     bool attackPending = false;
+    bool attackImpactApplied = false;
     std::vector<int> path;
     int pathGoal = -1;
     size_t pathCursor = 0;
@@ -524,7 +526,11 @@ void SendPlayerDamageIfPossible(
     monster.state = MonsterAIState::Attack;
     monster.attackPending = true;
     monster.pendingAttackTargetId = target.playerId;
-    monster.attackImpactTime = now + 0.35;
+    // MonsterAttack lasts 2.633 s and plays at 2x during a swing. Keep the
+    // original 1.5 s attack rhythm while the visible strike and recovery finish.
+    monster.attackImpactTime = now + 0.55;
+    monster.attackRecoveryTime = now + 1.35;
+    monster.attackImpactApplied = false;
 }
 
 bool ResolvePendingMonsterAttack(MonsterState& monster, PlayerState players[],
@@ -534,10 +540,16 @@ bool ResolvePendingMonsterAttack(MonsterState& monster, PlayerState players[],
     monster.state = MonsterAIState::Attack;
     monster.isWalk = false;
     monster.currentSpeed = 0.0f;
-    monster.isAttack = true;
+    monster.isAttack = now < monster.attackImpactTime;
     if (now < monster.attackImpactTime) return true;
 
-    monster.attackPending = false;
+    if (monster.attackImpactApplied)
+    {
+        if (now < monster.attackRecoveryTime) return true;
+        monster.attackPending = false;
+        return false;
+    }
+    monster.attackImpactApplied = true;
     monster.isAttack = false;
     if (monster.pendingAttackTargetId < 1 || monster.pendingAttackTargetId > 2) return true;
     PlayerState& target = players[monster.pendingAttackTargetId];

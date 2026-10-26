@@ -19,7 +19,9 @@ public class MonsterChase : MonoBehaviour
     [Header("Attack")]
     public int damage = 10;
     public float attackCooldown = 1.5f;
-    private float lastAttackTime = 0f;
+    private const float AttackImpactSeconds = 0.55f;
+    private const float AttackCycleSeconds = 1.5f;
+    private float lastAttackTime = -100f;
     private float pendingHitAt = -1f;
     private Transform pendingTarget;
 
@@ -103,6 +105,12 @@ public class MonsterChase : MonoBehaviour
             case State.Search: UpdateSearch(); break;
             case State.Attack: AttackPlayer(); break;
         }
+        if (animator != null) animator.speed = state == State.Attack ? 2f : 1f;
+    }
+
+    void OnDisable()
+    {
+        if (animator != null) animator.speed = 1f;
     }
 
     bool CanSeePlayer(Transform target)
@@ -328,7 +336,7 @@ public class MonsterChase : MonoBehaviour
             pendingTarget = null;
         }
 
-        if (pendingHitAt < 0f && Time.time >= lastAttackTime + attackCooldown)
+        if (pendingHitAt < 0f && Time.time >= lastAttackTime + Mathf.Max(attackCooldown, AttackCycleSeconds))
         {
             int targetPlayerId = GetPlayerIdFromTarget(player);
 
@@ -341,7 +349,7 @@ public class MonsterChase : MonoBehaviour
                     else animator.SetTrigger("Attack");
                 }
                 pendingTarget = player;
-                pendingHitAt = Time.time + 0.35f;
+                pendingHitAt = Time.time + AttackImpactSeconds;
 
                 lastAttackTime = Time.time;
             }

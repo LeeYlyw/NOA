@@ -1685,19 +1685,19 @@ MonoBehaviour:
   - prefab: {fileID: 5572377170519911995, guid: 9a72b901dd4ae654590b29e28734bbed, type: 3}
     sizeX: 2
     sizeZ: 2
-  - prefab: {fileID: 5605321157441385858, guid: 41e536d9634642c4895666daa609d372, type: 3}
+  - prefab: {fileID: 5296163832799662373, guid: 9ee9eaa999cc7034fabbf5d56b1f2538, type: 3}
     sizeX: 1
     sizeZ: 1
-  - prefab: {fileID: 5605321157441385858, guid: 41e536d9634642c4895666daa609d372, type: 3}
+  - prefab: {fileID: 5296163832799662373, guid: 9ee9eaa999cc7034fabbf5d56b1f2538, type: 3}
     sizeX: 1
     sizeZ: 1
-  - prefab: {fileID: 5605321157441385858, guid: 41e536d9634642c4895666daa609d372, type: 3}
+  - prefab: {fileID: 5296163832799662373, guid: 9ee9eaa999cc7034fabbf5d56b1f2538, type: 3}
     sizeX: 1
     sizeZ: 1
-  - prefab: {fileID: 5605321157441385858, guid: 41e536d9634642c4895666daa609d372, type: 3}
+  - prefab: {fileID: 5296163832799662373, guid: 9ee9eaa999cc7034fabbf5d56b1f2538, type: 3}
     sizeX: 1
     sizeZ: 1
-  - prefab: {fileID: 5605321157441385858, guid: 41e536d9634642c4895666daa609d372, type: 3}
+  - prefab: {fileID: 5296163832799662373, guid: 9ee9eaa999cc7034fabbf5d56b1f2538, type: 3}
     sizeX: 1
     sizeZ: 1
   player1Prefab: {fileID: 6243368336239709445, guid: e127ecb29d0dd234e841b9f8d6e03f81, type: 3}
@@ -2406,7 +2406,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7187ad5c9db323941bc75f0fa9f71b65, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  offlineMode: 0
+  offlineMode: 1
   serverIP: 127.0.0.1
   serverPort: 7777
   localPlayerTransform: {fileID: 0}

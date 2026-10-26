@@ -52,10 +52,12 @@ public class MapGenerator : MonoBehaviour
     private List<Vector2Int> roomDoors = new List<Vector2Int>();
     private List<Vector3> validSpawnPoints = new List<Vector3>();
     private readonly List<Vector3> walkableCenters = new List<Vector3>();
+    private readonly List<Vector3> corridorMonsterSpawns = new List<Vector3>();
     private readonly HashSet<Vector2Int> oneByOneRoomCells = new HashSet<Vector2Int>();
     private readonly HashSet<long> openEmptyEdges = new HashSet<long>();
     private readonly List<List<long>> emptyRegionCandidates = new List<List<long>>();
     private readonly List<GameObject> spawnedWalls = new List<GameObject>();
+    private readonly List<Bounds> bedVisualBounds = new List<Bounds>();
     private readonly List<GameObject> spawnedEntities = new List<GameObject>();
     private readonly List<DoorInteraction> spawnedDoors = new List<DoorInteraction>();
     private Vector3 puzzleRoomCenter;
@@ -106,9 +108,11 @@ public class MapGenerator : MonoBehaviour
             oneByOneRoomCells.Clear();
             validSpawnPoints.Clear();
             walkableCenters.Clear();
+            corridorMonsterSpawns.Clear();
             openEmptyEdges.Clear();
             emptyRegionCandidates.Clear();
             spawnedWalls.Clear();
+            bedVisualBounds.Clear();
             spawnedDoors.Clear();
             hasPuzzleRoom = false;
 
@@ -128,6 +132,17 @@ public class MapGenerator : MonoBehaviour
             { spawnFailures++; continue; }
             RebuildNavMesh();
             if (!ValidateNavMeshConnectivity() || !ValidatePuzzleRoomAccess()) { navigationFailures++; continue; }
+            // Reserve two player locations and two genuinely clear monster
+            // locations before accepting a layout. Never fall back into a wall.
+            int clearMonsterPoints = 0;
+            foreach (Vector3 point in corridorMonsterSpawns)
+                if (IsMonsterSpawnClear(point)) clearMonsterPoints++;
+            if (clearMonsterPoints < 2)
+            {
+                Debug.LogWarning($"[MapGenerator] Seed {selectedSeed}: only {clearMonsterPoints} monster spawns have edge and collider clearance; retrying layout.");
+                spawnFailures++;
+                continue;
+            }
 
             generated = true;
             break;
@@ -145,7 +160,7 @@ public class MapGenerator : MonoBehaviour
             return;
         }
 
-        Debug.Log($"[MapGenerator] Seed {selectedSeed}: {roomDoors.Count} rooms, {validSpawnPoints.Count} safe spawn points.");
+        Debug.Log($"[MapGenerator] Seed {selectedSeed}: {roomDoors.Count} rooms, {validSpawnPoints.Count} safe spawn points, {bedVisualBounds.Count} bed visual blockers.");
         NetworkClient network = NetworkClient.Instance;
         if (network != null) network.RegisterDoors(spawnedDoors.ToArray());
         string navigationMask = network != null && !network.offlineMode && network.IsConnected
@@ -440,6 +455,7 @@ public class MapGenerator : MonoBehaviour
                     }
                     GameObject roomInstance = Instantiate(room.prefab, new Vector3(posX, 0, posZ),
                                                           Quaternion.identity, transform);
+                    CollectBedVisualBounds(roomInstance);
                     EnsureBarrelCollision(roomInstance);
                     foreach (MimicLaptop mimic in roomInstance.GetComponentsInChildren<MimicLaptop>(true))
                         mimic.SetNetworkId(nextMimicId++);
@@ -934,6 +950,35 @@ public class MapGenerator : MonoBehaviour
         }
     }
 
+    private void CollectBedVisualBounds(GameObject room)
+    {
+        foreach (Transform child in room.GetComponentsInChildren<Transform>(true))
+        {
+            if (!child.name.StartsWith("Cama", System.StringComparison.OrdinalIgnoreCase)) continue;
+            Renderer[] renderers = child.GetComponentsInChildren<Renderer>(true);
+            bool found = false;
+            Bounds visual = default;
+            foreach (Renderer renderer in renderers)
+            {
+                if (!renderer.enabled || !renderer.gameObject.activeInHierarchy) continue;
+                if (!found) { visual = renderer.bounds; found = true; }
+                else visual.Encapsulate(renderer.bounds);
+            }
+            if (!found) continue;
+            bedVisualBounds.Add(visual);
+            // The imported concave mattress collider leaves empty volume below
+            // its surface. Bake a solid footprint so patrol paths avoid it too.
+            float floorY = Mathf.Min(room.transform.position.y, visual.min.y);
+            GameObject footprint = new GameObject("Runtime Bed Footprint");
+            footprint.transform.SetParent(room.transform);
+            footprint.transform.position = new Vector3(
+                visual.center.x, (floorY + visual.max.y) * 0.5f, visual.center.z);
+            BoxCollider obstacle = footprint.AddComponent<BoxCollider>();
+            obstacle.size = new Vector3(visual.size.x,
+                Mathf.Max(0.2f, visual.max.y - floorY), visual.size.z);
+        }
+    }
+
     bool NeedsCorridorWall(int cx, int cz, int nx, int nz)
     {
         // A 1x1 room prefab supplies its own perimeter walls. Do not spawn a
@@ -1038,6 +1083,15 @@ public class MapGenerator : MonoBehaviour
             }
         }
         validSpawnPoints.AddRange(largestArea);
+        // The general pool mixes corridors (1) and furnished rooms (2).
+        // Reserve corridor cells for monsters so a bed cannot be their start.
+        foreach (Vector3 point in walkableCenters)
+        {
+            int x = Mathf.RoundToInt((point.x - startOffset) / tileSize);
+            int z = Mathf.RoundToInt((point.z - startOffset) / tileSize);
+            if (x >= 0 && x < mapSize && z >= 0 && z < mapSize && map[x, z] == 1)
+                corridorMonsterSpawns.Add(point);
+        }
         // The locked room has its own fixed clue. No player, monster, field
         // clue, or random supply may start behind its closed gate.
         if (hasPuzzleRoom)
@@ -1101,20 +1155,36 @@ public class MapGenerator : MonoBehaviour
         spawnedEntities.Add(p2);
 
         Vector3 monsterPos = GetFarthestSpawnPoint(p1Pos, minMonsterDistance);
-        if (NavMesh.SamplePosition(monsterPos, out NavMeshHit monsterHit, tileSize, NavMesh.AllAreas))
+        if (float.IsInfinity(monsterPos.x)) return false;
+        if (NavMesh.SamplePosition(monsterPos, out NavMeshHit monsterHit, 2f, NavMesh.AllAreas) &&
+            Vector2.Distance(new Vector2(monsterPos.x, monsterPos.z),
+                             new Vector2(monsterHit.position.x, monsterHit.position.z)) <= 0.5f)
             monsterPos = monsterHit.position;
         else
-            Debug.LogWarning($"[MapGenerator] No NavMesh position found near monster spawn {monsterPos}.");
+        {
+            Debug.LogError($"[MapGenerator] Monster spawn moved off its validated floor: {monsterPos}.");
+            return false;
+        }
         GameObject monster = Instantiate(monsterPrefab, monsterPos, Quaternion.identity);
         monster.name = "Monster1";
         spawnedEntities.Add(monster);
 
         Vector3 monster2Pos = GetFarthestSpawnPointFromAll(p1Pos, p2Pos, monsterPos);
-        if (NavMesh.SamplePosition(monster2Pos, out NavMeshHit monster2Hit, tileSize, NavMesh.AllAreas))
+        if (float.IsInfinity(monster2Pos.x)) return false;
+        if (NavMesh.SamplePosition(monster2Pos, out NavMeshHit monster2Hit, 2f, NavMesh.AllAreas) &&
+            Vector2.Distance(new Vector2(monster2Pos.x, monster2Pos.z),
+                             new Vector2(monster2Hit.position.x, monster2Hit.position.z)) <= 0.5f)
             monster2Pos = monster2Hit.position;
+        else
+        {
+            Debug.LogError($"[MapGenerator] Monster 2 spawn moved off its validated floor: {monster2Pos}.");
+            return false;
+        }
         GameObject monster2 = Instantiate(monster2Prefab, monster2Pos, Quaternion.identity);
         monster2.name = "Monster2";
         spawnedEntities.Add(monster2);
+        if (NavMesh.FindClosestEdge(monster2Pos, out NavMeshHit monster2Edge, NavMesh.AllAreas))
+            Debug.Log($"[MapGenerator] Monster 2 spawn {monster2Pos}, NavMesh edge clearance {monster2Edge.distance:F2}m, bed blockers {bedVisualBounds.Count}.");
         GameObject[] spawnedMonsters = new GameObject[] { monster, monster2 };
 
         ItemData clueData = null;
@@ -1369,55 +1439,42 @@ public class MapGenerator : MonoBehaviour
 
     Vector3 GetFarthestSpawnPoint(Vector3 fromPosition, float minRequiredDistance)
     {
-        Vector3 bestPos = validSpawnPoints[0];
+        Vector3 bestPos = Vector3.positiveInfinity;
         float maxDist = -1f;
-        int bestIndex = 0;
+        int bestIndex = -1;
 
-        for (int i = 0; i < validSpawnPoints.Count; i++)
+        for (int i = 0; i < corridorMonsterSpawns.Count; i++)
         {
-            if (!IsMonsterSpawnClear(validSpawnPoints[i])) continue;
-            float dist = Vector3.Distance(fromPosition, validSpawnPoints[i]);
+            if (!IsMonsterSpawnClear(corridorMonsterSpawns[i])) continue;
+            float dist = Vector3.Distance(fromPosition, corridorMonsterSpawns[i]);
             if (dist > maxDist)
             {
                 maxDist = dist;
-                bestPos = validSpawnPoints[i];
+                bestPos = corridorMonsterSpawns[i];
                 bestIndex = i;
             }
         }
 
-        if (maxDist < 0f)
-        {
-            // Spawn points were already checked with the map's player capsule.
-            // The extra monster check must not block the entire match.
-            Debug.LogWarning("[MapGenerator] No enlarged monster-clearance point; using a validated map spawn.");
-            for (int i = 0; i < validSpawnPoints.Count; i++)
-            {
-                float dist = Vector3.Distance(fromPosition, validSpawnPoints[i]);
-                if (dist <= maxDist) continue;
-                maxDist = dist;
-                bestPos = validSpawnPoints[i];
-                bestIndex = i;
-            }
-        }
+        if (bestIndex < 0) { Debug.LogError("[MapGenerator] No clear corridor monster spawn remains."); return Vector3.positiveInfinity; }
         if (maxDist < minRequiredDistance)
         {
             Debug.LogWarning($"최소 스폰 거리({minRequiredDistance}) 불만족. 가장 먼 곳에 스폰.");
         }
 
-        validSpawnPoints.RemoveAt(bestIndex);
+        corridorMonsterSpawns.RemoveAt(bestIndex);
         return bestPos;
     }
 
     Vector3 GetFarthestSpawnPointFromAll(params Vector3[] positions)
     {
-        int bestIndex = 0;
+        int bestIndex = -1;
         float bestMinimumDistance = -1f;
-        for (int i = 0; i < validSpawnPoints.Count; i++)
+        for (int i = 0; i < corridorMonsterSpawns.Count; i++)
         {
-            if (!IsMonsterSpawnClear(validSpawnPoints[i])) continue;
+            if (!IsMonsterSpawnClear(corridorMonsterSpawns[i])) continue;
             float minimumDistance = float.MaxValue;
             foreach (Vector3 position in positions)
-                minimumDistance = Mathf.Min(minimumDistance, Vector3.Distance(position, validSpawnPoints[i]));
+                minimumDistance = Mathf.Min(minimumDistance, Vector3.Distance(position, corridorMonsterSpawns[i]));
 
             if (minimumDistance > bestMinimumDistance)
             {
@@ -1426,21 +1483,9 @@ public class MapGenerator : MonoBehaviour
             }
         }
 
-        if (bestMinimumDistance < 0f)
-        {
-            Debug.LogWarning("[MapGenerator] No enlarged second-monster clearance point; using a validated map spawn.");
-            for (int i = 0; i < validSpawnPoints.Count; i++)
-            {
-                float minimumDistance = float.MaxValue;
-                foreach (Vector3 position in positions)
-                    minimumDistance = Mathf.Min(minimumDistance, Vector3.Distance(position, validSpawnPoints[i]));
-                if (minimumDistance <= bestMinimumDistance) continue;
-                bestMinimumDistance = minimumDistance;
-                bestIndex = i;
-            }
-        }
-        Vector3 result = validSpawnPoints[bestIndex];
-        validSpawnPoints.RemoveAt(bestIndex);
+        if (bestIndex < 0) { Debug.LogError("[MapGenerator] No clear second corridor monster spawn remains."); return Vector3.positiveInfinity; }
+        Vector3 result = corridorMonsterSpawns[bestIndex];
+        corridorMonsterSpawns.RemoveAt(bestIndex);
         return result;
     }
 
@@ -1450,9 +1495,30 @@ public class MapGenerator : MonoBehaviour
             return false;
         if (new Vector2(candidate.x - floor.position.x, candidate.z - floor.position.z).magnitude > 0.5f)
             return false;
+        // A valid NavMesh center can still put the monster's body or visual
+        // mesh across the edge. Check footprint clearance, not just the pivot.
+        const float edgeClearance = 1.25f;
+        if (!NavMesh.FindClosestEdge(floor.position, out NavMeshHit edge, NavMesh.AllAreas) ||
+            edge.distance < edgeClearance)
+            return false;
+        // Imported concave bed meshes can leave walkable NavMesh under the
+        // visible mattress. Their triangles may not overlap a capsule whose
+        // center is inside the volume, so also reject the visual footprint.
+        const float bedClearance = 1.25f;
+        foreach (Bounds bed in bedVisualBounds)
+        {
+            if (floor.position.y > bed.max.y + 0.1f ||
+                floor.position.y + 1.7f < bed.min.y) continue;
+            float closestX = Mathf.Clamp(floor.position.x, bed.min.x, bed.max.x);
+            float closestZ = Mathf.Clamp(floor.position.z, bed.min.z, bed.max.z);
+            float dx = floor.position.x - closestX;
+            float dz = floor.position.z - closestZ;
+            if (dx * dx + dz * dz < bedClearance * bedClearance) return false;
+        }
         const float radius = 0.6f;
         Vector3 bottom = floor.position + Vector3.up * (radius + 0.1f);
         Vector3 top = floor.position + Vector3.up * 1.5f;
         return !Physics.CheckCapsule(bottom, top, radius, ~0, QueryTriggerInteraction.Ignore);
     }
+
 }

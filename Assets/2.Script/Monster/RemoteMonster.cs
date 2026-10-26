@@ -51,6 +51,7 @@ public class RemoteMonster : MonoBehaviour
             animator.SetFloat("Speed", targetSpeed);
             animator.SetBool("isWalk", targetIsWalk);
             AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
+            animator.speed = state.fullPathHash == AttackState ? 2f : 1f;
             bool finishingSwing = !targetIsWalk && Time.time < attackVisualUntil &&
                 state.fullPathHash == AttackState && state.normalizedTime < 1f;
             animator.SetBool("isAttack", targetIsAttack || finishingSwing);
@@ -81,12 +82,17 @@ public class RemoteMonster : MonoBehaviour
             // The server can start another swing while the Animator is still in
             // MonsterAttack. A trigger alone does not restart that same state.
             animator.SetBool("isAttack", true);
-            attackVisualUntil = Time.time + 2f;
+            attackVisualUntil = Time.time + 1.5f;
             if (animator.HasState(0, AttackState))
                 animator.Play(AttackState, 0, 0f);
             else
                 animator.SetTrigger("Attack");
         }
         lastAttackSequence = attackSequence;
+    }
+
+    void OnDisable()
+    {
+        if (animator != null) animator.speed = 1f;
     }
 }

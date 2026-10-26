@@ -169,7 +169,23 @@ def main():
         assert not any(line.startswith("S_PLAYER_DAMAGE|1|") for line in preceding), (
             f"damage arrived before attack windup: {preceding[-10:]}"
         )
+        swing_started_at = time.monotonic()
         read_until(sockets, lambda line: line.startswith("S_PLAYER_DAMAGE|1|"), 3)
+        impact_delay = time.monotonic() - swing_started_at
+        assert 0.4 <= impact_delay <= 1.1, (
+            f"monster impact timing outside visible strike window: {impact_delay:.2f}s"
+        )
+        read_until(
+            sockets,
+            lambda line: line.startswith("S_MONSTER_STATE|1|Vision|Attack|")
+            and line.split("|")[10] == "1"
+            and line.split("|")[11] == "2",
+            2,
+        )
+        second_swing_delay = time.monotonic() - swing_started_at
+        assert 1.3 <= second_swing_delay <= 2.0, (
+            f"monster attack interval became too slow: {second_swing_delay:.2f}s"
+        )
         # One cast must heal the wounded teammate and acknowledge the healer.
         send(sockets[1], "MOVE|2|0|0|2|0|0|0|0|1|0")
         send(sockets[1], "C_PLAYER_HEAL|2")
