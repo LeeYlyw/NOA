@@ -181,7 +181,7 @@ Transform:
   m_GameObject: {fileID: 6257795114130505613}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0.027675672, z: -0, w: 0.999617}
-  m_LocalPosition: {x: 0, y: 1.731, z: 0.123}
+  m_LocalPosition: {x: 0, y: 1.7, z: 0.1}
   m_LocalScale: {x: 1.295718, y: 1.295718, z: 1.295718}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -227,7 +227,7 @@ Camera:
   m_Depth: -1
   m_CullingMask:
     serializedVersion: 2
-    m_Bits: 55
+    m_Bits: 503
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
   m_TargetDisplay: 0
