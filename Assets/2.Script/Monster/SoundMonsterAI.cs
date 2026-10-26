@@ -42,6 +42,8 @@ public class SoundMonsterAI : MonoBehaviour
     public float attackCooldown = 1.5f;
     public float rotateSpeed = 5f;
     private float lastAttackTime = 0f;
+    private float pendingHitAt = -1f;
+    private Transform pendingTarget;
 
     private State currentState = State.Idle;
     private Vector3 investigatePosition;
@@ -96,6 +98,11 @@ public class SoundMonsterAI : MonoBehaviour
         agent.speed = currentState == State.Chase || currentState == State.Attack ? chaseSpeed :
                       currentState == State.Investigate ? searchSpeed : patrolSpeed;
 
+        if (currentState != State.Attack)
+        {
+            pendingHitAt = -1f;
+            pendingTarget = null;
+        }
         switch (currentState)
         {
             case State.Idle:
@@ -244,6 +251,8 @@ public class SoundMonsterAI : MonoBehaviour
         float distance = Vector3.Distance(transform.position, player.position);
         if (distance > attackRange || !CanSeePlayer())
         {
+            pendingHitAt = -1f;
+            pendingTarget = null;
             currentState = State.Chase;
             SetAnimationState(0f, false, false);
             return;
@@ -277,17 +286,32 @@ public class SoundMonsterAI : MonoBehaviour
         NetworkIsAttacking = true;
 
         // 공격 쿨다운 및 데미지 로직 (오프라인 모드 대응 포함)
-        if (Time.time >= lastAttackTime + attackCooldown)
+        if (pendingHitAt >= 0f && Time.time >= pendingHitAt)
+        {
+            if (pendingTarget == player && CanSeePlayer() &&
+                Vector3.Distance(transform.position, player.position) <= attackRange &&
+                NetworkClient.Instance != null && NetworkClient.Instance.offlineMode)
+            {
+                PlayerController victim = player.GetComponent<PlayerController>();
+                if (victim != null && !victim.IsDeadState) victim.TakeDamage(damage);
+            }
+            pendingHitAt = -1f;
+            pendingTarget = null;
+        }
+
+        if (pendingHitAt < 0f && Time.time >= lastAttackTime + attackCooldown)
         {
             PlayerRoleSetup roleSetup = player.GetComponent<PlayerRoleSetup>();
             if (roleSetup != null)
             {
-                if (animator != null) animator.SetTrigger("Attack");
-                if (NetworkClient.Instance != null && NetworkClient.Instance.offlineMode)
+                if (animator != null)
                 {
-                    PlayerController pc = player.GetComponent<PlayerController>();
-                    if (pc != null) pc.TakeDamage(damage);
+                    int attackState = Animator.StringToHash("Base Layer.MonsterAttack");
+                    if (animator.HasState(0, attackState)) animator.Play(attackState, 0, 0f);
+                    else animator.SetTrigger("Attack");
                 }
+                pendingTarget = player;
+                pendingHitAt = Time.time + 0.35f;
                 lastAttackTime = Time.time;
             }
         }

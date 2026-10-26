@@ -440,6 +440,7 @@ public class MapGenerator : MonoBehaviour
                     }
                     GameObject roomInstance = Instantiate(room.prefab, new Vector3(posX, 0, posZ),
                                                           Quaternion.identity, transform);
+                    EnsureBarrelCollision(roomInstance);
                     foreach (MimicLaptop mimic in roomInstance.GetComponentsInChildren<MimicLaptop>(true))
                         mimic.SetNetworkId(nextMimicId++);
                     foreach (DoorInteraction door in roomInstance.GetComponentsInChildren<DoorInteraction>(true))
@@ -911,6 +912,28 @@ public class MapGenerator : MonoBehaviour
         }
     }
 
+    private static void EnsureBarrelCollision(GameObject room)
+    {
+        foreach (MeshFilter mesh in room.GetComponentsInChildren<MeshFilter>())
+        {
+            if (mesh.sharedMesh == null) continue;
+            bool isBarrel = mesh.sharedMesh.name.ToLowerInvariant().Contains("barrel");
+            bool hasSolidCollider = false;
+            for (Transform node = mesh.transform; node != null && node != room.transform; node = node.parent)
+            {
+                isBarrel |= node.name.ToLowerInvariant().Contains("barrel");
+                foreach (Collider collider in node.GetComponents<Collider>())
+                    hasSolidCollider |= collider.enabled && !collider.isTrigger;
+            }
+            if (!isBarrel || hasSolidCollider) continue;
+            // Static imported barrels may have only a mesh. Local bounds avoid
+            // runtime mesh cooking and are included in the subsequent NavMesh bake.
+            BoxCollider body = mesh.gameObject.AddComponent<BoxCollider>();
+            body.center = mesh.sharedMesh.bounds.center;
+            body.size = mesh.sharedMesh.bounds.size;
+        }
+    }
+
     bool NeedsCorridorWall(int cx, int cz, int nx, int nz)
     {
         // A 1x1 room prefab supplies its own perimeter walls. Do not spawn a
@@ -1352,6 +1375,7 @@ public class MapGenerator : MonoBehaviour
 
         for (int i = 0; i < validSpawnPoints.Count; i++)
         {
+            if (!IsMonsterSpawnClear(validSpawnPoints[i])) continue;
             float dist = Vector3.Distance(fromPosition, validSpawnPoints[i]);
             if (dist > maxDist)
             {
@@ -1361,6 +1385,20 @@ public class MapGenerator : MonoBehaviour
             }
         }
 
+        if (maxDist < 0f)
+        {
+            // Spawn points were already checked with the map's player capsule.
+            // The extra monster check must not block the entire match.
+            Debug.LogWarning("[MapGenerator] No enlarged monster-clearance point; using a validated map spawn.");
+            for (int i = 0; i < validSpawnPoints.Count; i++)
+            {
+                float dist = Vector3.Distance(fromPosition, validSpawnPoints[i]);
+                if (dist <= maxDist) continue;
+                maxDist = dist;
+                bestPos = validSpawnPoints[i];
+                bestIndex = i;
+            }
+        }
         if (maxDist < minRequiredDistance)
         {
             Debug.LogWarning($"최소 스폰 거리({minRequiredDistance}) 불만족. 가장 먼 곳에 스폰.");
@@ -1376,6 +1414,7 @@ public class MapGenerator : MonoBehaviour
         float bestMinimumDistance = -1f;
         for (int i = 0; i < validSpawnPoints.Count; i++)
         {
+            if (!IsMonsterSpawnClear(validSpawnPoints[i])) continue;
             float minimumDistance = float.MaxValue;
             foreach (Vector3 position in positions)
                 minimumDistance = Mathf.Min(minimumDistance, Vector3.Distance(position, validSpawnPoints[i]));
@@ -1387,8 +1426,33 @@ public class MapGenerator : MonoBehaviour
             }
         }
 
+        if (bestMinimumDistance < 0f)
+        {
+            Debug.LogWarning("[MapGenerator] No enlarged second-monster clearance point; using a validated map spawn.");
+            for (int i = 0; i < validSpawnPoints.Count; i++)
+            {
+                float minimumDistance = float.MaxValue;
+                foreach (Vector3 position in positions)
+                    minimumDistance = Mathf.Min(minimumDistance, Vector3.Distance(position, validSpawnPoints[i]));
+                if (minimumDistance <= bestMinimumDistance) continue;
+                bestMinimumDistance = minimumDistance;
+                bestIndex = i;
+            }
+        }
         Vector3 result = validSpawnPoints[bestIndex];
         validSpawnPoints.RemoveAt(bestIndex);
         return result;
+    }
+
+    bool IsMonsterSpawnClear(Vector3 candidate)
+    {
+        if (!NavMesh.SamplePosition(candidate, out NavMeshHit floor, 2f, NavMesh.AllAreas))
+            return false;
+        if (new Vector2(candidate.x - floor.position.x, candidate.z - floor.position.z).magnitude > 0.5f)
+            return false;
+        const float radius = 0.6f;
+        Vector3 bottom = floor.position + Vector3.up * (radius + 0.1f);
+        Vector3 top = floor.position + Vector3.up * 1.5f;
+        return !Physics.CheckCapsule(bottom, top, radius, ~0, QueryTriggerInteraction.Ignore);
     }
 }

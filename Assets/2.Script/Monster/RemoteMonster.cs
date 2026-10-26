@@ -15,6 +15,8 @@ public class RemoteMonster : MonoBehaviour
     private bool targetIsAttack;
 
     private int lastAttackSequence;
+    private float attackVisualUntil;
+    private static readonly int AttackState = Animator.StringToHash("Base Layer.MonsterAttack");
     public string PresentationState { get; set; } = "Idle";
     public int PresentationAttackSequence => lastAttackSequence;
 
@@ -48,7 +50,10 @@ public class RemoteMonster : MonoBehaviour
         {
             animator.SetFloat("Speed", targetSpeed);
             animator.SetBool("isWalk", targetIsWalk);
-            animator.SetBool("isAttack", targetIsAttack);
+            AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
+            bool finishingSwing = !targetIsWalk && Time.time < attackVisualUntil &&
+                state.fullPathHash == AttackState && state.normalizedTime < 1f;
+            animator.SetBool("isAttack", targetIsAttack || finishingSwing);
 
         }
     }
@@ -72,7 +77,16 @@ public class RemoteMonster : MonoBehaviour
         targetIsWalk = isWalk;
         targetIsAttack = isAttack;
         if (attackSequence > lastAttackSequence && animator != null)
-            animator.SetTrigger("Attack");
+        {
+            // The server can start another swing while the Animator is still in
+            // MonsterAttack. A trigger alone does not restart that same state.
+            animator.SetBool("isAttack", true);
+            attackVisualUntil = Time.time + 2f;
+            if (animator.HasState(0, AttackState))
+                animator.Play(AttackState, 0, 0f);
+            else
+                animator.SetTrigger("Attack");
+        }
         lastAttackSequence = attackSequence;
     }
 }

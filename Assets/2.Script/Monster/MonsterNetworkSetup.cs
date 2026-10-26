@@ -17,6 +17,22 @@ public class MonsterNetworkSetup : MonoBehaviour
     void Awake()
     {
         if (GetComponent<MonsterPresentation>() == null) gameObject.AddComponent<MonsterPresentation>();
+        EnsureBodyCollider();
+    }
+
+    private void EnsureBodyCollider()
+    {
+        foreach (Collider body in GetComponentsInChildren<Collider>())
+            if (body.enabled && !body.isTrigger) return;
+        NavMeshAgent agent = GetComponent<NavMeshAgent>();
+        if (agent == null) return;
+        Vector3 scale = transform.lossyScale;
+        float widthScale = Mathf.Max(0.01f, Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.z)));
+        float heightScale = Mathf.Max(0.01f, Mathf.Abs(scale.y));
+        CapsuleCollider capsule = gameObject.AddComponent<CapsuleCollider>();
+        capsule.height = agent.height / heightScale;
+        capsule.radius = Mathf.Min(agent.radius / widthScale, capsule.height * 0.5f);
+        capsule.center = Vector3.up * (capsule.height * 0.5f);
     }
 
     void Start()
@@ -57,6 +73,9 @@ public class MonsterNetworkSetup : MonoBehaviour
     void SetupServerAuthoritativeMode()
     {
         IsAuthority = false;
+        // Only server snapshots may move this monster in multiplayer.
+        Animator animator = GetComponentInChildren<Animator>();
+        if (animator != null) animator.applyRootMotion = false;
         if (aiScripts != null)
         {
             foreach (MonoBehaviour ai in aiScripts)

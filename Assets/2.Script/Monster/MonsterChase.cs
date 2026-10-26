@@ -20,6 +20,8 @@ public class MonsterChase : MonoBehaviour
     public int damage = 10;
     public float attackCooldown = 1.5f;
     private float lastAttackTime = 0f;
+    private float pendingHitAt = -1f;
+    private Transform pendingTarget;
 
     [Header("Patrol and Search")]
     public float patrolRadius = 14f;
@@ -89,6 +91,11 @@ public class MonsterChase : MonoBehaviour
             MoveTo(lastSeenPosition);
         }
 
+        if (state != State.Attack)
+        {
+            pendingHitAt = -1f;
+            pendingTarget = null;
+        }
         switch (state)
         {
             case State.Patrol: UpdatePatrol(); break;
@@ -270,6 +277,8 @@ public class MonsterChase : MonoBehaviour
         if (player == null || !CanSeePlayer(player) ||
             Vector3.Distance(transform.position, player.position) > attackRange)
         {
+            pendingHitAt = -1f;
+            pendingTarget = null;
             state = State.Chase;
             SetWalking(false);
             return;
@@ -306,19 +315,33 @@ public class MonsterChase : MonoBehaviour
         NetworkIsWalking = false;
         NetworkIsAttacking = true;
 
-        if (Time.time >= lastAttackTime + attackCooldown)
+        if (pendingHitAt >= 0f && Time.time >= pendingHitAt)
+        {
+            if (pendingTarget == player && CanSeePlayer(player) &&
+                Vector3.Distance(transform.position, player.position) <= attackRange &&
+                NetworkClient.Instance != null && NetworkClient.Instance.offlineMode)
+            {
+                PlayerController victim = player.GetComponent<PlayerController>();
+                if (victim != null && !victim.IsDeadState) victim.TakeDamage(damage);
+            }
+            pendingHitAt = -1f;
+            pendingTarget = null;
+        }
+
+        if (pendingHitAt < 0f && Time.time >= lastAttackTime + attackCooldown)
         {
             int targetPlayerId = GetPlayerIdFromTarget(player);
 
             if (targetPlayerId != -1)
             {
-                if (animator != null) animator.SetTrigger("Attack");
-                // [오프라인 모드 대응] 서버가 없을 때는 로컬 플레이어 체력을 즉시 깎음
-                if (NetworkClient.Instance != null && NetworkClient.Instance.offlineMode)
+                if (animator != null)
                 {
-                    PlayerController pc = player.GetComponent<PlayerController>();
-                    if (pc != null) pc.TakeDamage(damage);
+                    int attackState = Animator.StringToHash("Base Layer.MonsterAttack");
+                    if (animator.HasState(0, attackState)) animator.Play(attackState, 0, 0f);
+                    else animator.SetTrigger("Attack");
                 }
+                pendingTarget = player;
+                pendingHitAt = Time.time + 0.35f;
 
                 lastAttackTime = Time.time;
             }
