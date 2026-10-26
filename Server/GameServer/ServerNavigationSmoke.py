@@ -83,7 +83,8 @@ def main():
                 raise AssertionError(f"server did not listen: {last_error}; {details}")
             sockets.append(sock)
         read_until(sockets, lambda line: line.startswith("ID|2"))
-        send(sockets[0], "C_ROLE|1")
+        no_explorer = "--no-explorer" in sys.argv
+        send(sockets[0], "C_ROLE|3" if no_explorer else "C_ROLE|1")
         send(sockets[1], "C_ROLE|2")
         time.sleep(0.1)
         send(sockets[0], "C_READY|1")
@@ -141,6 +142,12 @@ def main():
         send(sockets[0], "MOVE|1|0|0|2|0|0|0|0|1|0")
         send(sockets[0], "C_ITEM_PICKUP|1|1|Clue")
         read_until(sockets, lambda line: line.startswith("S_ITEM_PICKUP|1|1|Clue|"), 2)
+        if no_explorer:
+            send(sockets[1], "MOVE|2|0|0|2|0|0|0|0|1|0")
+            send(sockets[1], "C_ITEM_PICKUP|2|2|Clue")
+            read_until(sockets, lambda line: line.startswith("S_ITEM_PICKUP|2|2|Clue|2"), 2)
+            print("PASS: Runner and Healer start without Explorer and both collect clues")
+            return
         send(sockets[0], "C_NOISE|1|0|0|2|4")
         read_until(
             sockets,

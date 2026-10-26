@@ -35,6 +35,7 @@ public class CoopShapePuzzle : MonoBehaviour
     GameObject lockedClue;
     bool configured;
     bool locallyOnPad;
+    float nextPadReportAt;
     bool solved;
     int clue = -1;
     int round;
@@ -179,10 +180,18 @@ public class CoopShapePuzzle : MonoBehaviour
         if (onPad != locallyOnPad)
         {
             locallyOnPad = onPad;
+            nextPadReportAt = 0f;
+        }
+        // An entry can be rejected while the server still has the previous
+        // MOVE position. Retry until its S_PUZZLE_PADS state confirms it.
+        if (pads[network.playerId] != onPad && Time.time >= nextPadReportAt)
+        {
             network.SendPuzzlePad(onPad);
+            nextPadReportAt = Time.time + 0.2f;
         }
 
-        if (network.playerId == 2 && pads[1] && pads[2] && locallyOnPad && choices[0] >= 0)
+        if (network.playerId == 2 && pads[1] && pads[2] && locallyOnPad &&
+            choices[0] >= 0 && Time.time >= wrongUntil)
         {
             for (int i = 0; i < 4; i++)
                 if (Input.GetKeyDown((KeyCode)((int)KeyCode.Alpha1 + i)) ||
@@ -202,7 +211,7 @@ public class CoopShapePuzzle : MonoBehaviour
     {
         if (parts.Length == 3 && int.TryParse(parts[1], out int newRound) &&
             int.TryParse(parts[2], out int value) && newRound >= round && value >= 0 && value < 48)
-        { round = newRound; clue = value; wrongUntil = 0f; }
+        { round = newRound; clue = value; }
     }
 
     public void SetChoices(string[] parts)
@@ -211,7 +220,6 @@ public class CoopShapePuzzle : MonoBehaviour
         round = newRound;
         for (int i = 0; i < 4; i++)
             if (!int.TryParse(parts[i + 2], out choices[i]) || choices[i] < 0 || choices[i] >= 48) return;
-        wrongUntil = 0f;
     }
 
     public void SetProgress(string[] parts)
@@ -221,7 +229,15 @@ public class CoopShapePuzzle : MonoBehaviour
         { round = newRound; totalRounds = count; }
     }
 
-    public void SetWrong() { if (solved) return; wrongUntil = Time.time + 2f; WrongFeedbackVersion++; }
+    public void SetWrong()
+    {
+        if (solved) return;
+        round = 0;
+        clue = -1;
+        for (int i = 0; i < choices.Length; i++) choices[i] = -1;
+        wrongUntil = Time.time + 1.5f;
+        WrongFeedbackVersion++;
+    }
     public void SetSolved()
     {
         solved = true;
@@ -288,12 +304,8 @@ public class CoopShapePuzzle : MonoBehaviour
         clueView.SetActive(describing);
         choicesView.SetActive(!describing);
         directionLabel.text = describing
-            ? (round <= 1 ? "외곽 모양을 동료에게 설명하세요."
-                : round == 2 ? "모양과 색을 동료에게 설명하세요."
-                : "모양·색·중앙 표시를 모두 설명하세요.")
-            : (round <= 1 ? "외곽 모양을 맞추세요. 숫자 1~4"
-                : round == 2 ? "모양과 색을 맞추세요. 숫자 1~4"
-                : "세 가지 특징을 모두 맞추세요. 숫자 1~4");
+            ? "모양·색·중앙 표시를 동료에게 설명하세요."
+            : "모양·색·중앙 표시를 비교하세요. 숫자 1~4";
         if (describing)
         {
             clueImage.texture = clue >= 0 ? StageImage(clue) : null;
@@ -305,7 +317,7 @@ public class CoopShapePuzzle : MonoBehaviour
                 choiceImages[i].texture = choices[i] >= 0 ? StageImage(choices[i]) : null;
                 choiceDescriptions[i].text = choices[i] >= 0 ? Describe(choices[i], round) : "";
             }
-        warningLabel.text = Time.time < wrongUntil ? "오답입니다. 특징을 다시 비교하고 선택하세요." : "";
+        warningLabel.text = Time.time < wrongUntil ? "오답입니다. 1라운드부터 다시 시작합니다." : "";
     }
 
     Texture2D StageImage(int id) => shapeImages[(Mathf.Clamp(round, 1, 3) - 1) * 48 + id];
@@ -353,10 +365,8 @@ public class CoopShapePuzzle : MonoBehaviour
 
     static string Describe(int id, int stage)
     {
-        string shape = ShapeNames[id / 12];
-        if (stage <= 1) return shape;
-        string description = ColorNames[(id / 3) % 4] + " " + shape;
-        return stage == 2 ? description : description + " / " + MarkNames[id % 3];
+        return ColorNames[(id / 3) % 4] + " " + ShapeNames[id / 12] +
+            " / " + MarkNames[id % 3];
     }
 
     static Texture2D MakeShapeImage(int id, int stage)
@@ -381,8 +391,7 @@ public class CoopShapePuzzle : MonoBehaviour
                     (Mathf.Abs(nx) < 0.065f && Mathf.Abs(ny) < 0.34f) ||
                     (Mathf.Abs(ny) < 0.065f && Mathf.Abs(nx) < 0.34f);
                 pixels[y * 64 + x] = !inside ? Color.clear :
-                    stage >= 3 && center ? Color.black :
-                    stage == 1 ? new Color(0.8f, 0.88f, 0.9f) : ShapeColors[color];
+                    center ? Color.black : ShapeColors[color];
             }
         image.SetPixels(pixels);
         image.Apply();

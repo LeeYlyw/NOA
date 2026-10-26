@@ -2,6 +2,7 @@
 
 import socket
 import subprocess
+import sys
 import time
 
 from ServerNavigationSmoke import SERVER, make_mask, read_until, send
@@ -52,8 +53,10 @@ def main():
         send(sockets[0], "C_PUZZLE_PAD|1|1")
         send(sockets[1], "C_PUZZLE_PAD|2|1")
 
-        for round_number in range(1, 4):
-            clue, _ = read_until([sockets[0]], lambda line: line.startswith(f"S_PUZZLE_CLUE|{round_number}|"))
+        for attempt, round_number in enumerate((1, 2, 1, 2, 3)):
+            clue, seen = read_until([sockets[0]], lambda line: line.startswith(f"S_PUZZLE_CLUE|{round_number}|"))
+            if attempt == 2:
+                assert "S_PUZZLE_WRONG" in seen, "wrong answer did not reset the puzzle"
             options, _ = read_until([sockets[1]], lambda line: line.startswith(f"S_PUZZLE_CHOICES|{round_number}|"))
             answer = int(clue.split("|")[2])
             choices = [int(value) for value in options.split("|")[2:]]
@@ -61,19 +64,34 @@ def main():
             shape, color, mark = details(answer)
             if round_number == 1:
                 assert {details(code)[0] for code in choices} == set(range(4))
-                assert all(details(code)[1:] == (color, mark) for code in choices)
+                assert {details(code)[1] for code in choices} == set(range(4))
+                assert len({details(code)[:2] for code in choices}) == 4
             elif round_number == 2:
-                assert all(details(code)[2] == mark for code in choices)
                 assert {details(code)[:2] for code in choices} == {
                     (shape, color), ((shape + 1) % 4, color),
                     (shape, (color + 1) % 4), ((shape + 1) % 4, (color + 1) % 4),
                 }
+                assert {details(code)[2] for code in choices} == set(range(3))
             else:
                 assert all(sum(a != b for a, b in zip(details(code), details(answer))) == 1
                            for code in choices if code != answer)
-            send(sockets[1], f"C_PUZZLE_CHOOSE|2|{choices.index(answer)}")
+            if attempt == 1:
+                wrong = next(index for index, code in enumerate(choices) if code != answer)
+                send(sockets[1], f"C_PUZZLE_CHOOSE|2|{wrong}")
+            else:
+                if attempt == 2:
+                    time.sleep(1.6)
+                send(sockets[1], f"C_PUZZLE_CHOOSE|2|{choices.index(answer)}")
         read_until(sockets, lambda line: line == "S_PUZZLE_SOLVED")
-        print("PASS: three distinct cooperative puzzle rounds solve on two client sockets")
+        if "--complete-clues" in sys.argv:
+            for item_id in range(1, 4):
+                send(sockets[0], f"C_ITEM_PICKUP|1|{item_id}|Clue")
+            for sock in sockets:
+                _, seen = read_until([sock], lambda line: line == "S_GAME_CLEAR", 2)
+                assert "S_CLUE_COUNT|3|3" in seen, seen[-10:]
+            print("PASS: third server-confirmed clue broadcasts clear to both clients")
+            return
+        print("PASS: wrong answer resets to round one; three rounds then solve on two client sockets")
     finally:
         for sock in sockets:
             sock.close()

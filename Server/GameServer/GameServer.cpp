@@ -59,6 +59,8 @@ static double gateOpeningTime = 0.0;
 static int matchRoles[3] = {-1, -1, -1};
 static double nextHealAt[3] = {};
 static int matchResult = 0; // 0 playing, 1 clear, 2 defeat
+static double matchStartedAt = 0.0;
+static constexpr double MatchDurationSeconds = 10.0 * 60.0;
 static bool restartVotes[3] = {};
 static bool restartRequested = false;
 static Vec3 puzzlePadPositions[3];
@@ -983,13 +985,6 @@ void ProcessItemPickupPacket(
         }
     }
 
-    if (item.type == ItemType::Clue && matchRoles[playerId] != 1)
-    {
-        std::cout << "[ITEM DENY] Only Explorer may collect clues. player " << playerId << std::endl;
-        denyPickup();
-        return;
-    }
-
     item.isPicked = true;
     item.pickedByPlayerId = playerId;
 
@@ -1253,6 +1248,7 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
         monsters[i].pathGoal = -1;
         monsters[i].pathCursor = 0;
     }
+    matchStartedAt = GetTimeSeconds();
     BroadcastPacket(clientSocket1, clientSocket2, "S_NAV_READY");
     std::cout << "[NAV READY] " << source.width << "x" << source.height
               << " cells confirmed by both clients" << std::endl;
@@ -1362,15 +1358,16 @@ void ProcessClientPacket(
         puzzleChoices[0] = puzzleAnswer;
         if (puzzleRound == 1)
         {
-            // First teach the shared vocabulary with only the outline changing.
+            // Show all three traits from the first round; every option must
+            // also differ visibly when color or center detail is considered.
             for (int i = 1; i < 4; ++i)
-                puzzleChoices[i] = ((shape + i) % 4) * 12 + color * 3 + mark;
+                puzzleChoices[i] = ((shape + i) % 4) * 12 + ((color + i) % 4) * 3 + (mark + i) % 3;
         }
         else if (puzzleRound == 2)
         {
-            // Then distinguish outline and color while the center mark is fixed.
-            puzzleChoices[1] = ((shape + 1) % 4) * 12 + color * 3 + mark;
-            puzzleChoices[2] = shape * 12 + ((color + 1) % 4) * 3 + mark;
+            // Two traits may look close, but no option has the same full sigil.
+            puzzleChoices[1] = ((shape + 1) % 4) * 12 + color * 3 + (mark + 1) % 3;
+            puzzleChoices[2] = shape * 12 + ((color + 1) % 4) * 3 + (mark + 2) % 3;
             puzzleChoices[3] = ((shape + 1) % 4) * 12 + ((color + 1) % 4) * 3 + mark;
         }
         else
@@ -1434,7 +1431,9 @@ void ProcessClientPacket(
         else
         {
             puzzleRetryAt = GetTimeSeconds() + 1.5;
+            puzzleRound = 1;
             BroadcastPacket(clientSocket1, clientSocket2, "S_PUZZLE_WRONG");
+            sendPuzzleRound();
         }
         return;
     }
@@ -1930,11 +1929,7 @@ int main()
                 if(parts[0]=="C_ROLE" && parts.size()==2 && TryParseInt(parts[1],value) && value>=0 && value<=3) { roles[i]=value; ready[i]=false; publish(); }
                 else if(parts[0]=="C_READY" && parts.size()==2 && TryParseInt(parts[1],value) && (value==0||value==1) && roles[i]>=0) { ready[i]=value==1; publish(); }
                 else if(parts[0]=="C_START" && i==host && slots[1]!=INVALID_SOCKET && slots[2]!=INVALID_SOCKET && ready[1] && ready[2]) {
-                    if (roles[1] != 1 && roles[2] != 1) {
-                        SendPacket(slots[i], "ERROR|At least one Explorer is required to collect clues");
-                    } else {
-                        started=true; break;
-                    }
+                    started=true; break;
                 }
             }
             if(pending[i].size()>4096) pending[i].clear();
@@ -1989,6 +1984,14 @@ int main()
         {
             std::cout << "select failed: " << WSAGetLastError() << std::endl;
             break;
+        }
+
+        // Check the deadline before reading pickups, so a late third clue cannot win.
+        if (matchResult == 0 && navigation.ready && matchStartedAt > 0.0 &&
+            GetTimeSeconds() - matchStartedAt >= MatchDurationSeconds)
+        {
+            matchResult = 2;
+            BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_OVER|TIME");
         }
 
         if (selectResult > 0 && FD_ISSET(clientSocket1, &readSet))
@@ -2090,7 +2093,7 @@ int main()
             players[1].isDead && players[2].isDead)
         {
             matchResult = 2;
-            BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_OVER");
+            BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_OVER|ALL_DOWN");
         }
 
         if (navigation.ready && now - lastMonsterBroadcastTime >= 0.1)

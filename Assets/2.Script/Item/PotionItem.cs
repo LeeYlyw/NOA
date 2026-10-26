@@ -46,14 +46,6 @@ public class PotionItem : MonoBehaviour
         if (itemData == null) return;
         nextPickupAttemptAt = Time.unscaledTime + 0.75f;
 
-        PlayerRoleSetup role = player.GetComponent<PlayerRoleSetup>();
-
-        if (itemData.type == ItemData.ItemType.Clue && (role == null || !role.IsExplorer))
-        {
-            Debug.Log("[아이템] 탐색자만 단서를 획득할 수 있습니다!");
-            return;
-        }
-
         if (itemData.type != ItemData.ItemType.Clue)
         {
             requestingInventory = FindObjectOfType<InventoryManager>();

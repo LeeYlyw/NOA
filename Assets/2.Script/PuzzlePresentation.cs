@@ -49,7 +49,7 @@ public class PuzzlePresentation : MonoBehaviour
         if (puzzle.WrongFeedbackVersion != wrongVersion)
         {
             errorUntil = Time.unscaledTime + 0.65f;
-            feedback.Notify("다시 확인하세요 · 모양, 색, 중앙 표시를 비교하세요", "wrong");
+            feedback.Notify("오답 · 1라운드 새 문제부터 다시 시작합니다", "wrong");
         }
         if (puzzle.IsSolved && !solved)
             feedback.Notify("잠금 해제 · 열린 방 안의 단서를 확보하세요", "solved");

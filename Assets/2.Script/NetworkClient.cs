@@ -81,14 +81,14 @@ public class NetworkClient : MonoBehaviour
     public bool GameStarted { get; private set; }
     public PlayerRole Role1 { get; private set; } = PlayerRole.Healer;
     public PlayerRole Role2 { get; private set; } = PlayerRole.Runner;
-    public string ConnectionStatus { get; private set; } = "Connecting...";
+    public string ConnectionStatus { get; private set; } = "서버에 연결하는 중...";
     public bool autoStartLocalServer = true;
 
     void Start()
     {
         if (!offlineMode)
         {
-            ConnectionStatus = "Connecting to " + serverIP + ":" + serverPort + "...";
+            ConnectionStatus = "서버 연결 중: " + serverIP + ":" + serverPort;
             if (GetComponent<LobbyManager>() == null) gameObject.AddComponent<LobbyManager>();
             StartCoroutine(ConnectAutomatically());
         }
@@ -120,7 +120,7 @@ public class NetworkClient : MonoBehaviour
             while (!task.IsCompleted && Time.realtimeSinceStartup < deadline) yield return null;
             if (task.Status == System.Threading.Tasks.TaskStatus.RanToCompletion && client.Connected)
             {
-                stream = client.GetStream(); isConnected = true; ConnectionStatus = "Connected";
+                stream = client.GetStream(); isConnected = true; ConnectionStatus = "서버에 연결됐습니다.";
                 yield break;
             }
             client.Close();
@@ -134,15 +134,15 @@ public class NetworkClient : MonoBehaviour
                 try
                 {
                     if (!System.IO.File.Exists(path))
-                        throw new System.IO.FileNotFoundException("GameServer.exe missing. Run Server/BuildServer.ps1 before multiplayer testing.");
+                        throw new System.IO.FileNotFoundException("서버 실행 파일이 없습니다. Server/BuildServer.ps1로 서버를 빌드하세요.");
                     System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = System.IO.Path.GetDirectoryName(path) });
-                    ConnectionStatus = "Starting server...";
+                    ConnectionStatus = "서버를 시작하는 중...";
                 }
-                catch (Exception e) { ConnectionStatus = e.Message; yield break; }
+                catch (Exception e) { ConnectionStatus = "서버 시작 실패: " + e.Message; yield break; }
             }
             yield return new WaitForSecondsRealtime(0.3f);
         }
-        ConnectionStatus = "Connection failed. Check server address and restart.";
+        ConnectionStatus = "연결 실패: 서버 주소와 실행 상태를 확인한 뒤 다시 시작하세요.";
     }
 
     public void SelectRole(int role) => SendMessageToServer("C_ROLE|" + role + "\n", "Role failed");
@@ -171,8 +171,14 @@ public class NetworkClient : MonoBehaviour
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
     }
 
-    public void SendPuzzlePad(bool active) =>
+    public void SendPuzzlePad(bool active)
+    {
+        // The server validates the pad against its most recent MOVE packet.
+        // Send this position first so an entry is not rejected due to the
+        // regular movement send interval.
+        if (active) SendLocalPlayerTransform(true);
         SendMessageToServer("C_PUZZLE_PAD|" + playerId + "|" + (active ? 1 : 0) + "\n", "Puzzle pad failed");
+    }
 
     public void SendPuzzleChoice(int index) =>
         SendMessageToServer("C_PUZZLE_CHOOSE|" + playerId + "|" + index + "\n", "Puzzle choice failed");
@@ -202,11 +208,14 @@ public class NetworkClient : MonoBehaviour
         SendMessageToServer($"C_MIMIC_HIT|{playerId}|{shotId}\n", "Mimic hit failed");
     }
 
-    void SendLocalPlayerTransform()
+    void SendLocalPlayerTransform(bool force = false)
     {
         if (localPlayerTransform == null) return;
-        sendTimer += Time.deltaTime;
-        if (sendTimer < sendInterval) return;
+        if (!force)
+        {
+            sendTimer += Time.deltaTime;
+            if (sendTimer < sendInterval) return;
+        }
         sendTimer = 0f;
 
         Vector3 pos = localPlayerTransform.position;
@@ -239,11 +248,38 @@ public class NetworkClient : MonoBehaviour
 
     public void ReportMapPreparationFailure(string reason)
     {
-        ConnectionStatus = reason;
+        ConnectionStatus = "맵 준비 실패: " + DescribeMapFailure(reason);
         if (ClueManager.instance != null)
-            ClueManager.instance.ShowConnectionLost("MAP PREPARATION FAILED");
+            ClueManager.instance.ShowConnectionLost("맵 준비 실패");
         if (!offlineMode && isConnected && HasAssignedPlayerId)
             SendMessageToServer("C_NAV_FAIL|" + playerId + "\n", "Map failure report failed");
+    }
+
+    static string DescribeMapFailure(string reason)
+    {
+        switch (reason)
+        {
+            case "Invalid map configuration": return "맵 설정을 확인하세요.";
+            case "Missing room prefab": return "방 프리팹이 누락됐습니다.";
+            case "All map layout attempts failed": return "배치 가능한 맵을 만들지 못했습니다. 로비에서 다시 시작하세요.";
+            case "Required map entities could not be spawned": return "플레이어·몬스터·단서를 안전한 위치에 배치하지 못했습니다.";
+            case "Map or item layout differs between clients": return "두 플레이어의 맵 또는 아이템 배치가 다릅니다. 같은 빌드인지 확인하세요.";
+            case "Invalid navigation edges": return "맵의 이동 경로 정보를 확인할 수 없습니다.";
+            case "Monster spawn is not walkable": return "몬스터 시작 위치가 이동 가능한 바닥에 없습니다.";
+            case "Timed out waiting for matching navigation maps": return "동료의 맵 준비가 제한 시간 안에 끝나지 않았습니다.";
+        }
+        if (!string.IsNullOrEmpty(reason) && reason.StartsWith("Map generation failed on Player ", StringComparison.Ordinal))
+            return "플레이어 " + reason.Substring("Map generation failed on Player ".Length) + "의 맵 생성에 실패했습니다.";
+        return "맵 생성 또는 동기화에 실패했습니다. 로비에서 다시 시작하세요.";
+    }
+
+    static string DescribeLobbyError(string reason)
+    {
+        switch (reason)
+        {
+            case "Lobby full": return "로비가 가득 찼습니다.";
+            default: return "서버 요청이 거절됐습니다. 직업과 준비 상태를 확인하세요.";
+        }
     }
 
     public void SendNavigationMap(int seed, int width, int height, float originX,
@@ -366,7 +402,14 @@ public class NetworkClient : MonoBehaviour
         {
             if (item != null && item.itemId == itemId)
             {
+                if (!item.gameObject.activeInHierarchy) return;
                 item.ApplyServerPickup(1);
+                if (item.itemData != null && item.itemData.type == ItemData.ItemType.Clue && ClueManager.instance != null)
+                {
+                    ClueManager.instance.RecordClue(itemId);
+                    ClueManager.instance.AddClue();
+                    ClueManager.instance.ShowCluePickupNotice(itemId, 1, ClueManager.instance.clueCount);
+                }
                 return;
             }
         }
@@ -390,9 +433,9 @@ public class NetworkClient : MonoBehaviour
     void HandleConnectionLost()
     {
         isConnected = false;
-        ConnectionStatus = "Connection lost. Return to lobby to reconnect.";
+        ConnectionStatus = "서버 연결이 끊겼습니다.";
         if (ClueManager.instance != null)
-            ClueManager.instance.ShowConnectionLost("CONNECTION LOST");
+            ClueManager.instance.ShowConnectionLost("연결 종료");
     }
 
     void ReceivePackets()
@@ -440,7 +483,7 @@ public class NetworkClient : MonoBehaviour
                     int.TryParse(parts[1], out int assignedPlayerId) && assignedPlayerId >= 1 && assignedPlayerId <= 2)
                 {
                     playerId = assignedPlayerId;
-                    ConnectionStatus = "Connected - Player " + playerId;
+                    ConnectionStatus = "서버 연결 완료 · 플레이어 " + playerId;
                     Debug.Log("[Network] Server assigned Player " + playerId);
                 }
                 break;
@@ -462,21 +505,21 @@ public class NetworkClient : MonoBehaviour
                 if (LobbyManager.Instance != null) LobbyManager.Instance.ApplyState(parts);
                 break;
             case "ERROR":
-                ConnectionStatus = parts.Length > 1 ? parts[1] : "Server error";
+                ConnectionStatus = parts.Length > 1 ? DescribeLobbyError(parts[1]) : "서버 오류가 발생했습니다.";
                 break;
             case "S_NAV_READY":
                 Debug.Log("[Network] Server navigation map confirmed by both clients; server AI active.");
                 break;
             case "S_NAV_ERROR":
-                ConnectionStatus = parts.Length > 1 ? parts[1] : "Navigation map rejected";
+                ConnectionStatus = "맵 준비 실패: " + DescribeMapFailure(parts.Length > 1 ? parts[1] : "");
                 Debug.LogError("[Network] " + ConnectionStatus);
                 if (ClueManager.instance != null)
-                    ClueManager.instance.ShowConnectionLost("MAP PREPARATION FAILED");
+                    ClueManager.instance.ShowConnectionLost("맵 준비 실패");
                 break;
             case "S_PEER_LEFT":
-                ConnectionStatus = "Teammate disconnected. Return to lobby.";
+                ConnectionStatus = "동료의 연결이 끊겼습니다.";
                 if (ClueManager.instance != null)
-                    ClueManager.instance.ShowConnectionLost("TEAMMATE DISCONNECTED");
+                    ClueManager.instance.ShowConnectionLost("동료 연결 종료");
                 break;
             case "S_PUZZLE_PADS":
                 if (CoopShapePuzzle.Instance != null) CoopShapePuzzle.Instance.SetPads(parts);
@@ -516,7 +559,8 @@ public class NetworkClient : MonoBehaviour
                 if (ClueManager.instance != null) ClueManager.instance.ShowEnding();
                 break;
             case "S_GAME_OVER":
-                if (ClueManager.instance != null) ClueManager.instance.ShowDefeat();
+                if (ClueManager.instance != null)
+                    ClueManager.instance.ShowDefeat(parts.Length > 1 ? parts[1] : "ALL_DOWN");
                 break;
             case "S_RESTART":
                 ReturnToLobby();
@@ -666,7 +710,11 @@ public class NetworkClient : MonoBehaviour
         if (int.TryParse(parts[1], out int itemId) && int.TryParse(parts[2], out int pickedPlayerId))
         {
             if (parts.Length >= 4 && parts[3] == "Clue" && ClueManager.instance != null)
+            {
                 ClueManager.instance.RecordClue(itemId);
+                if (parts.Length >= 5 && int.TryParse(parts[4], out int sharedClueCount))
+                    ClueManager.instance.ShowCluePickupNotice(itemId, pickedPlayerId, sharedClueCount);
+            }
             if (potionItems == null || potionItems.Length == 0)
                 potionItems = FindObjectsOfType<PotionItem>(true);
 
@@ -916,10 +964,12 @@ public class NetworkClient : MonoBehaviour
 
         // [수정] 동적으로 역할 셋업
         PlayerRoleSetup p1RoleSetup = player1Object.GetComponent<PlayerRoleSetup>();
-        if (p1RoleSetup != null) p1RoleSetup.Setup(1, playerId, role1);
+        if (p1RoleSetup == null) p1RoleSetup = player1Object.AddComponent<PlayerRoleSetup>();
+        p1RoleSetup.Setup(1, playerId, role1);
 
         PlayerRoleSetup p2RoleSetup = player2Object.GetComponent<PlayerRoleSetup>();
-        if (p2RoleSetup != null) p2RoleSetup.Setup(2, playerId, role2);
+        if (p2RoleSetup == null) p2RoleSetup = player2Object.AddComponent<PlayerRoleSetup>();
+        p2RoleSetup.Setup(2, playerId, role2);
 
         MapGenerator map = FindObjectOfType<MapGenerator>();
         ClueDetector detectorTemplate = map != null && map.player1Prefab != null

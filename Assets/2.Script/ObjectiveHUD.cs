@@ -20,6 +20,7 @@ public class ObjectiveHUD : MonoBehaviour
     InventoryManager inventory;
     NavMeshPath roomPath;
     float nextRoomRouteUpdate;
+    bool visible;
     string roomRouteHint = "잠긴 방 위치를 확인하세요.";
     readonly Color accent = new Color(0.32f, 0.88f, 0.81f);
     readonly Color muted = new Color(0.53f, 0.59f, 0.65f);
@@ -40,6 +41,8 @@ public class ObjectiveHUD : MonoBehaviour
         scaler.matchWidthOrHeight = 0.5f;
 
         RectTransform panel = Rect(root.transform, "Objective panel", 28, 28, 350, 382);
+        panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(1, 1);
+        panel.anchoredPosition = new Vector2(-28, -28);
         panel.gameObject.AddComponent<Image>().color = new Color(0.025f, 0.045f, 0.065f, 0.9f);
         panel.GetComponent<Image>().raycastTarget = false;
         Bar(panel, "Accent", 0, 0, 4, 382, accent);
@@ -63,7 +66,11 @@ public class ObjectiveHUD : MonoBehaviour
         NetworkClient network = NetworkClient.Instance;
         bool playing = manager != null && network != null &&
             (network.offlineMode || network.GameStarted);
-        canvas.enabled = playing && !manager.IsEnding;
+        if (!playing || manager.IsEnding)
+            visible = false;
+        else if (Input.GetKeyDown(KeyCode.Tab))
+            visible = !visible;
+        canvas.enabled = playing && !manager.IsEnding && visible;
         if (!canvas.enabled) return;
 
         CoopShapePuzzle lockPuzzle = CoopShapePuzzle.Instance;
@@ -184,8 +191,8 @@ public class ObjectiveHUD : MonoBehaviour
         PlayerRole role = network.playerId == 1 ? network.Role1 : network.Role2;
         switch (role)
         {
-            case PlayerRole.Detector: roleHint.text = "감지자 · 단서 근처에서 신호음"; break;
-            case PlayerRole.Explorer: roleHint.text = "탐색자 · 단서 획득 가능"; break;
+            case PlayerRole.Detector: roleHint.text = "감지자 · 단서를 소리로 탐지"; break;
+            case PlayerRole.Explorer: roleHint.text = "탐색자 · 단서를 눈으로 확인"; break;
             case PlayerRole.Healer:
                 HealerSkill healer = network.localPlayerTransform != null
                     ? network.localPlayerTransform.GetComponent<HealerSkill>() : null;

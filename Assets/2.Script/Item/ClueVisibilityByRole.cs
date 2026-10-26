@@ -48,18 +48,15 @@ public class ClueVisibilityByRole : MonoBehaviour
             yield break;
         }
 
-        bool isExplorer = roleSetup.IsExplorer;
+        bool canSeeClue = roleSetup.IsExplorer;
 
-        SetVisible(isExplorer);
+        SetVisible(canSeeClue);
 
-        if (disableColliderForDetector)
-        {
-            SetColliderEnabled(isExplorer);
-        }
+        // Keep the pickup trigger active for every role, including hidden clues.
 
         Debug.Log(
             "ClueVisibilityByRole 적용 완료 / Object: " + gameObject.name +
-            " / Explorer: " + isExplorer
+            " / Visible: " + canSeeClue
         );
     }
 

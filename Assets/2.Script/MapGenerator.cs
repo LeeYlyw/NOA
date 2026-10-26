@@ -60,6 +60,14 @@ public class MapGenerator : MonoBehaviour
     private readonly List<Bounds> bedVisualBounds = new List<Bounds>();
     private readonly List<GameObject> spawnedEntities = new List<GameObject>();
     private readonly List<DoorInteraction> spawnedDoors = new List<DoorInteraction>();
+    private Transform roomsRoot;
+    private Transform wallsRoot;
+    private Transform gameplayRoot;
+    private Transform playersRoot;
+    private Transform monstersRoot;
+    private Transform puzzleRoot;
+    private Transform cluesRoot;
+    private Transform itemsRoot;
     private Vector3 puzzleRoomCenter;
     private bool hasPuzzleRoom;
 
@@ -101,6 +109,8 @@ public class MapGenerator : MonoBehaviour
         for (int attempt = 0; attempt < maxGenerationAttempts; attempt++)
         {
             ClearMapChildren();
+            roomsRoot = CreateGroup("Rooms", transform);
+            wallsRoot = CreateGroup("Corridor Walls", transform);
             selectedSeed = seed + attempt;
             Random.InitState(selectedSeed);
             map = new int[mapSize, mapSize];
@@ -178,6 +188,8 @@ public class MapGenerator : MonoBehaviour
         foreach (GameObject entity in spawnedEntities)
             DisposeGeneratedObject(entity);
         spawnedEntities.Clear();
+        if (gameplayRoot != null) DisposeGeneratedObject(gameplayRoot.gameObject);
+        gameplayRoot = null;
         NetworkClient network = NetworkClient.Instance;
         if (network != null) network.ReportMapPreparationFailure(reason);
     }
@@ -395,6 +407,25 @@ public class MapGenerator : MonoBehaviour
     {
         for (int i = transform.childCount - 1; i >= 0; i--)
             DisposeGeneratedObject(transform.GetChild(i).gameObject);
+        roomsRoot = wallsRoot = gameplayRoot = null;
+        playersRoot = monstersRoot = puzzleRoot = cluesRoot = itemsRoot = null;
+    }
+
+    static Transform CreateGroup(string label, Transform parent)
+    {
+        GameObject group = new GameObject(label);
+        group.transform.SetParent(parent, false);
+        return group.transform;
+    }
+
+    void CreateGameplayGroups()
+    {
+        gameplayRoot = CreateGroup("Gameplay", transform);
+        playersRoot = CreateGroup("Players", gameplayRoot);
+        monstersRoot = CreateGroup("Monsters", gameplayRoot);
+        puzzleRoot = CreateGroup("Puzzle", gameplayRoot);
+        cluesRoot = CreateGroup("Clues", gameplayRoot);
+        itemsRoot = CreateGroup("Items", gameplayRoot);
     }
 
     bool PlaceRooms()
@@ -454,7 +485,7 @@ public class MapGenerator : MonoBehaviour
                         hasPuzzleRoom = true;
                     }
                     GameObject roomInstance = Instantiate(room.prefab, new Vector3(posX, 0, posZ),
-                                                          Quaternion.identity, transform);
+                                                          Quaternion.identity, roomsRoot);
                     CollectBedVisualBounds(roomInstance);
                     EnsureBarrelCollision(roomInstance);
                     foreach (MimicLaptop mimic in roomInstance.GetComponentsInChildren<MimicLaptop>(true))
@@ -924,7 +955,7 @@ public class MapGenerator : MonoBehaviour
     {
         if (prefab != null)
         {
-            spawnedWalls.Add(Instantiate(prefab, pos, rot, transform));
+            spawnedWalls.Add(Instantiate(prefab, pos, rot, wallsRoot));
         }
     }
 
@@ -1142,14 +1173,15 @@ public class MapGenerator : MonoBehaviour
             Debug.LogError("[MapGenerator] A required player or monster prefab is missing.");
             return false;
         }
-        GameObject p1 = Instantiate(firstPrefab, p1Pos, Quaternion.identity);
+        CreateGameplayGroups();
+        GameObject p1 = Instantiate(firstPrefab, p1Pos, Quaternion.identity, playersRoot);
         p1.name = "Player1";
         AlignPlayerToFloor(p1, p1Pos);
         spawnedEntities.Add(p1);
 
         // Keep both players close enough to find the cooperative puzzle during a demo.
         Vector3 p2Pos = GetNearbySpawnPoint(p1Pos);
-        GameObject p2 = Instantiate(secondPrefab, p2Pos, Quaternion.identity);
+        GameObject p2 = Instantiate(secondPrefab, p2Pos, Quaternion.identity, playersRoot);
         p2.name = "Player2";
         AlignPlayerToFloor(p2, p2Pos);
         spawnedEntities.Add(p2);
@@ -1165,7 +1197,7 @@ public class MapGenerator : MonoBehaviour
             Debug.LogError($"[MapGenerator] Monster spawn moved off its validated floor: {monsterPos}.");
             return false;
         }
-        GameObject monster = Instantiate(monsterPrefab, monsterPos, Quaternion.identity);
+        GameObject monster = Instantiate(monsterPrefab, monsterPos, Quaternion.identity, monstersRoot);
         monster.name = "Monster1";
         spawnedEntities.Add(monster);
 
@@ -1180,7 +1212,7 @@ public class MapGenerator : MonoBehaviour
             Debug.LogError($"[MapGenerator] Monster 2 spawn moved off its validated floor: {monster2Pos}.");
             return false;
         }
-        GameObject monster2 = Instantiate(monster2Prefab, monster2Pos, Quaternion.identity);
+        GameObject monster2 = Instantiate(monster2Prefab, monster2Pos, Quaternion.identity, monstersRoot);
         monster2.name = "Monster2";
         spawnedEntities.Add(monster2);
         if (NavMesh.FindClosestEdge(monster2Pos, out NavMeshHit monster2Edge, NavMesh.AllAreas))
@@ -1215,6 +1247,7 @@ public class MapGenerator : MonoBehaviour
         }
 
         GameObject puzzle = CoopShapePuzzle.Create(p1Pos, p2Pos, puzzleRoomCenter, tileSize);
+        puzzle.transform.SetParent(puzzleRoot, true);
         spawnedEntities.Add(puzzle);
         PotionItem lockedClue = CreateCluePickup(puzzleRoomCenter, clueData, 3);
         spawnedEntities.Add(lockedClue.gameObject);
@@ -1252,7 +1285,7 @@ public class MapGenerator : MonoBehaviour
                 GameObject randomItemPrefab = i < guaranteedItems.Count
                     ? guaranteedItems[i]
                     : ordinaryItemPrefabs[Random.Range(0, ordinaryItemPrefabs.Count)];
-                GameObject itemObj = Instantiate(randomItemPrefab, itemPos, Quaternion.identity);
+                GameObject itemObj = Instantiate(randomItemPrefab, itemPos, Quaternion.identity, itemsRoot);
                 spawnedEntities.Add(itemObj);
 
                 PotionItem potion = itemObj.GetComponent<PotionItem>();
@@ -1321,6 +1354,7 @@ public class MapGenerator : MonoBehaviour
         GameObject clue = new GameObject();
         clue.name = id == 3 ? "Locked room clue" : "Field clue " + id;
         clue.tag = "Clue";
+        clue.transform.SetParent(cluesRoot, false);
         clue.transform.position = floorPosition + Vector3.up * 0.85f;
         AddCluePart(clue.transform, PrimitiveType.Cylinder, "Signal base",
             new Vector3(0f, -0.29f, 0f), new Vector3(0.48f, 0.025f, 0.48f),
