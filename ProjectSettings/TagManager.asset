@@ -11,12 +11,12 @@ TagManager:
   - Default
   - TransparentFX
   - Ignore Raycast
-  - Player
+  - Player4
   - Water
   - UI
-  - 
-  - 
-  - 
+  - Player1
+  - Player2
+  - Player3
   - 
   - Clue
   - 
