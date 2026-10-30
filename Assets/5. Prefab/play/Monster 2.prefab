@@ -230,7 +230,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 919132149155446097, guid: faab311a84f2e2c43b9af74ff42cc9aa, type: 3}
       propertyPath: m_Name
-      value: monster2 1
+      value: Monster 2
       objectReference: {fileID: 0}
     - target: {fileID: 1330755669629619180, guid: faab311a84f2e2c43b9af74ff42cc9aa, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
@@ -542,7 +542,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d845c40d57eea7146b66073c752ea342, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  monsterId: 1
+  monsterId: 2
   navMeshAgent: {fileID: 7093878488447885492}
   remoteMonster: {fileID: 3937315705664015526}
   aiScripts: []
