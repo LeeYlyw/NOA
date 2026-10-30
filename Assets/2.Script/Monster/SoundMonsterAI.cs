@@ -14,6 +14,7 @@ public class SoundMonsterAI : MonoBehaviour
     public NavMeshAgent agent;
     public Transform player;
     private Animator animator; // 애니메이터 추가
+    private DoorInteraction[] nearbyDoors;
 
     [Header("Hearing")]
     public float hearingMultiplier = 2f;
@@ -87,6 +88,7 @@ public class SoundMonsterAI : MonoBehaviour
             agent = GetComponent<NavMeshAgent>();
 
         animator = GetComponent<Animator>();
+        nearbyDoors = FindObjectsByType<DoorInteraction>(FindObjectsSortMode.None);
         if (animator == null) animator = GetComponentInChildren<Animator>();
         // MonsterRun and MonsterAttack contain curves on the Animator root.
         // Let the NavMeshAgent simulate independently so those curves cannot
@@ -134,6 +136,8 @@ public class SoundMonsterAI : MonoBehaviour
             pendingHitAt = -1f;
             pendingTarget = null;
         }
+        if (currentState == State.Chase || currentState == State.Investigate)
+            OpenNearbyDoors();
         switch (currentState)
         {
             case State.Idle:
@@ -160,6 +164,19 @@ public class SoundMonsterAI : MonoBehaviour
         // Animation evaluation runs after Update. Keep the world position and
         // facing produced by navigation/attack, regardless of root curves.
         transform.SetPositionAndRotation(agent.nextPosition, navigationRotation);
+    }
+
+    void OpenNearbyDoors()
+    {
+        if (nearbyDoors == null) return;
+        foreach (DoorInteraction door in nearbyDoors)
+        {
+            if (door == null) continue;
+            Vector3 offset = door.GetNetworkAnchor() - transform.position;
+            if (Mathf.Abs(offset.y) > 2f || new Vector2(offset.x, offset.z).sqrMagnitude > 6.25f)
+                continue;
+            door.OpenForOfflineMonster();
+        }
     }
 
     private void CheckForStuckMovement()

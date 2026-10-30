@@ -82,7 +82,14 @@ public class DoorInteraction : MonoBehaviour
         ApplyServerState(!isOpen, direction);
     }
 
-    public void ApplyServerState(bool open, int direction)
+    public void OpenForOfflineMonster()
+    {
+        NetworkClient network = NetworkClient.Instance;
+        if (network == null || !network.offlineMode || isOpen || doorHinge == null) return;
+        ApplyServerState(true, 1, 0.5f);
+    }
+
+    public void ApplyServerState(bool open, int direction, float animationSpeed = -1f)
     {
         if (doorHinge == null || isOpen == open) return;
         isOpen = open;
@@ -92,7 +99,8 @@ public class DoorInteraction : MonoBehaviour
         Quaternion targetRotation = isOpen
             ? closedRotation * Quaternion.Euler(0f, Mathf.Abs(openAngle) * (direction >= 0 ? 1 : -1), 0f)
             : closedRotation;
-        doorCoroutine = StartCoroutine(RotateDoor(targetRotation, isOpen));
+        doorCoroutine = StartCoroutine(RotateDoor(targetRotation, isOpen,
+            animationSpeed > 0f ? animationSpeed : rotateSpeed));
     }
 
     private Quaternion GetAwayRotation()
@@ -151,14 +159,14 @@ public class DoorInteraction : MonoBehaviour
             interactionUI.SetActive(false);
     }
 
-    private IEnumerator RotateDoor(Quaternion targetRotation, bool opening)
+    private IEnumerator RotateDoor(Quaternion targetRotation, bool opening, float speed)
     {
         Quaternion startRotation = doorHinge.localRotation;
         float progress = 0f;
 
         while (progress < 1f)
         {
-            progress += Time.deltaTime * rotateSpeed;
+            progress += Time.deltaTime * speed;
             doorHinge.localRotation =
                 Quaternion.Slerp(startRotation, targetRotation, progress);
             yield return null;

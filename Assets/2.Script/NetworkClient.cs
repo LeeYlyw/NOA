@@ -731,12 +731,16 @@ public class NetworkClient : MonoBehaviour
 
     void ProcessDoorStatePacket(string[] parts)
     {
-        if (parts.Length != 4 || !int.TryParse(parts[1], out int doorId) ||
+        if ((parts.Length != 4 && parts.Length != 5) || !int.TryParse(parts[1], out int doorId) ||
             !int.TryParse(parts[2], out int open) || !int.TryParse(parts[3], out int direction)) return;
+        float speed = -1f;
+        if (parts.Length == 5 &&
+            (!float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out speed) ||
+             speed <= 0f)) return;
         foreach (DoorInteraction door in networkDoors)
             if (door != null && door.NetworkId == doorId)
             {
-                door.ApplyServerState(open == 1, direction);
+                door.ApplyServerState(open == 1, direction, speed);
                 return;
             }
     }

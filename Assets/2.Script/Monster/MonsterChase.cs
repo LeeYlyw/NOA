@@ -41,6 +41,7 @@ public class MonsterChase : MonoBehaviour
     public float rotateSpeed = 5f;
 
     private NavMeshAgent agent;
+    private DoorInteraction[] nearbyDoors;
     private Animator animator;
     private State state = State.Patrol;
     private Vector3 lastSeenPosition;
@@ -58,7 +59,13 @@ public class MonsterChase : MonoBehaviour
 
     void Start()
     {
+        // Keep the offline preview aligned with the server's vision monster.
+        // Prefab serialized values still contain the earlier demo tuning.
+        detectRange = 10f;
+        sightAngle = 220f;
+        loseSightDelay = 5f;
         agent = GetComponent<NavMeshAgent>();
+        nearbyDoors = FindObjectsByType<DoorInteraction>(FindObjectsSortMode.None);
         animator = GetComponent<Animator>();
         if (animator == null) animator = GetComponentInChildren<Animator>();
         pauseUntil = Time.time + patrolPause;
@@ -93,6 +100,9 @@ public class MonsterChase : MonoBehaviour
             MoveTo(lastSeenPosition);
         }
 
+        if (state == State.Chase || state == State.Search)
+            OpenNearbyDoors();
+
         if (state != State.Attack)
         {
             pendingHitAt = -1f;
@@ -113,6 +123,19 @@ public class MonsterChase : MonoBehaviour
         if (animator != null) animator.speed = 1f;
     }
 
+    void OpenNearbyDoors()
+    {
+        if (nearbyDoors == null) return;
+        foreach (DoorInteraction door in nearbyDoors)
+        {
+            if (door == null) continue;
+            Vector3 offset = door.GetNetworkAnchor() - transform.position;
+            if (Mathf.Abs(offset.y) > 2f || new Vector2(offset.x, offset.z).sqrMagnitude > 6.25f)
+                continue;
+            door.OpenForOfflineMonster();
+        }
+    }
+
     bool CanSeePlayer(Transform target)
     {
         if (target == null) return false;
@@ -127,7 +150,7 @@ public class MonsterChase : MonoBehaviour
         if (distance > detectRange || distance <= 0.001f) return false;
 
         Vector3 planarDirection = Vector3.ProjectOnPlane(direction, Vector3.up);
-        if (planarDirection.sqrMagnitude > 0.001f &&
+        if (distance > 2.5f && planarDirection.sqrMagnitude > 0.001f &&
             Vector3.Angle(transform.forward, planarDirection) > sightAngle * 0.5f)
             return false;
 

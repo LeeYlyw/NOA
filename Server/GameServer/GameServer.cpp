@@ -156,9 +156,11 @@ struct MonsterState
     double loseSightDelay = 1.5;
 
     int targetPlayerId = 0;
+    int pendingDoorId = 0;
 
     float sightRange = 8.0f;
     float sightAngle = 120.0f;
+    float closeAwarenessRange = 0.0f;
     float hearingRange = 8.0f;
     float attackRange = 2.0f;
 
@@ -384,7 +386,9 @@ bool MoveToward(MonsterState& monster, const Vec3& target, float deltaTime)
     if (monster.pathGoal != goal || monster.path.empty() || monster.pathCursor == 0 ||
         start != monster.path[monster.pathCursor - 1])
     {
-        monster.path = navigation.FindPath(start, goal);
+        // Plan through ordinary doors, then stop at a closed door until its
+        // slower monster opening animation has completed on both clients.
+        monster.path = navigation.FindPath(start, goal, true);
         monster.pathGoal = goal;
         monster.pathCursor = monster.path.empty() ? 0 : 1;
     }
@@ -420,6 +424,15 @@ bool MoveToward(MonsterState& monster, const Vec3& target, float deltaTime)
         monster.isWalk = false;
         monster.currentSpeed = 0.0f;
         return true;
+    }
+    int nextCell = monster.pathCursor < monster.path.size()
+        ? monster.path[monster.pathCursor] : goal;
+    if (start != nextCell && !navigation.CanTraverse(start, nextCell))
+    {
+        monster.pendingDoorId = navigation.BlockingDoor(start, nextCell);
+        monster.isWalk = false;
+        monster.currentSpeed = 0.0f;
+        return false;
     }
     FaceTarget(monster, waypoint);
     float moveAmount = std::min(distance, monster.moveSpeed * deltaTime);
@@ -458,7 +471,8 @@ bool IsPlayerVisible(const MonsterState& monster, const PlayerState& player)
     dot = Clamp(dot, -1.0f, 1.0f);
 
     float angle = std::acos(dot) * 180.0f / PI;
-    return angle <= monster.sightAngle * 0.5f &&
+    return (angle <= monster.sightAngle * 0.5f ||
+            distance <= monster.closeAwarenessRange) &&
            navigation.HasLineOfSight(monster.position, player.position);
 }
 PlayerState* FindVisiblePlayer(MonsterState& monster, PlayerState players[])
@@ -1319,7 +1333,8 @@ void ProcessClientPacket(
         {
             if (door.id != doorId) continue;
             if (Distance2D(players[playerId].position, door.position) > 4.5f ||
-                std::fabs(players[playerId].position.y - door.position.y) > 5.0f) return;
+                std::fabs(players[playerId].position.y - door.position.y) > 5.0f ||
+                door.openingUntil > GetTimeSeconds()) return;
             door.open = !door.open;
             if (door.open) door.direction = direction;
             for (int i = 0; i < 2; ++i)
@@ -1782,9 +1797,10 @@ void InitializeMonsters(MonsterState monsters[])
     monsters[0].searchSpeed = 2.3f;
     monsters[0].patrolRadius = 14.0f;
     monsters[0].searchDuration = 7.0;
-    monsters[0].loseSightDelay = 1.5;
-    monsters[0].sightRange = 7.0f;
-    monsters[0].sightAngle = 120.0f;
+    monsters[0].loseSightDelay = 5.0;
+    monsters[0].sightRange = 10.0f;
+    monsters[0].sightAngle = 220.0f;
+    monsters[0].closeAwarenessRange = 2.5f;
     monsters[0].attackRange = 2.0f;
     monsters[0].attackCooldown = 1.5;
     monsters[0].damage = 10;
@@ -1822,6 +1838,7 @@ void UpdateMonsters(
 {
     for (int i = 0; i < 2; ++i)
     {
+        monsters[i].pendingDoorId = 0;
         if (monsters[i].type == MonsterType::Vision)
         {
             UpdateVisionMonster(monsters[i], players, clientSocket1, clientSocket2, deltaTime, now);
@@ -1829,6 +1846,40 @@ void UpdateMonsters(
         else if (monsters[i].type == MonsterType::Sound)
         {
             UpdateSoundMonster(monsters[i], players, clientSocket1, clientSocket2, deltaTime, now);
+        }
+    }
+}
+
+void UpdateMonsterDoorOpenings(MonsterState monsters[], SOCKET clientSocket1,
+                               SOCKET clientSocket2, double now)
+{
+    constexpr double MonsterDoorOpenSeconds = 2.0;
+    for (NavigationDoor& door : navigation.doors)
+    {
+        if (door.open || door.openingUntil <= 0.0) continue;
+        if (now >= door.openingUntil)
+        {
+            door.open = true;
+            door.openingUntil = 0.0;
+            for (int i = 0; i < 2; ++i)
+            {
+                monsters[i].path.clear();
+                monsters[i].pathGoal = -1;
+            }
+        }
+    }
+    for (int i = 0; i < 2; ++i)
+    {
+        for (NavigationDoor& door : navigation.doors)
+        {
+            if (door.id != monsters[i].pendingDoorId || door.open ||
+                door.openingUntil > 0.0) continue;
+            door.openingUntil = now + MonsterDoorOpenSeconds;
+            door.direction = 1;
+            BroadcastPacket(clientSocket1, clientSocket2,
+                "S_DOOR_STATE|" + std::to_string(door.id) + "|1|" +
+                std::to_string(door.direction) + "|0.5");
+            break;
         }
     }
 }
@@ -2073,7 +2124,10 @@ int main()
 
         // 몬스터 AI 판단 및 이동 (은신 여부가 반영된 상태로 시야 판정 진행)
         if (navigation.ready && matchResult == 0)
+        {
             UpdateMonsters(monsters, players, clientSocket1, clientSocket2, deltaTime, now);
+            UpdateMonsterDoorOpenings(monsters, clientSocket1, clientSocket2, now);
+        }
 
         if (matchResult == 0 && puzzlePadsReady)
         {

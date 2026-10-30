@@ -252,6 +252,31 @@ public class MapGenerator : MonoBehaviour
 
     string BuildServerNavigationMask()
     {
+        // The NavMesh was baked with door leaves disabled. Keep the same
+        // doorway geometry in the server grid; live door state blocks it later.
+        List<Collider> doorLeaves = new List<Collider>();
+        foreach (DoorInteraction door in spawnedDoors)
+        {
+            if (door == null || door.doorHinge == null) continue;
+            foreach (Collider leaf in door.doorHinge.GetComponentsInChildren<Collider>(true))
+                if (leaf.enabled && !leaf.isTrigger)
+                {
+                    leaf.enabled = false;
+                    doorLeaves.Add(leaf);
+                }
+        }
+        Physics.SyncTransforms();
+        try { return BuildServerNavigationMaskWithoutDoorLeaves(); }
+        finally
+        {
+            foreach (Collider leaf in doorLeaves)
+                if (leaf != null) leaf.enabled = true;
+            Physics.SyncTransforms();
+        }
+    }
+
+    string BuildServerNavigationMaskWithoutDoorLeaves()
+    {
         const float step = 1f;
         float worldSize = mapSize * tileSize;
         int width = Mathf.CeilToInt(worldSize / step);

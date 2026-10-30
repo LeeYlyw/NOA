@@ -17,6 +17,7 @@ struct NavigationDoor
     Vec3 position;
     bool open = false;
     int direction = 1;
+    double openingUntil = 0.0;
 };
 
 struct ServerNavigation
@@ -70,7 +71,7 @@ struct ServerNavigation
         return bestDistance <= step * step * 6.0f ? best : -1;
     }
 
-    bool CanStep(int from, int to) const
+    bool CanStep(int from, int to, bool ignoreDoors = false) const
     {
         if (!ready || from < 0 || to < 0 || from >= static_cast<int>(edges.size()) ||
             to >= static_cast<int>(edges.size())) return false;
@@ -93,7 +94,7 @@ struct ServerNavigation
         Vec3 a = Center(from), b = Center(to);
         for (const NavigationDoor& door : doors)
         {
-            if (door.open) continue;
+            if (ignoreDoors || door.open) continue;
             float dx = b.x - a.x, dz = b.z - a.z;
             float lengthSquared = dx * dx + dz * dz;
             float t = lengthSquared > 0.0f
@@ -109,9 +110,9 @@ struct ServerNavigation
         return true;
     }
 
-    bool CanTraverse(int from, int to) const
+    bool CanTraverse(int from, int to, bool ignoreDoors = false) const
     {
-        if (CanStep(from, to)) return true;
+        if (CanStep(from, to, ignoreDoors)) return true;
         if (from < 0 || to < 0 || from >= width * height || to >= width * height)
             return false;
         int fx = from % width, fz = from / width;
@@ -119,8 +120,50 @@ struct ServerNavigation
         if (std::abs(tx - fx) != 1 || std::abs(tz - fz) != 1) return false;
         int viaX = Index(tx, fz), viaZ = Index(fx, tz);
         // Require both routes around the corner, so a diagonal cannot cut a wall.
-        return CanStep(from, viaX) && CanStep(viaX, to) &&
-               CanStep(from, viaZ) && CanStep(viaZ, to);
+        return CanStep(from, viaX, ignoreDoors) && CanStep(viaX, to, ignoreDoors) &&
+               CanStep(from, viaZ, ignoreDoors) && CanStep(viaZ, to, ignoreDoors);
+    }
+
+    int BlockingDoor(int from, int to) const
+    {
+        if (!CanTraverse(from, to, true) || CanTraverse(from, to)) return 0;
+        Vec3 a = Center(from), b = Center(to);
+        float dx = b.x - a.x, dz = b.z - a.z;
+        float lengthSquared = dx * dx + dz * dz;
+        int bestId = 0;
+        float bestDistanceSquared = 1.5f * 1.5f;
+        for (const NavigationDoor& door : doors)
+        {
+            if (door.open) continue;
+            float t = lengthSquared > 0.0f
+                ? std::max(0.0f, std::min(1.0f,
+                    ((door.position.x - a.x) * dx +
+                     (door.position.z - a.z) * dz) / lengthSquared)) : 0.0f;
+            float x = a.x + t * dx - door.position.x;
+            float z = a.z + t * dz - door.position.z;
+            float distanceSquared = x * x + z * z;
+            if (distanceSquared < bestDistanceSquared)
+            {
+                bestDistanceSquared = distanceSquared;
+                bestId = door.id;
+            }
+        }
+        if (bestId == 0 && from % width != to % width && from / width != to / width)
+        {
+            int viaX = Index(to % width, from / width);
+            int viaZ = Index(from % width, to / width);
+            // A door can block one of the orthogonal edges required for a
+            // diagonal step even when its anchor misses the diagonal itself.
+            int blocked = BlockingDoor(from, viaX);
+            if (blocked != 0) return blocked;
+            blocked = BlockingDoor(viaX, to);
+            if (blocked != 0) return blocked;
+            blocked = BlockingDoor(from, viaZ);
+            if (blocked != 0) return blocked;
+            blocked = BlockingDoor(viaZ, to);
+            if (blocked != 0) return blocked;
+        }
+        return bestId;
     }
 
     bool HasLineOfSight(const Vec3& from, const Vec3& to) const
@@ -151,7 +194,7 @@ struct ServerNavigation
         return true;
     }
 
-    std::vector<int> FindPath(int start, int goal) const
+    std::vector<int> FindPath(int start, int goal, bool ignoreDoors = false) const
     {
         if (!ready || start < 0 || goal < 0) return {};
         if (start == goal) return { start };
@@ -181,7 +224,7 @@ struct ServerNavigation
                                  Index(x - 1, z + 1), Index(x - 1, z - 1) };
             for (int next : neighbors)
             {
-                if (!CanTraverse(current, next)) continue;
+                if (!CanTraverse(current, next, ignoreDoors)) continue;
                 float travel = (next % width != x && next / width != z) ? 1.41421356f : 1.0f;
                 if (cost[next] <= cost[current] + travel) continue;
                 cost[next] = cost[current] + travel;
