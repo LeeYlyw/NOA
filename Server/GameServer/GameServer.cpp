@@ -1823,7 +1823,10 @@ void InitializeMonsters(MonsterState monsters[])
     monsters[1].sightRange = 3.5f;
     monsters[1].sightAngle = 60.0f;
     monsters[1].hearingRange = 0.0f;
-    monsters[1].attackRange = 2.0f;
+    // Monster 2's body radius is 1.6 m; a 2 m center distance can be
+    // unreachable when it contacts the player's controller or a corridor.
+    monsters[1].attackRange = 2.7f;
+    monsters[1].closeAwarenessRange = 2.7f;
     monsters[1].attackCooldown = 1.5;
     monsters[1].damage = 10;
 }

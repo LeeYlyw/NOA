@@ -144,12 +144,16 @@ public class MapGenerator : MonoBehaviour
             if (!ValidateNavMeshConnectivity() || !ValidatePuzzleRoomAccess()) { navigationFailures++; continue; }
             // Reserve two player locations and two genuinely clear monster
             // locations before accepting a layout. Never fall back into a wall.
-            int clearMonsterPoints = 0;
+            int clearMonster1Points = 0;
+            int clearMonster2Points = 0;
             foreach (Vector3 point in corridorMonsterSpawns)
-                if (IsMonsterSpawnClear(point)) clearMonsterPoints++;
-            if (clearMonsterPoints < 2)
             {
-                Debug.LogWarning($"[MapGenerator] Seed {selectedSeed}: only {clearMonsterPoints} monster spawns have edge and collider clearance; retrying layout.");
+                if (IsMonsterSpawnClear(point, monsterPrefab)) clearMonster1Points++;
+                if (IsMonsterSpawnClear(point, monster2Prefab)) clearMonster2Points++;
+            }
+            if (clearMonster1Points < 2 || clearMonster2Points < 2)
+            {
+                Debug.LogWarning($"[MapGenerator] Seed {selectedSeed}: monster spawn clearance 1={clearMonster1Points}, 2={clearMonster2Points}; retrying layout.");
                 spawnFailures++;
                 continue;
             }
@@ -1510,7 +1514,7 @@ public class MapGenerator : MonoBehaviour
 
         for (int i = 0; i < corridorMonsterSpawns.Count; i++)
         {
-            if (!IsMonsterSpawnClear(corridorMonsterSpawns[i])) continue;
+            if (!IsMonsterSpawnClear(corridorMonsterSpawns[i], monsterPrefab)) continue;
             float dist = Vector3.Distance(fromPosition, corridorMonsterSpawns[i]);
             if (dist > maxDist)
             {
@@ -1536,7 +1540,7 @@ public class MapGenerator : MonoBehaviour
         float bestMinimumDistance = -1f;
         for (int i = 0; i < corridorMonsterSpawns.Count; i++)
         {
-            if (!IsMonsterSpawnClear(corridorMonsterSpawns[i])) continue;
+            if (!IsMonsterSpawnClear(corridorMonsterSpawns[i], monster2Prefab)) continue;
             float minimumDistance = float.MaxValue;
             foreach (Vector3 position in positions)
                 minimumDistance = Mathf.Min(minimumDistance, Vector3.Distance(position, corridorMonsterSpawns[i]));
@@ -1554,24 +1558,28 @@ public class MapGenerator : MonoBehaviour
         return result;
     }
 
-    bool IsMonsterSpawnClear(Vector3 candidate)
+    bool IsMonsterSpawnClear(Vector3 candidate, GameObject prefab)
     {
+        CapsuleCollider body = prefab != null ? prefab.GetComponent<CapsuleCollider>() : null;
+        float bodyRadius = body != null
+            ? body.radius * Mathf.Max(Mathf.Abs(prefab.transform.localScale.x), Mathf.Abs(prefab.transform.localScale.z))
+            : 0.6f;
+        float clearance = Mathf.Max(1.25f, bodyRadius + 0.1f);
         if (!NavMesh.SamplePosition(candidate, out NavMeshHit floor, 2f, NavMesh.AllAreas))
             return false;
         if (new Vector2(candidate.x - floor.position.x, candidate.z - floor.position.z).magnitude > 0.5f)
             return false;
         // A valid NavMesh center can still put the monster's body or visual
         // mesh across the edge. Check footprint clearance, not just the pivot.
-        const float edgeClearance = 1.25f;
         if (!NavMesh.FindClosestEdge(floor.position, out NavMeshHit edge, NavMesh.AllAreas) ||
-            edge.distance < edgeClearance)
+            edge.distance < clearance)
             return false;
-        return IsMonsterBodyClear(floor.position, 1.25f);
+        return IsMonsterBodyClear(floor.position, clearance, bodyRadius);
     }
 
     // Server waypoints also need body clearance. NavMesh point/edge checks
     // alone can put a server-driven monster inside a bed or wall.
-    bool IsMonsterBodyClear(Vector3 position, float bedClearance)
+    bool IsMonsterBodyClear(Vector3 position, float bedClearance, float bodyRadius = 0.6f)
     {
         // Imported concave beds can leave walkable NavMesh under the visible
         // mattress, so exclude their full visual footprint as well.
@@ -1585,10 +1593,9 @@ public class MapGenerator : MonoBehaviour
             float dz = position.z - closestZ;
             if (dx * dx + dz * dz < bedClearance * bedClearance) return false;
         }
-        const float radius = 0.6f;
-        Vector3 bottom = position + Vector3.up * (radius + 0.1f);
-        Vector3 top = position + Vector3.up * 1.5f;
-        return !Physics.CheckCapsule(bottom, top, radius, ~0, QueryTriggerInteraction.Ignore);
+        Vector3 bottom = position + Vector3.up * (bodyRadius + 0.1f);
+        Vector3 top = position + Vector3.up * Mathf.Max(1.5f, bodyRadius + 0.1f);
+        return !Physics.CheckCapsule(bottom, top, bodyRadius, ~0, QueryTriggerInteraction.Ignore);
     }
 
     static void LogMonsterVisualOffset(GameObject monster)

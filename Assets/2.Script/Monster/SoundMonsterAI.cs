@@ -485,7 +485,7 @@ public class SoundMonsterAI : MonoBehaviour
         Vector3 targetPoint = target.position + Vector3.up * 1.1f;
         Vector3 delta = targetPoint - origin;
         Vector3 planar = Vector3.ProjectOnPlane(delta, Vector3.up);
-        if (planar.sqrMagnitude > 0.001f &&
+        if (distance > attackRange && planar.sqrMagnitude > 0.001f &&
             Vector3.Angle(transform.forward, planar) > sightAngle * 0.5f) return false;
 
         if (Physics.Raycast(origin, delta.normalized, out RaycastHit hit, delta.magnitude,

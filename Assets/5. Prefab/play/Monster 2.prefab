@@ -513,7 +513,7 @@ MonoBehaviour:
   investigateWaitTime: 2
   searchDuration: 6
   searchRadius: 3
-  attackRange: 2
+  attackRange: 2.7
   damage: 10
   attackCooldown: 1.5
   rotateSpeed: 5
@@ -545,4 +545,5 @@ MonoBehaviour:
   monsterId: 2
   navMeshAgent: {fileID: 7093878488447885492}
   remoteMonster: {fileID: 3937315705664015526}
-  aiScripts: []
+  aiScripts:
+  - {fileID: 2878541828662484612}
