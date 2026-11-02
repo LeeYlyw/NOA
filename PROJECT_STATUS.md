@@ -87,3 +87,5 @@
 2026-11-02 엔딩 미표시 원인 수정(미커밋): 실제 빌드 메인 씬 MapGeneration_Test와 보조 씬에는 ClueManager가 없어 서버 S_GAME_CLEAR 수신 시 ShowEnding 호출이 건너뛰어졌다. NetworkClient.Awake에서 기존 관리자가 없는 경우 ClueManager를 런타임 생성해 기존 전체 화면 엔딩 보고서와 패배 UI를 연결했다. 씬·프리팹·애니메이션은 수정하지 않았다. git diff --check 통과. C# 프로젝트 빌드는 현재 Assembly-CSharp.csproj에 VitalsHUDStyle.cs가 누락돼 기존 참조 오류 3개로 실패했으며 이번 변경의 Unity 화면·실제 두 PC 결과는 미확인이다. 새 빌드를 만들어 재시험해야 한다.
 
 2026-11-02 로컬 플레이어 피격 시각 효과: PlayerController.TakeDamage에서 실제 HP 감소와 로컬 소유자를 확인해 GamePresentation의 화면 가장자리 붉은 섬광(0.7초)을 재생한다. 사망 피해도 표시하고 연속 피격 시 지속 시간을 갱신한다. 멀티 서버 피해와 오프라인 몬스터·미믹 피해가 같은 TakeDamage 경로를 사용한다. UI는 클릭을 가리지 않고 씬·프리팹·애니메이션 변경 없음. git diff --check 통과. Unity 화면과 실제 두 PC 피격 체감은 미확인.
+
+2026-11-03 엔딩 배경 이미지 추가: 미로 끝에서 두 생존자가 빛으로 걸어가는 16:9 이미지를 Assets/Resources/Ending/MazeEscape.png에 추가했다. 기존 ClueManager 승리 화면이 이미지를 런타임에 로드해 1.8초간 나타나게 하며, 어두운 오버레이와 기존 단서 보고서·버튼을 위에 유지한다. 패배 화면에는 이미지를 표시하지 않는다. 씬·프리팹·애니메이션은 변경하지 않았다. git diff --check 통과. Unity 실제 화면·해상도별 크롭과 두 PC 결과 확인 전.

@@ -33,6 +33,7 @@ public class ClueManager : MonoBehaviour
     private Font evidenceFont;
     private Text evidenceText;
     private Canvas victoryCanvas;
+    private CanvasGroup victoryArt;
     private Image victoryFade;
     private CanvasGroup victoryQuestion;
     private CanvasGroup victoryReport;
@@ -281,6 +282,27 @@ public class ClueManager : MonoBehaviour
         scaler.referenceResolution = new Vector2(1920, 1080);
         scaler.matchWidthOrHeight = 0.5f;
 
+        if (IsVictory)
+        {
+            Texture2D mazeEscape = Resources.Load<Texture2D>("Ending/MazeEscape");
+            if (mazeEscape != null)
+            {
+                RectTransform artwork = FullScreenRect(root.transform, "Maze escape artwork");
+                victoryArt = artwork.gameObject.AddComponent<CanvasGroup>();
+                victoryArt.alpha = 0f;
+                victoryArt.blocksRaycasts = false;
+                RawImage background = artwork.gameObject.AddComponent<RawImage>();
+                background.texture = mazeEscape;
+                background.raycastTarget = false;
+                float screenAspect = (float)Screen.width / Mathf.Max(1, Screen.height);
+                float imageAspect = (float)mazeEscape.width / mazeEscape.height;
+                float crop = screenAspect / imageAspect;
+                background.uvRect = crop > 1f
+                    ? new Rect(0f, (1f - 1f / crop) * 0.5f, 1f, 1f / crop)
+                    : new Rect((1f - crop) * 0.5f, 0f, crop, 1f);
+            }
+        }
+
         RectTransform shade = FullScreenRect(root.transform, "Fade to dark");
         victoryFade = shade.gameObject.AddComponent<Image>();
         victoryFade.color = new Color(0.015f, 0.025f, 0.035f, 0f);
@@ -360,7 +382,9 @@ public class ClueManager : MonoBehaviour
     private void UpdateVictoryPresentation()
     {
         float elapsed = Time.unscaledTime - victoryStartedAt;
-        float darkness = Mathf.SmoothStep(0f, 0.96f, Mathf.Clamp01(elapsed / 2f));
+        if (victoryArt != null) victoryArt.alpha = Mathf.Clamp01(elapsed / 1.8f);
+        float darkness = Mathf.SmoothStep(0f, IsVictory ? 0.42f : 0.96f,
+            Mathf.Clamp01(elapsed / 2f));
         victoryFade.color = new Color(0.015f, 0.025f, 0.035f, darkness);
         victoryQuestion.alpha = Mathf.Clamp01((elapsed - 0.35f) / 0.7f) *
             (1f - Mathf.Clamp01((elapsed - 1.8f) / 0.6f));
