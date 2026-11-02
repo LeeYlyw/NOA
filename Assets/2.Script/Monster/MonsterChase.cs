@@ -368,7 +368,13 @@ public class MonsterChase : MonoBehaviour
                 if (animator != null)
                 {
                     int attackState = Animator.StringToHash("Base Layer.MonsterAttack");
-                    if (animator.HasState(0, attackState)) animator.Play(attackState, 0, 0f);
+                    if (animator.HasState(0, attackState))
+                    {
+                        if (animator.GetCurrentAnimatorStateInfo(0).fullPathHash == attackState)
+                            animator.CrossFadeInFixedTime(attackState, 0.08f, 0, 0f);
+                        else
+                            animator.Play(attackState, 0, 0f);
+                    }
                     else animator.SetTrigger("Attack");
                 }
                 pendingTarget = player;

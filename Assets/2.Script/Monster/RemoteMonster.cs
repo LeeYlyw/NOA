@@ -11,6 +11,7 @@ public class RemoteMonster : MonoBehaviour
     private bool isInitialized = false;
 
     private Animator animator;
+    private bool isSoundMonster;
 
     private float targetSpeed;
     private bool targetIsWalk;
@@ -26,6 +27,8 @@ public class RemoteMonster : MonoBehaviour
     {
         animator = GetComponent<Animator>();
         if (animator == null) animator = GetComponentInChildren<Animator>();
+        MonsterNetworkSetup setup = GetComponent<MonsterNetworkSetup>();
+        isSoundMonster = setup != null && setup.monsterId == 2;
 
         targetPosition = transform.position;
         targetRotation = transform.rotation;
@@ -57,7 +60,7 @@ public class RemoteMonster : MonoBehaviour
             animator.SetFloat("Speed", targetSpeed);
             animator.SetBool("isWalk", targetIsWalk);
             AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
-            animator.speed = state.fullPathHash == AttackState ? 2f : 1f;
+            animator.speed = state.fullPathHash == AttackState ? (isSoundMonster ? 1.75f : 2f) : 1f;
             bool finishingSwing = !targetIsWalk && Time.time < attackVisualUntil &&
                 state.fullPathHash == AttackState && state.normalizedTime < 1f;
             animator.SetBool("isAttack", targetIsAttack || finishingSwing);
@@ -100,7 +103,12 @@ public class RemoteMonster : MonoBehaviour
             animator.SetBool("isAttack", true);
             attackVisualUntil = Time.time + 1.5f;
             if (animator.HasState(0, AttackState))
-                animator.Play(AttackState, 0, 0f);
+            {
+                if (animator.GetCurrentAnimatorStateInfo(0).fullPathHash == AttackState)
+                    animator.CrossFadeInFixedTime(AttackState, 0.08f, 0, 0f);
+                else
+                    animator.Play(AttackState, 0, 0f);
+            }
             else
                 animator.SetTrigger("Attack");
         }
