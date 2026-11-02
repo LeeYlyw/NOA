@@ -508,7 +508,7 @@ MonoBehaviour:
   patrolRadius: 12
   patrolPause: 1.5
   patrolSpeed: 1.3
-  chaseSpeed: 3.5
+  chaseSpeed: 5
   searchSpeed: 2
   investigateWaitTime: 2
   searchDuration: 6

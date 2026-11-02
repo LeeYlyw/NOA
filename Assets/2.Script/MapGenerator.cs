@@ -1343,9 +1343,10 @@ public class MapGenerator : MonoBehaviour
 
     GameObject PlayerPrefabForRole(PlayerRole role, GameObject fallback)
     {
+        // The serialized player3 prefab uses runner.fbx; player4 uses medic.fbx.
         GameObject selected = role == PlayerRole.Detector ? player1Prefab :
             role == PlayerRole.Explorer ? player2Prefab :
-            role == PlayerRole.Healer ? player3Prefab : player4Prefab;
+            role == PlayerRole.Healer ? player4Prefab : player3Prefab;
         if (selected != null) return selected;
         Debug.LogError("[MapGenerator] Missing character prefab for role " + role + "; using slot fallback.");
         return fallback;

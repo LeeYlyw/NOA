@@ -142,7 +142,7 @@ MonoBehaviour:
   searchDuration: 7
   searchRadius: 3
   patrolSpeed: 1.5
-  chaseSpeed: 3.8
+  chaseSpeed: 5.5
   searchSpeed: 2.3
   rotateSpeed: 5
 --- !u!195 &4953972206007419368

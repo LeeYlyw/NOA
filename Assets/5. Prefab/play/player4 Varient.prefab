@@ -750,7 +750,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   isLocalPlayer: 1
-  walkSpeed: 3
+  walkSpeed: 4
   runSpeed: 6
   jumpHeight: 1.5
   gravity: -9.81
