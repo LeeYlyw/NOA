@@ -1,5 +1,7 @@
 # NOA 작업 인계 — 2026-10-25
 
+2026-11-03 치유자·러너 외형 뒤바뀜 수정(미커밋): 두 맵 씬의 `player3Prefab`는 `runner.fbx`, `player4Prefab`는 `medic.fbx`를 쓰지만 `MapGenerator.PlayerPrefabForRole`은 치유자→3, 러너→4로 선택했다. 직업별 프리팹 선택을 치유자→4, 러너→3으로 교정했다. 로비/서버 직업 번호와 능력 검사(`HealerSkill`은 Healer 전용, 러너 스탯은 Runner 전용)는 변경하지 않았다. C# 빌드 오류 0개(기존 경고 14개), `git diff --check` 통과. 실제 Unity 화면·두 PC 결과는 아직 미확인. 사용자 씬·프리팹 수정은 보존했다.
+
 2026-11-02 몬스터 연속 공격 모션 재적용: Git에서 이전 상태로 돌아간 멀티 `RemoteMonster`와 오프라인 `MonsterChase`·`SoundMonsterAI`를 확인했다. 공격 상태에서 재공격할 때 즉시 첫 프레임으로 점프하는 대신 0.08초 블렌드로 재시작하도록 두 몬스터 모두 처리했다. 몬스터 2의 공격 재생은 1.75배, 몬스터 1은 기존 2배다. C# 빌드 오류 0개(기존 경고 13개), `git diff --check` 통과. Unity 화면·두 PC 체감 확인 전. 클립·Controller·프리팹과 기존 사용자 변경은 보존했다.
 
 2026-10-27 면담 요구와 팀 약속의 구분, 현재 구현·실측 경계는 `Server/ProfessorDemoScope.md`에 정리했다. 이후 시연 범위 판단은 그 문서와 현재 코드를 함께 본다.
