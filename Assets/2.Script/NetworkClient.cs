@@ -61,6 +61,10 @@ public class NetworkClient : MonoBehaviour
     void Awake()
     {
         Instance = this;
+        // The demo map scenes have no serialized clue UI. Keep the server result
+        // packets connected to the runtime ending report in those scenes.
+        if (ClueManager.instance == null && FindObjectOfType<ClueManager>() == null)
+            gameObject.AddComponent<ClueManager>();
         string[] args = Environment.GetCommandLineArgs();
         for (int i = 0; i + 1 < args.Length; i++)
         {
