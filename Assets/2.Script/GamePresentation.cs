@@ -8,6 +8,8 @@ public class GamePresentation : MonoBehaviour
     public static GamePresentation Instance { get; private set; }
     readonly Dictionary<string, AudioClip> clips = new Dictionary<string, AudioClip>();
     CanvasGroup group;
+    CanvasGroup damageGroup;
+    float damageUntil;
     Text caption;
     AudioSource speaker;
     Font font;
@@ -60,6 +62,40 @@ public class GamePresentation : MonoBehaviour
         caption.alignment = TextAnchor.MiddleCenter;
         caption.color = new Color(0.75f, 0.96f, 0.92f);
         caption.raycastTarget = false;
+
+        GameObject damageUi = new GameObject("Damage feedback", typeof(Canvas), typeof(CanvasScaler), typeof(CanvasGroup));
+        damageUi.transform.SetParent(transform, false);
+        damageUi.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
+        damageUi.GetComponent<Canvas>().sortingOrder = 90;
+        CanvasScaler damageScaler = damageUi.GetComponent<CanvasScaler>();
+        damageScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        damageScaler.referenceResolution = new Vector2(1920, 1080);
+        damageGroup = damageUi.GetComponent<CanvasGroup>();
+        damageGroup.alpha = 0f;
+        damageGroup.interactable = false;
+        damageGroup.blocksRaycasts = false;
+        AddDamageBand(damageUi.transform, "Top", new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -100));
+        AddDamageBand(damageUi.transform, "Bottom", new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 100));
+        AddDamageBand(damageUi.transform, "Left", new Vector2(0, 0), new Vector2(0, 1), new Vector2(95, 0));
+        AddDamageBand(damageUi.transform, "Right", new Vector2(1, 0), new Vector2(1, 1), new Vector2(-95, 0));
+    }
+
+    static void AddDamageBand(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 size)
+    {
+        RectTransform rect = new GameObject(name, typeof(RectTransform), typeof(Image)).GetComponent<RectTransform>();
+        rect.SetParent(parent, false);
+        rect.anchorMin = anchorMin;
+        rect.anchorMax = anchorMax;
+        rect.offsetMin = Vector2.Min(Vector2.zero, size);
+        rect.offsetMax = Vector2.Max(Vector2.zero, size);
+        rect.GetComponent<Image>().color = new Color(0.75f, 0.025f, 0.035f, 0.65f);
+        rect.GetComponent<Image>().raycastTarget = false;
+    }
+
+    public void FlashDamage()
+    {
+        damageUntil = Time.unscaledTime + 0.7f;
+        damageGroup.alpha = 1f;
     }
 
     public void Notify(string message, string sound)
@@ -87,6 +123,9 @@ public class GamePresentation : MonoBehaviour
         }
         float alpha = Time.unscaledTime < noticeUntil ? 1 : 0;
         group.alpha = Mathf.MoveTowards(group.alpha, alpha, Time.unscaledDeltaTime * 5);
+        damageGroup.alpha = Time.unscaledTime < damageUntil
+            ? Mathf.MoveTowards(damageGroup.alpha, 0.45f, Time.unscaledDeltaTime * 1.2f)
+            : Mathf.MoveTowards(damageGroup.alpha, 0f, Time.unscaledDeltaTime * 2.5f);
     }
 
     // Lightweight fallback sounds. Dedicated authored clips can override monster cues.

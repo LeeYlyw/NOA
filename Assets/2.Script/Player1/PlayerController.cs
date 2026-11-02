@@ -258,6 +258,9 @@ public class PlayerController : MonoBehaviour
         if (currentHp < 0)
             currentHp = 0;
 
+        if (currentHp < previousHealth && isLocalPlayer)
+            GamePresentation.Ensure().FlashDamage();
+
         if (currentHp <= 0)
         {
             Die();
