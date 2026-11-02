@@ -1025,6 +1025,12 @@ public class NetworkClient : MonoBehaviour
                 Slider hpSl = GameObject.Find("HPBar")?.GetComponent<Slider>();
                 Slider stSl = GameObject.Find("StaminaBar")?.GetComponent<Slider>();
                 localController.BindUI(hpSl, stSl);
+                if (hpSl != null && stSl != null)
+                {
+                    VitalsHUDStyle style = localController.GetComponent<VitalsHUDStyle>();
+                    if (style == null) style = localController.gameObject.AddComponent<VitalsHUDStyle>();
+                    style.Bind(hpSl, stSl);
+                }
             }
         }
     }

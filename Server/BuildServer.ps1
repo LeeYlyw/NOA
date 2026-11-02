@@ -10,8 +10,9 @@ if (-not $installation) {
     throw 'Visual Studio with C++ build tools was not found.'
 }
 $msbuild = Join-Path $installation 'MSBuild\Current\Bin\MSBuild.exe'
-$solution = Join-Path $serverDirectory 'GameServer.sln'
-& $msbuild $solution '/p:Configuration=Release' '/p:Platform=x64' '/m' '/v:minimal'
+$project = Join-Path $serverDirectory 'GameServer\GameServer.vcxproj'
+$outputDirectory = (Join-Path $serverDirectory 'x64\Release') + '\'
+& $msbuild $project '/p:Configuration=Release' '/p:Platform=x64' "/p:OutDir=$outputDirectory" '/m' '/v:minimal'
 if ($LASTEXITCODE -ne 0) {
     throw "GameServer build failed with exit code $LASTEXITCODE."
 }

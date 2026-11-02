@@ -54,7 +54,15 @@ public class LobbyManager : MonoBehaviour
             buttonStyle = new GUIStyle(GUI.skin.button) { font = uiFont };
             windowStyle = new GUIStyle(GUI.skin.window) { font = uiFont };
         }
-        GUI.ModalWindow(GetInstanceID(), new Rect((Screen.width-520)/2f, (Screen.height-370)/2f, 520, 370), DrawLobby, "NOA - 로비", windowStyle);
+        float scale = Mathf.Clamp(Mathf.Min(Screen.width / 800f, Screen.height / 600f), 0.7f, 1.5f);
+        Matrix4x4 previousMatrix = GUI.matrix;
+        GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
+        float width = Screen.width / scale;
+        float height = Screen.height / scale;
+        float panelWidth = Mathf.Min(560f, width - 24f);
+        float panelHeight = Mathf.Min(410f, height - 24f);
+        GUI.ModalWindow(GetInstanceID(), new Rect((width - panelWidth) / 2f, (height - panelHeight) / 2f, panelWidth, panelHeight), DrawLobby, "NOA - 로비", windowStyle);
+        GUI.matrix = previousMatrix;
     }
     void DrawLobby(int id)
     {

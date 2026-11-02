@@ -18,9 +18,9 @@ public class ObjectiveHUD : MonoBehaviour
     Text roleHint;
     Font font;
     InventoryManager inventory;
+    InventoryUI inventoryUI;
     NavMeshPath roomPath;
     float nextRoomRouteUpdate;
-    bool visible;
     string roomRouteHint = "잠긴 방 위치를 확인하세요.";
     readonly Color accent = new Color(0.32f, 0.88f, 0.81f);
     readonly Color muted = new Color(0.53f, 0.59f, 0.65f);
@@ -37,16 +37,16 @@ public class ObjectiveHUD : MonoBehaviour
         canvas.sortingOrder = 20;
         CanvasScaler scaler = root.GetComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920, 1080);
+        scaler.referenceResolution = new Vector2(1440, 810);
         scaler.matchWidthOrHeight = 0.5f;
 
-        RectTransform panel = Rect(root.transform, "Objective panel", 28, 28, 350, 382);
+        RectTransform panel = Rect(root.transform, "Objective panel", 28, 28, 350, 402);
         panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(1, 1);
         panel.anchoredPosition = new Vector2(-28, -28);
         panel.gameObject.AddComponent<Image>().color = new Color(0.025f, 0.045f, 0.065f, 0.9f);
         panel.GetComponent<Image>().raycastTarget = false;
-        Bar(panel, "Accent", 0, 0, 4, 382, accent);
-        Label(panel, "TEAM OBJECTIVE", 20, 16, 310, 23, 14, accent);
+        Bar(panel, "Accent", 0, 0, 4, 402, accent);
+        Label(panel, "현재 목표  ·  [J] 수집 기록", 20, 16, 310, 23, 14, accent);
         objective = Label(panel, "", 20, 43, 310, 54, 21, Color.white);
         clues = Label(panel, "", 20, 106, 310, 25, 18, Color.white);
         clueMarks = Marks(panel, "Clue", 140);
@@ -56,7 +56,7 @@ public class ObjectiveHUD : MonoBehaviour
         orangePad = Label(panel, "", 175, 216, 155, 24, 15, muted);
         instruction = Label(panel, "", 20, 248, 310, 48, 15, muted);
         teammateStatus = Label(panel, "", 20, 306, 310, 30, 16, Color.white);
-        roleHint = Label(panel, "", 20, 340, 310, 31, 14, muted);
+        roleHint = Label(panel, "", 20, 340, 310, 45, 14, muted);
         canvas.enabled = false;
     }
 
@@ -66,11 +66,10 @@ public class ObjectiveHUD : MonoBehaviour
         NetworkClient network = NetworkClient.Instance;
         bool playing = manager != null && network != null &&
             (network.offlineMode || network.GameStarted);
-        if (!playing || manager.IsEnding)
-            visible = false;
-        else if (Input.GetKeyDown(KeyCode.Tab))
-            visible = !visible;
-        canvas.enabled = playing && !manager.IsEnding && visible;
+        if (inventoryUI == null) inventoryUI = FindObjectOfType<InventoryUI>();
+        bool inventoryOpen = inventoryUI != null && inventoryUI.inventoryPanel != null &&
+            inventoryUI.inventoryPanel.activeSelf;
+        canvas.enabled = playing && !manager.IsEnding && !manager.JournalOpen && inventoryOpen;
         if (!canvas.enabled) return;
 
         CoopShapePuzzle lockPuzzle = CoopShapePuzzle.Instance;

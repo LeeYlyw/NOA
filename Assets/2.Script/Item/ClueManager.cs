@@ -48,6 +48,7 @@ public class ClueManager : MonoBehaviour
     private Image resultAccent;
     private bool journalOpen;
     public bool IsEnding => isEnding;
+    public bool JournalOpen => journalOpen;
     public bool IsVictory { get; private set; }
 
     void Awake()
@@ -135,7 +136,7 @@ public class ClueManager : MonoBehaviour
         evidenceCanvas.sortingOrder = 30;
         CanvasScaler scaler = root.GetComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920, 1080);
+        scaler.referenceResolution = new Vector2(1440, 810);
         scaler.matchWidthOrHeight = 0.5f;
 
         RectTransform panel = new GameObject("Journal panel", typeof(RectTransform)).GetComponent<RectTransform>();
@@ -160,7 +161,7 @@ public class ClueManager : MonoBehaviour
         evidenceText.raycastTarget = false;
         evidenceText.supportRichText = false;
         evidenceText.horizontalOverflow = HorizontalWrapMode.Wrap;
-        evidenceText.verticalOverflow = VerticalWrapMode.Overflow;
+        evidenceText.verticalOverflow = VerticalWrapMode.Truncate;
         RefreshEvidenceJournal();
         evidenceCanvas.enabled = false;
     }
@@ -305,6 +306,7 @@ public class ClueManager : MonoBehaviour
         card.anchorMin = card.anchorMax = card.pivot = new Vector2(0.5f, 0.5f);
         card.anchoredPosition = Vector2.zero;
         card.sizeDelta = new Vector2(820f, 650f);
+        card.localScale = Vector3.one * Mathf.Min(1f, Screen.width / 900f, Screen.height / 760f);
         card.GetComponent<Image>().color = new Color(0.045f, 0.075f, 0.09f, 0.98f);
 
         resultAccent = AddBar(card, 0f, 0f, 7f, 650f, new Color(0.30f, 0.85f, 0.78f));
