@@ -83,6 +83,10 @@ public class NetworkClient : MonoBehaviour
     public bool IsConnected => isConnected;
     public bool HasRemotePlayerState => hasRemoteState;
     public bool GameStarted { get; private set; }
+    public int SecondsLeft { get; private set; } = -1;
+    private float timeLeftReceivedAt;
+    public int DisplaySecondsLeft => SecondsLeft < 0 ? -1 :
+        Mathf.Max(0, Mathf.CeilToInt(SecondsLeft - (Time.unscaledTime - timeLeftReceivedAt)));
     public PlayerRole Role1 { get; private set; } = PlayerRole.Healer;
     public PlayerRole Role2 { get; private set; } = PlayerRole.Runner;
     public string ConnectionStatus { get; private set; } = "서버에 연결하는 중...";
@@ -513,6 +517,14 @@ public class NetworkClient : MonoBehaviour
                 break;
             case "S_NAV_READY":
                 Debug.Log("[Network] Server navigation map confirmed by both clients; server AI active.");
+                break;
+            case "S_TIME_LEFT":
+                if (parts.Length >= 2 && int.TryParse(parts[1], out int secondsLeft) &&
+                    secondsLeft >= 0 && secondsLeft <= 600)
+                {
+                    SecondsLeft = secondsLeft;
+                    timeLeftReceivedAt = Time.unscaledTime;
+                }
                 break;
             case "S_NAV_ERROR":
                 ConnectionStatus = "맵 준비 실패: " + DescribeMapFailure(parts.Length > 1 ? parts[1] : "");

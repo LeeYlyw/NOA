@@ -16,6 +16,7 @@ public class ObjectiveHUD : MonoBehaviour
     Text orangePad;
     Text teammateStatus;
     Text roleHint;
+    Text timer;
     Font font;
     InventoryManager inventory;
     InventoryUI inventoryUI;
@@ -57,6 +58,14 @@ public class ObjectiveHUD : MonoBehaviour
         instruction = Label(panel, "", 20, 248, 310, 48, 15, muted);
         teammateStatus = Label(panel, "", 20, 306, 310, 30, 16, Color.white);
         roleHint = Label(panel, "", 20, 340, 310, 45, 14, muted);
+        RectTransform timerPanel = Rect(root.transform, "Time limit", 0, 28, 174, 54);
+        timerPanel.anchorMin = timerPanel.anchorMax = timerPanel.pivot = new Vector2(0.5f, 1f);
+        timerPanel.anchoredPosition = new Vector2(0, -28);
+        Image timerBackground = timerPanel.gameObject.AddComponent<Image>();
+        timerBackground.color = new Color(0.025f, 0.045f, 0.065f, 0.9f);
+        timerBackground.raycastTarget = false;
+        timer = Label(timerPanel, "남은 시간  10:00", 10, 10, 154, 34, 20, Color.white);
+        timer.alignment = TextAnchor.MiddleCenter;
         canvas.enabled = false;
     }
 
@@ -69,8 +78,17 @@ public class ObjectiveHUD : MonoBehaviour
         if (inventoryUI == null) inventoryUI = FindObjectOfType<InventoryUI>();
         bool inventoryOpen = inventoryUI != null && inventoryUI.inventoryPanel != null &&
             inventoryUI.inventoryPanel.activeSelf;
-        canvas.enabled = playing && !manager.IsEnding && !manager.JournalOpen && inventoryOpen;
+        canvas.enabled = playing && !manager.IsEnding && !manager.JournalOpen && !inventoryOpen;
         if (!canvas.enabled) return;
+
+        int secondsLeft = network.offlineMode ? -1 : network.DisplaySecondsLeft;
+        timer.transform.parent.gameObject.SetActive(secondsLeft >= 0);
+        if (secondsLeft >= 0)
+        {
+            timer.text = "남은 시간  " + (secondsLeft / 60).ToString("00") + ":" +
+                (secondsLeft % 60).ToString("00");
+            timer.color = secondsLeft <= 60 ? new Color(1f, 0.45f, 0.38f) : Color.white;
+        }
 
         CoopShapePuzzle lockPuzzle = CoopShapePuzzle.Instance;
         int count = Mathf.Clamp(manager.clueCount, 0, 3);

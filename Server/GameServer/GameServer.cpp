@@ -1264,6 +1264,7 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
     }
     matchStartedAt = GetTimeSeconds();
     BroadcastPacket(clientSocket1, clientSocket2, "S_NAV_READY");
+    BroadcastPacket(clientSocket1, clientSocket2, "S_TIME_LEFT|600");
     std::cout << "[NAV READY] " << source.width << "x" << source.height
               << " cells confirmed by both clients; monster roots: 1=("
               << monsters[0].position.x << "," << monsters[0].position.y << ","
@@ -2020,6 +2021,7 @@ int main()
     std::cout << "Start Server Authority Monster Loop." << std::endl;
 
     double lastUpdateTime = GetTimeSeconds();
+    int lastTimeLeftBroadcast = 600;
     double lastMonsterBroadcastTime = GetTimeSeconds();
     double navigationDeadline = GetTimeSeconds() + 30.0;
     bool navigationTimeoutReported = false;
@@ -2045,6 +2047,17 @@ int main()
         }
 
         // Check the deadline before reading pickups, so a late third clue cannot win.
+        if (matchResult == 0 && navigation.ready && matchStartedAt > 0.0)
+        {
+            int secondsLeft = std::max(0, static_cast<int>(std::ceil(
+                MatchDurationSeconds - (GetTimeSeconds() - matchStartedAt))));
+            if (secondsLeft != lastTimeLeftBroadcast)
+            {
+                lastTimeLeftBroadcast = secondsLeft;
+                BroadcastPacket(clientSocket1, clientSocket2,
+                    "S_TIME_LEFT|" + std::to_string(secondsLeft));
+            }
+        }
         if (matchResult == 0 && navigation.ready && matchStartedAt > 0.0 &&
             GetTimeSeconds() - matchStartedAt >= MatchDurationSeconds)
         {
