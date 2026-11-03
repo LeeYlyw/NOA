@@ -1985,9 +1985,14 @@ int main()
                 auto parts=Split(pending[i].substr(0,end),'|'); pending[i].erase(0,end+1);
                 if(parts.empty()) continue;
                 int value;
-                if(parts[0]=="C_ROLE" && parts.size()==2 && TryParseInt(parts[1],value) && value>=0 && value<=3) { roles[i]=value; ready[i]=false; publish(); }
+                if(parts[0]=="C_ROLE" && parts.size()==2 && TryParseInt(parts[1],value) && value>=0 && value<=3) {
+                    int other = i == 1 ? 2 : 1;
+                    if(slots[other]!=INVALID_SOCKET && roles[other]==value)
+                        SendPacket(slots[i], "ERROR|Role taken");
+                    else { roles[i]=value; ready[i]=false; publish(); }
+                }
                 else if(parts[0]=="C_READY" && parts.size()==2 && TryParseInt(parts[1],value) && (value==0||value==1) && roles[i]>=0) { ready[i]=value==1; publish(); }
-                else if(parts[0]=="C_START" && i==host && slots[1]!=INVALID_SOCKET && slots[2]!=INVALID_SOCKET && ready[1] && ready[2]) {
+                else if(parts[0]=="C_START" && i==host && slots[1]!=INVALID_SOCKET && slots[2]!=INVALID_SOCKET && ready[1] && ready[2] && roles[1]!=roles[2]) {
                     started=true; break;
                 }
             }

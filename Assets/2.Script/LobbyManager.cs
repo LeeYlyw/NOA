@@ -75,18 +75,24 @@ public class LobbyManager : MonoBehaviour
         GUILayout.Space(20);
         bool localReady = ready[Mathf.Clamp(net.playerId, 1, 2)];
         GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && !net.GameStarted;
-        GUILayout.Label("직업을 선택하세요. 변경하면 준비 상태가 해제됩니다.", labelStyle);
+        GUILayout.Label("직업을 선택하세요. 동료와 같은 직업은 선택할 수 없습니다.", labelStyle);
         GUILayout.BeginHorizontal();
-        for (int i = 0; i < names.Length; i++) if (GUILayout.Button(names[i], buttonStyle, GUILayout.Height(40))) net.SelectRole(i);
+        int otherPlayer = net.playerId == 1 ? 2 : 1;
+        for (int i = 0; i < names.Length; i++)
+        {
+            GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && !net.GameStarted &&
+                (!connected[otherPlayer] || roles[otherPlayer] != i);
+            if (GUILayout.Button(names[i], buttonStyle, GUILayout.Height(40))) net.SelectRole(i);
+        }
         GUILayout.EndHorizontal();
         int selectedRole = roles[Mathf.Clamp(net.playerId, 1, 2)];
         if (selectedRole >= 0 && selectedRole < descriptions.Length)
             GUILayout.Label(descriptions[selectedRole], labelStyle);
         GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && !net.GameStarted && roles[Mathf.Clamp(net.playerId,1,2)] >= 0;
         if (GUILayout.Button(localReady ? "준비 취소" : "준비", buttonStyle, GUILayout.Height(40))) net.SetReady(!localReady);
-        GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && !net.GameStarted && net.playerId == host && connected[1] && connected[2] && ready[1] && ready[2];
+        GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && !net.GameStarted && net.playerId == host && connected[1] && connected[2] && ready[1] && ready[2] && roles[1] != roles[2];
         if (GUILayout.Button("게임 시작 (방장)", buttonStyle, GUILayout.Height(40))) StartGame();
         GUI.enabled = true;
-        GUILayout.Label("두 플레이어가 직업을 선택하고 준비하면 시작할 수 있습니다. 단서는 누구나 획득할 수 있습니다.", labelStyle);
+        GUILayout.Label("서로 다른 직업을 선택하고 둘 다 준비하면 시작할 수 있습니다. 단서는 누구나 획득할 수 있습니다.", labelStyle);
     }
 }

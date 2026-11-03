@@ -287,6 +287,7 @@ public class NetworkClient : MonoBehaviour
         switch (reason)
         {
             case "Lobby full": return "로비가 가득 찼습니다.";
+            case "Role taken": return "동료가 이미 선택한 직업입니다. 다른 직업을 선택하세요.";
             default: return "서버 요청이 거절됐습니다. 직업과 준비 상태를 확인하세요.";
         }
     }
