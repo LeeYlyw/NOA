@@ -317,6 +317,23 @@ public class ClueManager : MonoBehaviour
         victoryQuestion = question.gameObject.AddComponent<CanvasGroup>();
         victoryQuestion.alpha = 0f;
         victoryQuestion.blocksRaycasts = false;
+        if (!IsVictory)
+        {
+            Texture2D youDied = Resources.Load<Texture2D>("Ending/YouDied");
+            if (youDied != null)
+            {
+                RawImage defeatImage = FullScreenRect(question, "You Died artwork")
+                    .gameObject.AddComponent<RawImage>();
+                defeatImage.texture = youDied;
+                defeatImage.raycastTarget = false;
+                float screenAspect = (float)Screen.width / Mathf.Max(1, Screen.height);
+                float imageAspect = (float)youDied.width / youDied.height;
+                float crop = screenAspect / imageAspect;
+                defeatImage.uvRect = crop > 1f
+                    ? new Rect(0f, (1f - 1f / crop) * 0.5f, 1f, 1f / crop)
+                    : new Rect((1f - crop) * 0.5f, 0f, crop, 1f);
+            }
+        }
         resultQuestionText = AddText(question, "탈출한 건가?", 55, Color.white,
             0f, 0f, 900f, 110f, TextAnchor.MiddleCenter);
         resultQuestionText.rectTransform.anchorMin = resultQuestionText.rectTransform.anchorMax =
@@ -369,7 +386,7 @@ public class ClueManager : MonoBehaviour
     {
         bool timedOut = reason == "TIME";
         bool offline = NetworkClient.Instance != null && NetworkClient.Instance.offlineMode;
-        resultQuestionText.text = timedOut ? "시간이 끝났다." : "우리는 여기서 멈췄다.";
+        resultQuestionText.gameObject.SetActive(false);
         resultHeadingText.text = "임무 실패";
         resultDescriptionText.text = timedOut
             ? "10분이 지났습니다. 확보한 단서를 확인하고 다시 도전하세요."
