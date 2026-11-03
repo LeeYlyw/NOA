@@ -244,6 +244,11 @@ public class ClueManager : MonoBehaviour
         resultTitle = reason == "TIME" ? "임무 실패 · 제한 시간 종료" :
             "임무 실패 · 두 플레이어 모두 쓰러졌습니다";
         if (endingPanel != null) endingPanel.SetActive(false);
+        // Keep the match scene and network client loaded for a shared restart vote.
+        // The report itself lives in a dedicated additive ending scene.
+        UnityEngine.SceneManagement.Scene badEndingScene =
+            UnityEngine.SceneManagement.SceneManager.CreateScene("BadEnding");
+        UnityEngine.SceneManagement.SceneManager.SetActiveScene(badEndingScene);
         CreateVictoryPresentation();
         ConfigureDefeatPresentation(reason);
         victoryStartedAt = Time.unscaledTime;
@@ -273,7 +278,8 @@ public class ClueManager : MonoBehaviour
 
         GameObject root = new GameObject("Ending Report", typeof(RectTransform), typeof(Canvas),
             typeof(CanvasScaler), typeof(GraphicRaycaster));
-        UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(root, gameObject.scene);
+        UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(root,
+            IsVictory ? gameObject.scene : UnityEngine.SceneManagement.SceneManager.GetActiveScene());
         victoryCanvas = root.GetComponent<Canvas>();
         victoryCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
         victoryCanvas.sortingOrder = 100;

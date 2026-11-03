@@ -176,7 +176,8 @@ public class NetworkClient : MonoBehaviour
         if (client != null) client.Close();
         Time.timeScale = 1f;
         yield return new WaitForSecondsRealtime(0.7f);
-        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+        // A defeat report opens an additive runtime scene; reload the match scene.
+        SceneManager.LoadScene(gameObject.scene.name);
     }
 
     public void SendPuzzlePad(bool active)
