@@ -41,6 +41,8 @@ public class ClueManager : MonoBehaviour
     private Button victoryRestart;
     private float victoryStartedAt;
     private float offlineStartedAt = -1f;
+    public int OfflineSecondsLeft => offlineStartedAt < 0f ? 600 :
+        Mathf.Max(0, Mathf.CeilToInt(600f - (Time.unscaledTime - offlineStartedAt)));
     private Text resultQuestionText;
     private Text resultHeadingText;
     private Text resultDescriptionText;
@@ -228,9 +230,12 @@ public class ClueManager : MonoBehaviour
         Debug.Log("엔딩 화면 활성화");
         if (endingPanel != null)
             endingPanel.SetActive(false);
+        UnityEngine.SceneManagement.Scene goodEndingScene =
+            UnityEngine.SceneManagement.SceneManager.CreateScene("GoodEnding");
+        UnityEngine.SceneManagement.SceneManager.SetActiveScene(goodEndingScene);
         CreateVictoryPresentation();
-        victoryStartedAt = Time.unscaledTime;
-        UpdateVictoryActions();
+        victoryStartedAt = Time.unscaledTime - 4f;
+        UpdateVictoryPresentation();
 
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
@@ -251,8 +256,8 @@ public class ClueManager : MonoBehaviour
         UnityEngine.SceneManagement.SceneManager.SetActiveScene(badEndingScene);
         CreateVictoryPresentation();
         ConfigureDefeatPresentation(reason);
-        victoryStartedAt = Time.unscaledTime;
-        UpdateVictoryActions();
+        victoryStartedAt = Time.unscaledTime - 4f;
+        UpdateVictoryPresentation();
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
         Time.timeScale = 0f;
@@ -279,7 +284,7 @@ public class ClueManager : MonoBehaviour
         GameObject root = new GameObject("Ending Report", typeof(RectTransform), typeof(Canvas),
             typeof(CanvasScaler), typeof(GraphicRaycaster));
         UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(root,
-            IsVictory ? gameObject.scene : UnityEngine.SceneManagement.SceneManager.GetActiveScene());
+            UnityEngine.SceneManagement.SceneManager.GetActiveScene());
         victoryCanvas = root.GetComponent<Canvas>();
         victoryCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
         victoryCanvas.sortingOrder = 100;

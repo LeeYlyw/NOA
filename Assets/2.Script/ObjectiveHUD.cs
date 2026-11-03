@@ -6,6 +6,7 @@ using UnityEngine.UI;
 public class ObjectiveHUD : MonoBehaviour
 {
     Canvas canvas;
+    RectTransform objectivePanel;
     Text objective;
     Text clues;
     Text puzzle;
@@ -18,10 +19,9 @@ public class ObjectiveHUD : MonoBehaviour
     Text roleHint;
     Text timer;
     Font font;
-    InventoryManager inventory;
-    InventoryUI inventoryUI;
     NavMeshPath roomPath;
     float nextRoomRouteUpdate;
+    bool visibilityLogged;
     string roomRouteHint = "잠긴 방 위치를 확인하세요.";
     readonly Color accent = new Color(0.32f, 0.88f, 0.81f);
     readonly Color muted = new Color(0.53f, 0.59f, 0.65f);
@@ -41,12 +41,13 @@ public class ObjectiveHUD : MonoBehaviour
         scaler.referenceResolution = new Vector2(1440, 810);
         scaler.matchWidthOrHeight = 0.5f;
 
-        RectTransform panel = Rect(root.transform, "Objective panel", 28, 28, 350, 402);
+        RectTransform panel = Rect(root.transform, "Objective panel", 28, 28, 350, 444);
+        objectivePanel = panel;
         panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(1, 1);
         panel.anchoredPosition = new Vector2(-28, -28);
         panel.gameObject.AddComponent<Image>().color = new Color(0.025f, 0.045f, 0.065f, 0.9f);
         panel.GetComponent<Image>().raycastTarget = false;
-        Bar(panel, "Accent", 0, 0, 4, 402, accent);
+        Bar(panel, "Accent", 0, 0, 4, 444, accent);
         Label(panel, "현재 목표  ·  [J] 수집 기록", 20, 16, 310, 23, 14, accent);
         objective = Label(panel, "", 20, 43, 310, 54, 21, Color.white);
         clues = Label(panel, "", 20, 106, 310, 25, 18, Color.white);
@@ -56,8 +57,8 @@ public class ObjectiveHUD : MonoBehaviour
         bluePad = Label(panel, "", 20, 216, 150, 24, 15, muted);
         orangePad = Label(panel, "", 175, 216, 155, 24, 15, muted);
         instruction = Label(panel, "", 20, 248, 310, 48, 15, muted);
-        teammateStatus = Label(panel, "", 20, 306, 310, 30, 16, Color.white);
-        roleHint = Label(panel, "", 20, 340, 310, 45, 14, muted);
+        teammateStatus = Label(panel, "", 20, 304, 310, 94, 15, Color.white);
+        roleHint = Label(panel, "", 20, 402, 310, 38, 14, muted);
         RectTransform timerPanel = Rect(root.transform, "Time limit", 0, 28, 174, 54);
         timerPanel.anchorMin = timerPanel.anchorMax = timerPanel.pivot = new Vector2(0.5f, 1f);
         timerPanel.anchoredPosition = new Vector2(0, -28);
@@ -67,6 +68,7 @@ public class ObjectiveHUD : MonoBehaviour
         timer = Label(timerPanel, "남은 시간  10:00", 10, 10, 154, 34, 20, Color.white);
         timer.alignment = TextAnchor.MiddleCenter;
         canvas.enabled = false;
+        Debug.Log("[ObjectiveHUD] Created mission panel and top-center timer.");
     }
 
     void Update()
@@ -75,20 +77,21 @@ public class ObjectiveHUD : MonoBehaviour
         NetworkClient network = NetworkClient.Instance;
         bool playing = manager != null && network != null &&
             (network.offlineMode || network.GameStarted);
-        if (inventoryUI == null) inventoryUI = FindObjectOfType<InventoryUI>();
-        bool inventoryOpen = inventoryUI != null && inventoryUI.inventoryPanel != null &&
-            inventoryUI.inventoryPanel.activeSelf;
-        canvas.enabled = playing && !manager.IsEnding && !manager.JournalOpen && !inventoryOpen;
+        canvas.enabled = playing && !manager.IsEnding;
         if (!canvas.enabled) return;
-
-        int secondsLeft = network.offlineMode ? -1 : network.DisplaySecondsLeft;
-        timer.transform.parent.gameObject.SetActive(secondsLeft >= 0);
-        if (secondsLeft >= 0)
+        if (!visibilityLogged)
         {
-            timer.text = "남은 시간  " + (secondsLeft / 60).ToString("00") + ":" +
-                (secondsLeft % 60).ToString("00");
-            timer.color = secondsLeft <= 60 ? new Color(1f, 0.45f, 0.38f) : Color.white;
+            visibilityLogged = true;
+            Debug.Log("[ObjectiveHUD] Visible; offline=" + network.offlineMode +
+                ", gameStarted=" + network.GameStarted + ", initialSeconds=" + network.SecondsLeft);
         }
+        objectivePanel.gameObject.SetActive(!manager.JournalOpen);
+
+        int secondsLeft = network.offlineMode ? manager.OfflineSecondsLeft :
+            network.SecondsLeft < 0 ? 600 : network.DisplaySecondsLeft;
+        timer.text = "남은 시간  " + (secondsLeft / 60).ToString("00") + ":" +
+            (secondsLeft % 60).ToString("00");
+        timer.color = secondsLeft <= 60 ? new Color(1f, 0.45f, 0.38f) : Color.white;
 
         CoopShapePuzzle lockPuzzle = CoopShapePuzzle.Instance;
         int count = Mathf.Clamp(manager.clueCount, 0, 3);
@@ -137,9 +140,11 @@ public class ObjectiveHUD : MonoBehaviour
             int activeRound = Mathf.Clamp(completed + 1, 1, 3);
             string detail = activeRound == 1 ? "외곽 모양을" :
                 activeRound == 2 ? "모양과 색을" : "모양·색·중앙 표시를";
-            instruction.text = network.playerId == 1
+            instruction.text = network.playerId == lockPuzzle.BluePadOwner
                 ? detail + "\n동료에게 설명하세요."
-                : detail + " 듣고\n숫자 1~4로 선택하세요.";
+                : network.playerId == lockPuzzle.OrangePadOwner
+                    ? detail + " 듣고\n숫자 1~4로 선택하세요."
+                    : "발판 위 동료들이 잠금 장치를 풉니다.\n주변을 지키고 단서를 찾으세요.";
         }
         else
         {
@@ -148,9 +153,12 @@ public class ObjectiveHUD : MonoBehaviour
                 instruction.text = "협동 장치는 두 플레이어가 필요합니다.\n단서 1개는 잠긴 방 안에 있습니다.";
             else if (lockPuzzle != null && network.localPlayerTransform != null)
             {
+                int targetPad = blue ? 2 : orange ? 1 :
+                    Vector3.Distance(network.localPlayerTransform.position, lockPuzzle.GetAssignedPad(1)) <=
+                    Vector3.Distance(network.localPlayerTransform.position, lockPuzzle.GetAssignedPad(2)) ? 1 : 2;
                 float distance = Vector3.Distance(network.localPlayerTransform.position,
-                    lockPuzzle.GetAssignedPad(network.playerId));
-                instruction.text = (network.playerId == 1 ? "파란" : "주황") + " 발판까지 " + distance.ToString("F0") +
+                    lockPuzzle.GetAssignedPad(targetPad));
+                instruction.text = (targetPad == 1 ? "파란" : "주황") + " 발판까지 " + distance.ToString("F0") +
                     "m\n둘이 올라 잠긴 방을 여세요.";
             }
             else instruction.text = "단서 1개는 잠긴 방 안에 있습니다.";
@@ -186,26 +194,27 @@ public class ObjectiveHUD : MonoBehaviour
 
     void UpdateTeamStatus(NetworkClient network)
     {
-        Transform teammate = network.remotePlayerTransform;
-        PlayerController teammateController = teammate != null ? teammate.GetComponent<PlayerController>() : null;
-        if (network.offlineMode || teammateController == null)
+        if (network.offlineMode)
             teammateStatus.text = "동료 상태 · 연결 대기";
-        else if (teammateController.IsDeadState)
-        {
-            if (inventory == null) inventory = FindObjectOfType<InventoryManager>();
-            bool hasRevive = inventory != null && inventory.HasItemType(ItemData.ItemType.Resurrection);
-            bool near = network.localPlayerTransform != null &&
-                Vector3.Distance(network.localPlayerTransform.position, teammate.position) <= 5f;
-            teammateStatus.text = hasRevive
-                ? (near ? "동료 쓰러짐 · 부활 아이템 사용 가능" : "동료 쓰러짐 · 5m 이내 접근")
-                : "동료 쓰러짐 · 부활 아이템 필요";
-        }
         else
-            teammateStatus.text = "동료 체력 · " + teammateController.CurrentHp + " / " + teammateController.maxHealth;
-        teammateStatus.color = teammateController != null && teammateController.IsDeadState
-            ? new Color(1f, 0.48f, 0.4f) : Color.white;
+        {
+            System.Text.StringBuilder team = new System.Text.StringBuilder();
+            for (int id = 1; id <= network.PlayerCount; id++)
+            {
+                if (id == network.playerId) continue;
+                GameObject teammate = network.GetPlayerObject(id);
+                PlayerController controller = teammate != null ? teammate.GetComponent<PlayerController>() : null;
+                if (team.Length > 0) team.Append('\n');
+                team.Append("동료 ").Append(id).Append(" · ");
+                team.Append(controller == null ? "연결 대기" :
+                    controller.IsDeadState ? "쓰러짐" :
+                    controller.CurrentHp + " / " + controller.maxHealth + " HP");
+            }
+            teammateStatus.text = team.ToString();
+        }
+        teammateStatus.color = Color.white;
 
-        PlayerRole role = network.playerId == 1 ? network.Role1 : network.Role2;
+        PlayerRole role = network.GetRole(network.playerId);
         switch (role)
         {
             case PlayerRole.Detector: roleHint.text = "감지자 · 단서를 소리로 탐지"; break;
