@@ -976,6 +976,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
+  - {fileID: 7435760855451785998}
   - {fileID: 6261444916610590914}
   - {fileID: 4440710311581577800}
   - {fileID: 9123227147017950360}
@@ -2215,6 +2216,84 @@ PrefabInstance:
 Transform:
   m_CorrespondingSourceObject: {fileID: 1361953297525724318, guid: 97a5397060c433c4490438616666c826, type: 3}
   m_PrefabInstance: {fileID: 6859149807226514745}
+  m_PrefabAsset: {fileID: 0}
+--- !u!1001 &6970332418469805285
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 6806938515162124225}
+    m_Modifications:
+    - target: {fileID: -8679921383154817045, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 1.6
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+      propertyPath: m_LocalScale.y
+      value: 1.6
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+      propertyPath: m_LocalScale.z
+      value: 1.6
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: -17.84
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 7.9
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: -0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: -0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: -0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -7635826562936255635, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: 63c6294a0c874ae98054c4c9bc6251b8, type: 2}
+    - target: {fileID: 919132149155446097, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+      propertyPath: m_Name
+      value: WaterPuddle_Quad
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+--- !u!4 &7435760855451785998 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: ebb5c6665386afb4dbabdd2ee1d2c06d, type: 3}
+  m_PrefabInstance: {fileID: 6970332418469805285}
   m_PrefabAsset: {fileID: 0}
 --- !u!1001 &7282510664630880535
 PrefabInstance:
