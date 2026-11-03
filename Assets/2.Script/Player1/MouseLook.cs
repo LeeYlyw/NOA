@@ -4,11 +4,14 @@ public class MouseLook : MonoBehaviour
 {
     public float mouseSensitivity = 150f;
     public Transform playerBody;
+    [SerializeField] private float crouchEyeDrop = 0.65f;
+    [SerializeField] private float crouchEyeSpeed = 4f;
 
     float xRotation = 0f;
     PlayerController playerController;
     private Camera viewCamera;
     private Vector3 restingLocalPosition;
+    private float currentEyeDrop;
     private readonly RaycastHit[] cameraHits = new RaycastHit[32];
 
     void Start()
@@ -45,7 +48,11 @@ public class MouseLook : MonoBehaviour
         if (playerBody == null || transform.parent == null || viewCamera == null ||
             playerController == null || !playerController.isLocalPlayer) return;
 
+        float targetEyeDrop = playerController.IsCrouchingState ? crouchEyeDrop : 0f;
+        currentEyeDrop = Mathf.MoveTowards(currentEyeDrop, targetEyeDrop,
+            crouchEyeSpeed * Time.deltaTime);
         Vector3 desired = transform.parent.TransformPoint(restingLocalPosition);
+        desired.y -= currentEyeDrop;
         Vector3 anchor = playerBody.position;
         anchor.y = desired.y;
         Vector3 offset = desired - anchor;

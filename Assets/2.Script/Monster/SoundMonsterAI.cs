@@ -29,7 +29,7 @@ public class SoundMonsterAI : MonoBehaviour
     public float patrolRadius = 12f;
     public float patrolPause = 1.5f;
     public float patrolSpeed = 1.3f;
-    public float chaseSpeed = 3.5f;
+    public float chaseSpeed = 5f;
     public float searchSpeed = 2f;
 
     [Header("Investigate")]
@@ -39,7 +39,7 @@ public class SoundMonsterAI : MonoBehaviour
 
     [Header("Attack (Newly Added)")]
     public float attackRange = 2f;
-    public int damage = 10;
+    public int damage = 30;
     public float attackCooldown = 1.5f;
     public float rotateSpeed = 5f;
     private const float AttackImpactSeconds = 0.55f;
