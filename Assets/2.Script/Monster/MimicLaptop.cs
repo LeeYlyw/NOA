@@ -229,7 +229,11 @@ public class MimicLaptop : MonoBehaviour
 
         NetworkClient network = NetworkClient.Instance;
         bool online = network != null && !network.offlineMode;
-        int targetPlayerId = online && player.transform == network.player2Object?.transform ? 2 : 1;
+        int targetPlayerId = 1;
+        if (online)
+            for (int id = 1; id <= network.PlayerCount; id++)
+                if (player.transform == network.GetPlayerTransform(id))
+                { targetPlayerId = id; break; }
         int shotId = online
             ? network.SendMimicFire(networkId, targetPlayerId, start, direction, projectileSpeed, damage)
             : 0;

@@ -52,20 +52,29 @@ struct NavigationUpload
 };
 
 static ServerNavigation navigation;
-static NavigationUpload navigationUploads[3];
+static constexpr int MaxPlayers = 4;
+static SOCKET matchSockets[MaxPlayers + 1] = {};
+static int matchPlayerCount = 0;
+static NavigationUpload navigationUploads[MaxPlayers + 1];
 static std::map<int, ItemSpawn> trustedItemSpawns;
 static bool navigationFailed = false;
 static double gateOpeningTime = 0.0;
-static int matchRoles[3] = {-1, -1, -1};
-static double nextHealAt[3] = {};
+static int matchRoles[MaxPlayers + 1] = {-1, -1, -1, -1, -1};
+static double nextHealAt[MaxPlayers + 1] = {};
 static int matchResult = 0; // 0 playing, 1 clear, 2 defeat
 static double matchStartedAt = 0.0;
 static constexpr double MatchDurationSeconds = 10.0 * 60.0;
-static bool restartVotes[3] = {};
+static bool restartVotes[MaxPlayers + 1] = {};
 static bool restartRequested = false;
 static Vec3 puzzlePadPositions[3];
 static bool puzzlePadsReady = false;
-static bool puzzlePad[3] = {};
+static int puzzlePadOwner[3] = {};
+static bool puzzleStarted = false;
+static bool puzzleSolved = false;
+static int puzzleAnswer = -1;
+static int puzzleChoices[4] = {};
+static int puzzleRound = 0;
+static double puzzleRetryAt = 0.0;
 
 enum class MonsterType
 {
@@ -331,30 +340,21 @@ void SendPacket(SOCKET socket, const std::string& packet)
 
 void BroadcastPacket(SOCKET clientSocket1, SOCKET clientSocket2, const std::string& packet)
 {
-    SendPacket(clientSocket1, packet);
-    SendPacket(clientSocket2, packet);
+    for (int id = 1; id <= matchPlayerCount; ++id)
+        if (matchSockets[id] != INVALID_SOCKET) SendPacket(matchSockets[id], packet);
+}
+
+void BroadcastExcept(int excludedId, const std::string& packet)
+{
+    for (int id = 1; id <= matchPlayerCount; ++id)
+        if (id != excludedId && matchSockets[id] != INVALID_SOCKET)
+            SendPacket(matchSockets[id], packet);
 }
 
 SOCKET GetSocketByPlayerId(int playerId, SOCKET clientSocket1, SOCKET clientSocket2)
 {
-    if (playerId == 1)
-        return clientSocket1;
-
-    if (playerId == 2)
-        return clientSocket2;
-
-    return INVALID_SOCKET;
-}
-
-SOCKET GetOtherSocket(int playerId, SOCKET clientSocket1, SOCKET clientSocket2)
-{
-    if (playerId == 1)
-        return clientSocket2;
-
-    if (playerId == 2)
-        return clientSocket1;
-
-    return INVALID_SOCKET;
+    return playerId >= 1 && playerId <= matchPlayerCount
+        ? matchSockets[playerId] : INVALID_SOCKET;
 }
 
 void FaceTarget(MonsterState& monster, const Vec3& target)
@@ -480,7 +480,7 @@ PlayerState* FindVisiblePlayer(MonsterState& monster, PlayerState players[])
     PlayerState* bestPlayer = nullptr;
     float bestDistance = 999999.0f;
 
-    for (int i = 1; i <= 2; ++i)
+    for (int i = 1; i <= matchPlayerCount; ++i)
     {
         if (!IsPlayerVisible(monster, players[i]))
             continue;
@@ -501,7 +501,7 @@ PlayerState* FindNearestAttackTarget(MonsterState& monster, PlayerState players[
     PlayerState* bestPlayer = nullptr;
     float bestDistance = 999999.0f;
 
-    for (int i = 1; i <= 2; ++i)
+    for (int i = 1; i <= matchPlayerCount; ++i)
     {
         if (!players[i].hasState || players[i].isDead)
             continue;
@@ -567,7 +567,7 @@ bool ResolvePendingMonsterAttack(MonsterState& monster, PlayerState players[],
     }
     monster.attackImpactApplied = true;
     monster.isAttack = false;
-    if (monster.pendingAttackTargetId < 1 || monster.pendingAttackTargetId > 2) return true;
+    if (monster.pendingAttackTargetId < 1 || monster.pendingAttackTargetId > matchPlayerCount) return true;
     PlayerState& target = players[monster.pendingAttackTargetId];
     if (!target.hasState || target.isDead ||
         Distance2D(monster.position, target.position) > monster.attackRange ||
@@ -857,7 +857,7 @@ void ProcessNoisePacket(const std::vector<std::string>& parts, int senderPlayerI
         return;
 
     int playerId = 0;
-    if (!TryParseInt(parts[1], playerId) || playerId < 1 || playerId > 2 ||
+    if (!TryParseInt(parts[1], playerId) || playerId < 1 || playerId > matchPlayerCount ||
         playerId != senderPlayerId || players[playerId].isDead)
         return;
 
@@ -1154,49 +1154,50 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
     if (parts[0] != "C_NAV_END" || parts.size() != 2 || !upload.begun ||
         upload.mask.size() != static_cast<size_t>(upload.width * upload.height)) return;
     upload.complete = true;
-    if (!navigationUploads[1].complete || !navigationUploads[2].complete) return;
+    for (int id = 1; id <= matchPlayerCount; ++id)
+        if (!navigationUploads[id].complete) return;
 
-    bool doorsMatch = navigationUploads[1].doors.size() == navigationUploads[2].doors.size();
-    for (const auto& entry : navigationUploads[1].doors)
+    const NavigationUpload& source = navigationUploads[1];
+    bool layoutsMatch = true;
+    for (int id = 2; id <= matchPlayerCount; ++id)
     {
-        auto other = navigationUploads[2].doors.find(entry.first);
-        if (other == navigationUploads[2].doors.end() ||
-            std::fabs(entry.second.x - other->second.x) > 0.05f ||
-            std::fabs(entry.second.y - other->second.y) > 0.05f ||
-            std::fabs(entry.second.z - other->second.z) > 0.05f)
-            doorsMatch = false;
+        const NavigationUpload& other = navigationUploads[id];
+        if (source.header != other.header || source.mask != other.mask ||
+            source.doors.size() != other.doors.size() ||
+            source.items.size() != other.items.size()) layoutsMatch = false;
+        for (const auto& entry : source.doors)
+        {
+            auto found = other.doors.find(entry.first);
+            if (found == other.doors.end() ||
+                std::fabs(entry.second.x - found->second.x) > 0.05f ||
+                std::fabs(entry.second.y - found->second.y) > 0.05f ||
+                std::fabs(entry.second.z - found->second.z) > 0.05f)
+                layoutsMatch = false;
+        }
+        for (int padId = 1; padId <= 2; ++padId)
+            if (source.hasPad[padId] != other.hasPad[padId] ||
+                (source.hasPad[padId] &&
+                 (std::fabs(source.pads[padId].x - other.pads[padId].x) > 0.05f ||
+                  std::fabs(source.pads[padId].y - other.pads[padId].y) > 0.05f ||
+                  std::fabs(source.pads[padId].z - other.pads[padId].z) > 0.05f)))
+                layoutsMatch = false;
+        for (const auto& entry : source.items)
+        {
+            auto found = other.items.find(entry.first);
+            if (found == other.items.end() || entry.second.type != found->second.type ||
+                std::fabs(entry.second.position.x - found->second.position.x) > 0.05f ||
+                std::fabs(entry.second.position.y - found->second.position.y) > 0.05f ||
+                std::fabs(entry.second.position.z - found->second.position.z) > 0.05f)
+                layoutsMatch = false;
+        }
     }
-    bool padsMatch = true;
-    for (int padId = 1; padId <= 2; ++padId)
-    {
-        if (navigationUploads[1].hasPad[padId] != navigationUploads[2].hasPad[padId])
-            padsMatch = false;
-        if (navigationUploads[1].hasPad[padId] &&
-            (std::fabs(navigationUploads[1].pads[padId].x - navigationUploads[2].pads[padId].x) > 0.05f ||
-             std::fabs(navigationUploads[1].pads[padId].y - navigationUploads[2].pads[padId].y) > 0.05f ||
-             std::fabs(navigationUploads[1].pads[padId].z - navigationUploads[2].pads[padId].z) > 0.05f))
-            padsMatch = false;
-    }
-    bool itemsMatch = navigationUploads[1].items.size() == navigationUploads[2].items.size();
     for (int clueId = 1; clueId <= 3; ++clueId)
     {
-        auto clue = navigationUploads[1].items.find(clueId);
-        if (clue == navigationUploads[1].items.end() || clue->second.type != "Clue")
-            itemsMatch = false;
+        auto clue = source.items.find(clueId);
+        if (clue == source.items.end() || clue->second.type != "Clue")
+            layoutsMatch = false;
     }
-    for (const auto& entry : navigationUploads[1].items)
-    {
-        auto other = navigationUploads[2].items.find(entry.first);
-        if (other == navigationUploads[2].items.end() ||
-            entry.second.type != other->second.type ||
-            std::fabs(entry.second.position.x - other->second.position.x) > 0.05f ||
-            std::fabs(entry.second.position.y - other->second.position.y) > 0.05f ||
-            std::fabs(entry.second.position.z - other->second.position.z) > 0.05f)
-            itemsMatch = false;
-    }
-    if (navigationUploads[1].header != navigationUploads[2].header ||
-        navigationUploads[1].mask != navigationUploads[2].mask ||
-        !doorsMatch || !padsMatch || !itemsMatch)
+    if (!layoutsMatch)
     {
         navigationFailed = true;
         BroadcastPacket(clientSocket1, clientSocket2, "S_NAV_ERROR|Map or item layout differs between clients");
@@ -1204,7 +1205,6 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
         return;
     }
 
-    const NavigationUpload& source = navigationUploads[1];
     trustedItemSpawns = source.items;
     navigation.width = source.width;
     navigation.height = source.height;
@@ -1298,7 +1298,9 @@ void ProcessClientPacket(
         if (matchResult == 0 || parts.size() != 2 ||
             !TryParseInt(parts[1], playerId) || playerId != senderPlayerId) return;
         restartVotes[playerId] = true;
-        if (restartVotes[1] && restartVotes[2])
+        bool allVoted=true;
+        for(int id=1; id<=matchPlayerCount; ++id) allVoted=allVoted && restartVotes[id];
+        if (allVoted)
         {
             BroadcastPacket(clientSocket1, clientSocket2, "S_RESTART");
             restartRequested = true;
@@ -1355,18 +1357,12 @@ void ProcessClientPacket(
 
     // One cooperative color/shape puzzle per match. Only the assigned client may
     // report its pad or submit a choice; the server owns the answer and result.
-    static bool puzzleStarted = false;
-    static bool puzzleSolved = false;
-    static int puzzleAnswer = -1;
-    static int puzzleChoices[4] = {};
-    static int puzzleRound = 0;
-    static double puzzleRetryAt = 0.0;
     constexpr int puzzleRoundCount = 3;
-    auto validPadPosition = [&](int id) {
+    auto validPadPosition = [&](int id, int padId) {
         return puzzlePadsReady && navigation.ready && players[id].hasState &&
             !players[id].isDead &&
-            Distance2D(players[id].position, puzzlePadPositions[id]) <= 1.2f &&
-            std::fabs(players[id].position.y - puzzlePadPositions[id].y) <= 1.0f;
+            Distance2D(players[id].position, puzzlePadPositions[padId]) <= 1.2f &&
+            std::fabs(players[id].position.y - puzzlePadPositions[padId].y) <= 1.0f;
     };
     // Code = shape * 12 + color * 3 + center mark (4 x 4 x 3).
     auto sendPuzzleRound = [&]() {
@@ -1398,27 +1394,41 @@ void ProcessClientPacket(
             puzzleChoices[3] = ((shape + 1) % 4) * 12 + color * 3 + mark;
         }
         std::shuffle(puzzleChoices, puzzleChoices + 4, std::mt19937(random()));
-        SendPacket(clientSocket1, "S_PUZZLE_CLUE|" + std::to_string(puzzleRound) + "|" + std::to_string(puzzleAnswer));
+        SendPacket(matchSockets[puzzlePadOwner[1]], "S_PUZZLE_CLUE|" + std::to_string(puzzleRound) + "|" + std::to_string(puzzleAnswer));
         std::ostringstream options;
         options << "S_PUZZLE_CHOICES|" << puzzleRound;
         for (int choice : puzzleChoices) options << "|" << choice;
-        SendPacket(clientSocket2, options.str());
+        SendPacket(matchSockets[puzzlePadOwner[2]], options.str());
         BroadcastPacket(clientSocket1, clientSocket2,
             "S_PUZZLE_PROGRESS|" + std::to_string(puzzleRound) + "|" + std::to_string(puzzleRoundCount));
     };
     if (type == "C_PUZZLE_PAD")
     {
-        int id = 0, active = 0;
-        if (parts.size() != 3 || !TryParseInt(parts[1], id) || id != senderPlayerId ||
-            !TryParseInt(parts[2], active) || (active != 0 && active != 1) || puzzleSolved)
+        int id = 0, padId = 0, active = 0;
+        if (parts.size() != 4 || !TryParseInt(parts[1], id) ||
+            id != senderPlayerId || !TryParseInt(parts[2], padId) || padId < 1 || padId > 2 ||
+            !TryParseInt(parts[3], active) || (active != 0 && active != 1) || puzzleSolved)
             return;
-        if (active == 1 && !validPadPosition(id)) return;
-        if (puzzlePad[id] == (active == 1)) return;
-        puzzlePad[id] = active == 1;
+        if (active == 1)
+        {
+            if (!validPadPosition(id, padId) || puzzlePadOwner[padId] != 0 ||
+                puzzlePadOwner[3 - padId] == id) return;
+            puzzlePadOwner[padId] = id;
+        }
+        else
+        {
+            if (puzzlePadOwner[padId] != id) return;
+            puzzlePadOwner[padId] = 0;
+            puzzleStarted = false;
+            puzzleRound = 0;
+            puzzleAnswer = -1;
+            puzzleRetryAt = 0.0;
+            BroadcastPacket(clientSocket1, clientSocket2, "S_PUZZLE_RESET");
+        }
         BroadcastPacket(clientSocket1, clientSocket2,
-            "S_PUZZLE_PADS|" + std::to_string(puzzlePad[1] ? 1 : 0) + "|" +
-            std::to_string(puzzlePad[2] ? 1 : 0));
-        if (puzzlePad[1] && puzzlePad[2] && !puzzleStarted)
+            "S_PUZZLE_PADS|" + std::to_string(puzzlePadOwner[1]) + "|" +
+            std::to_string(puzzlePadOwner[2]));
+        if (puzzlePadOwner[1] != 0 && puzzlePadOwner[2] != 0 && !puzzleStarted)
         {
             puzzleStarted = true;
             puzzleRound = 1;
@@ -1429,10 +1439,11 @@ void ProcessClientPacket(
     if (type == "C_PUZZLE_CHOOSE")
     {
         int id = 0, index = -1;
-        if (parts.size() != 3 || !TryParseInt(parts[1], id) || id != 2 || id != senderPlayerId ||
+        if (parts.size() != 3 || !TryParseInt(parts[1], id) ||
+            id != puzzlePadOwner[2] || id != senderPlayerId ||
             !TryParseInt(parts[2], index) || index < 0 || index > 3 ||
-            !puzzleStarted || puzzleSolved || !puzzlePad[1] || !puzzlePad[2] ||
-            !validPadPosition(1) || !validPadPosition(2) ||
+            !puzzleStarted || puzzleSolved || puzzlePadOwner[1] == 0 || puzzlePadOwner[2] == 0 ||
+            !validPadPosition(puzzlePadOwner[1], 1) || !validPadPosition(puzzlePadOwner[2], 2) ||
             GetTimeSeconds() < puzzleRetryAt) return;
         if (puzzleChoices[index] == puzzleAnswer)
         {
@@ -1463,9 +1474,7 @@ void ProcessClientPacket(
         if (!ProcessMovePacket(parts, senderPlayerId, players))
             return;
 
-        SOCKET otherSocket = GetOtherSocket(senderPlayerId, clientSocket1, clientSocket2);
-        if (otherSocket != INVALID_SOCKET)
-            SendPacket(otherSocket, packet);
+        BroadcastExcept(senderPlayerId, packet);
 
         return;
     }
@@ -1477,7 +1486,7 @@ void ProcessClientPacket(
             !TryParseInt(parts[1], playerId) || playerId != senderPlayerId ||
             !TryParseInt(parts[2], mimicId) || mimicId < 1 || mimicId > 128 ||
             !TryParseInt(parts[3], state) || state < 0 || state > 2) return;
-        SendPacket(clientSocket2, "S_MIMIC_STATE|" + std::to_string(mimicId) + "|" +
+        BroadcastExcept(senderPlayerId, "S_MIMIC_STATE|" + std::to_string(mimicId) + "|" +
                                   std::to_string(state));
         return;
     }
@@ -1491,7 +1500,7 @@ void ProcessClientPacket(
             !TryParseInt(parts[1], playerId) || playerId != senderPlayerId ||
             !TryParseInt(parts[2], mimicId) || mimicId < 1 || mimicId > 128 ||
             !TryParseInt(parts[3], shotId) || shotId < 1 ||
-            !TryParseInt(parts[4], targetId) || targetId < 1 || targetId > 2 ||
+            !TryParseInt(parts[4], targetId) || targetId < 1 || targetId > matchPlayerCount ||
             !TryParseFloat(parts[5], start.x) || !TryParseFloat(parts[6], start.y) ||
             !TryParseFloat(parts[7], start.z) || !TryParseFloat(parts[8], direction.x) ||
             !TryParseFloat(parts[9], direction.y) || !TryParseFloat(parts[10], direction.z) ||
@@ -1524,7 +1533,7 @@ void ProcessClientPacket(
         std::ostringstream fire;
         fire << "S_MIMIC_FIRE|" << mimicId << "|" << shotId << "|" << targetId;
         for (size_t i = 5; i <= 12; ++i) fire << "|" << parts[i];
-        SendPacket(clientSocket2, fire.str());
+        BroadcastExcept(senderPlayerId, fire.str());
         return;
     }
 
@@ -1551,7 +1560,7 @@ void ProcessClientPacket(
         float maxTravel = shot.speed * static_cast<float>(GetTimeSeconds() - shot.firedAt + 0.75);
         if (along < -0.5f || along > maxTravel || distanceSquared > 2.25f)
             return;
-        for (int otherId = 1; otherId <= 2; ++otherId)
+        for (int otherId = 1; otherId <= matchPlayerCount; ++otherId)
         {
             if (otherId == playerId || !players[otherId].hasState || players[otherId].isDead)
                 continue;
@@ -1654,7 +1663,7 @@ void ProcessClientPacket(
         }
         else if (requestedType == ItemType::Resurrection)
         {
-            if (targetId != 3 - playerId || !players[targetId].hasState ||
+            if (targetId < 1 || targetId > matchPlayerCount || targetId == playerId || !players[targetId].hasState ||
                 !players[targetId].isDead ||
                 Distance2D(players[playerId].position, players[targetId].position) > 5.0f ||
                 std::fabs(players[playerId].position.y - players[targetId].position.y) > 2.0f)
@@ -1669,7 +1678,7 @@ void ProcessClientPacket(
         }
         else if (requestedType == ItemType::Teleport)
         {
-            if (targetId != 3 - playerId || !players[targetId].hasState ||
+            if (targetId < 1 || targetId > matchPlayerCount || targetId == playerId || !players[targetId].hasState ||
                 !navigation.ready ||
                 Distance2D(destination, players[targetId].position) > 2.5f ||
                 std::fabs(destination.y - players[targetId].position.y) > 2.0f ||
@@ -1702,7 +1711,7 @@ void ProcessClientPacket(
         int healedCount = 0;
         if (validCast)
         {
-            for (int targetId = 1; targetId <= 2; ++targetId)
+            for (int targetId = 1; targetId <= matchPlayerCount; ++targetId)
             {
                 PlayerState& target = players[targetId];
                 if (!target.hasState || target.isDead || target.hp >= target.maxHp ||
@@ -1716,7 +1725,7 @@ void ProcessClientPacket(
             }
         }
         if (healedCount > 0) nextHealAt[reqPlayerId] = now + 10.0;
-        SendPacket(reqPlayerId == 1 ? clientSocket1 : clientSocket2,
+        SendPacket(GetSocketByPlayerId(reqPlayerId, clientSocket1, clientSocket2),
             "S_PLAYER_HEAL_RESULT|" + std::to_string(reqPlayerId) +
             "|" + std::to_string(healedCount > 0 ? 1 : 0));
         return;
@@ -1727,9 +1736,7 @@ void ProcessClientPacket(
         return;
     }
     // Relay remaining presentation packets that have no server-owned mutation.
-    SOCKET otherSocket = GetOtherSocket(senderPlayerId, clientSocket1, clientSocket2);
-    if (otherSocket != INVALID_SOCKET)
-        SendPacket(otherSocket, packet);
+    BroadcastExcept(senderPlayerId, packet);
 }
 
 void ProcessReceiveBuffer(
@@ -1943,42 +1950,47 @@ int main()
 
     std::cout << "Server Start" << std::endl;
     std::cout << "Listen Port : 7777" << std::endl;
-    std::cout << "Server Model : select based two-client TCP server" << std::endl;
+    std::cout << "Server Model : two-to-four-client TCP server" << std::endl;
 
 
-    SOCKET slots[3] = {INVALID_SOCKET, INVALID_SOCKET, INVALID_SOCKET};
-    int roles[3] = {-1, -1, -1};
-    bool ready[3] = {};
-    std::string pending[3];
+    SOCKET slots[MaxPlayers + 1] = {INVALID_SOCKET, INVALID_SOCKET, INVALID_SOCKET, INVALID_SOCKET, INVALID_SOCKET};
+    int roles[MaxPlayers + 1] = {-1, -1, -1, -1, -1};
+    bool ready[MaxPlayers + 1] = {};
+    std::string pending[MaxPlayers + 1];
     int host = 0;
     bool started = false;
     auto publish = [&]() {
         std::ostringstream out;
         out << "LOBBY|" << host;
-        for (int i=1; i<=2; ++i) out << "|" << (slots[i]!=INVALID_SOCKET) << "|" << roles[i] << "|" << ready[i];
-        for (int i=1; i<=2; ++i) if (slots[i]!=INVALID_SOCKET) SendPacket(slots[i],out.str());
+        for (int i=1; i<=MaxPlayers; ++i) out << "|" << (slots[i]!=INVALID_SOCKET) << "|" << roles[i] << "|" << ready[i];
+        for (int i=1; i<=MaxPlayers; ++i) if (slots[i]!=INVALID_SOCKET) SendPacket(slots[i],out.str());
     };
     double emptySince = GetTimeSeconds();
     while (!started) {
         if (!host && GetTimeSeconds()-emptySince > 30.0) { closesocket(listenSocket); WSACleanup(); return 0; }
         fd_set reads; FD_ZERO(&reads); FD_SET(listenSocket,&reads);
-        for (int i=1;i<=2;++i) if(slots[i]!=INVALID_SOCKET) FD_SET(slots[i],&reads);
+        for (int i=1;i<=MaxPlayers;++i) if(slots[i]!=INVALID_SOCKET) FD_SET(slots[i],&reads);
         timeval wait = {0,50000};
         if(select(0,&reads,nullptr,nullptr,&wait)==SOCKET_ERROR) return 1;
         if(FD_ISSET(listenSocket,&reads)) {
             SOCKET incoming=accept(listenSocket,nullptr,nullptr);
-            int id=slots[1]==INVALID_SOCKET?1:slots[2]==INVALID_SOCKET?2:0;
+            int id=0;
+            for (int candidate=1; candidate<=MaxPlayers; ++candidate)
+                if(slots[candidate]==INVALID_SOCKET) { id=candidate; break; }
             if(incoming!=INVALID_SOCKET) {
                 if(!id) { SendPacket(incoming,"ERROR|Lobby full"); closesocket(incoming); }
                 else { slots[id]=incoming; if(!host) host=id; SendPacket(incoming,"ID|"+std::to_string(id)); publish(); }
             }
         }
-        for(int i=1;i<=2;++i) {
+        for(int i=1;i<=MaxPlayers;++i) {
             if(slots[i]==INVALID_SOCKET || !FD_ISSET(slots[i],&reads)) continue;
             char data[1024]; int n=recv(slots[i],data,sizeof(data),0);
             if(n<=0) {
                 closesocket(slots[i]); slots[i]=INVALID_SOCKET; pending[i].clear(); roles[i]=-1; ready[i]=false;
-                host=slots[1]!=INVALID_SOCKET?1:slots[2]!=INVALID_SOCKET?2:0; emptySince=GetTimeSeconds(); publish(); continue;
+                host=0;
+                for(int candidate=1; candidate<=MaxPlayers; ++candidate)
+                    if(slots[candidate]!=INVALID_SOCKET) { host=candidate; break; }
+                emptySince=GetTimeSeconds(); publish(); continue;
             }
             pending[i].append(data,n); size_t end;
             while((end=pending[i].find('\n'))!=std::string::npos) {
@@ -1986,32 +1998,47 @@ int main()
                 if(parts.empty()) continue;
                 int value;
                 if(parts[0]=="C_ROLE" && parts.size()==2 && TryParseInt(parts[1],value) && value>=0 && value<=3) {
-                    int other = i == 1 ? 2 : 1;
-                    if(slots[other]!=INVALID_SOCKET && roles[other]==value)
+                    bool taken=false;
+                    for(int other=1; other<=MaxPlayers; ++other)
+                        if(other!=i && slots[other]!=INVALID_SOCKET && roles[other]==value) taken=true;
+                    if(taken)
                         SendPacket(slots[i], "ERROR|Role taken");
                     else { roles[i]=value; ready[i]=false; publish(); }
                 }
                 else if(parts[0]=="C_READY" && parts.size()==2 && TryParseInt(parts[1],value) && (value==0||value==1) && roles[i]>=0) { ready[i]=value==1; publish(); }
-                else if(parts[0]=="C_START" && i==host && slots[1]!=INVALID_SOCKET && slots[2]!=INVALID_SOCKET && ready[1] && ready[2] && roles[1]!=roles[2]) {
-                    started=true; break;
+                else if(parts[0]=="C_START" && i==host) {
+                    int count=0; bool allReady=true;
+                    for(int id=1; id<=MaxPlayers; ++id) if(slots[id]!=INVALID_SOCKET) {
+                        ++count; if(!ready[id] || roles[id]<0) allReady=false;
+                    }
+                    if(count>=2 && allReady) { started=true; break; }
                 }
             }
             if(pending[i].size()>4096) pending[i].clear();
         }
     }
-    clientSocket1=slots[1]; clientSocket2=slots[2];
+    // Compact participant IDs at match start so every two-player combination
+    // still has puzzle owners 1 and 2.
+    for(int id=1; id<=MaxPlayers; ++id) if(slots[id]!=INVALID_SOCKET) {
+        int newId=++matchPlayerCount;
+        matchSockets[newId]=slots[id];
+        matchRoles[newId]=roles[id];
+        SendPacket(slots[id],"ID|"+std::to_string(newId));
+    }
+    clientSocket1=matchSockets[1]; clientSocket2=matchSockets[2];
     closesocket(listenSocket); listenSocket=INVALID_SOCKET;
     std::random_device rd;
     int mapSeed=1+rd()%999999;
-    BroadcastPacket(clientSocket1,clientSocket2,"START|"+std::to_string(mapSeed)+"|"+std::to_string(roles[1])+"|"+std::to_string(roles[2]));
-    matchRoles[1] = roles[1];
-    matchRoles[2] = roles[2];
+    std::string start="START|"+std::to_string(mapSeed)+"|"+std::to_string(matchPlayerCount);
+    for(int id=1; id<=matchPlayerCount; ++id) start+="|"+std::to_string(matchRoles[id]);
+    BroadcastPacket(clientSocket1,clientSocket2,start);
 
-    PlayerState players[3];
-    players[1].playerId = 1;
-    players[2].playerId = 2;
+    PlayerState players[MaxPlayers + 1];
     // Apply each lobby selection to server health.
-    for (int i=1;i<=2;++i) players[i].hp = players[i].maxHp = roles[i]==3 ? 80 : 100;
+    for (int i=1;i<=matchPlayerCount;++i) {
+        players[i].playerId=i;
+        players[i].hp = players[i].maxHp = matchRoles[i]==3 ? 80 : 100;
+    }
 
     MonsterState monsters[2];
     InitializeMonsters(monsters);
@@ -2020,8 +2047,7 @@ int main()
     int clueCount = 0;
     int needClueCount = 3;
 
-    std::string receiveBuffer1;
-    std::string receiveBuffer2;
+    std::string receiveBuffers[MaxPlayers + 1];
 
     std::cout << "Start Server Authority Monster Loop." << std::endl;
 
@@ -2037,8 +2063,8 @@ int main()
     {
         fd_set readSet;
         FD_ZERO(&readSet);
-        FD_SET(clientSocket1, &readSet);
-        FD_SET(clientSocket2, &readSet);
+        for (int id=1; id<=matchPlayerCount; ++id)
+            FD_SET(matchSockets[id], &readSet);
 
         timeval timeout;
         timeout.tv_sec = 0;
@@ -2070,47 +2096,25 @@ int main()
             BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_OVER|TIME");
         }
 
-        if (selectResult > 0 && FD_ISSET(clientSocket1, &readSet))
+        bool peerDisconnected=false;
+        for (int id=1; id<=matchPlayerCount && selectResult>0; ++id)
         {
-            int recvLength = recv(clientSocket1, buffer, sizeof(buffer) - 1, 0);
-
-            if (recvLength > 0)
+            if (!FD_ISSET(matchSockets[id], &readSet)) continue;
+            int recvLength = recv(matchSockets[id], buffer, sizeof(buffer) - 1, 0);
+            if (recvLength <= 0)
             {
-                buffer[recvLength] = '\0';
-                receiveBuffer1.append(buffer, recvLength);
-                ProcessReceiveBuffer(1, receiveBuffer1, clientSocket1, clientSocket2, players, monsters, items, clueCount, needClueCount);
-                if (restartRequested) break;
-            }
-            else
-            {
-                std::cout << "Client 1 disconnected or recv failed." << std::endl;
-                puzzlePad[1] = puzzlePad[2] = false;
-                SendPacket(clientSocket2, "S_PUZZLE_PADS|0|0");
-                SendPacket(clientSocket2, "S_PEER_LEFT");
+                std::cout << "Client " << id << " disconnected or recv failed." << std::endl;
+                BroadcastExcept(id, "S_PEER_LEFT");
+                peerDisconnected=true;
                 break;
             }
+            buffer[recvLength] = '\0';
+            receiveBuffers[id].append(buffer, recvLength);
+            ProcessReceiveBuffer(id, receiveBuffers[id], clientSocket1, clientSocket2,
+                players, monsters, items, clueCount, needClueCount);
+            if (restartRequested) break;
         }
-
-        if (selectResult > 0 && FD_ISSET(clientSocket2, &readSet))
-        {
-            int recvLength = recv(clientSocket2, buffer, sizeof(buffer) - 1, 0);
-
-            if (recvLength > 0)
-            {
-                buffer[recvLength] = '\0';
-                receiveBuffer2.append(buffer, recvLength);
-                ProcessReceiveBuffer(2, receiveBuffer2, clientSocket1, clientSocket2, players, monsters, items, clueCount, needClueCount);
-                if (restartRequested) break;
-            }
-            else
-            {
-                std::cout << "Client 2 disconnected or recv failed." << std::endl;
-                puzzlePad[1] = puzzlePad[2] = false;
-                SendPacket(clientSocket1, "S_PUZZLE_PADS|0|0");
-                SendPacket(clientSocket1, "S_PEER_LEFT");
-                break;
-            }
-        }
+        if (peerDisconnected || restartRequested) break;
 
         double now = GetTimeSeconds();
         if (!navigation.ready && !navigationFailed && !navigationTimeoutReported && now >= navigationDeadline)
@@ -2128,7 +2132,7 @@ int main()
         // ========================================================
         // [추가] 은신(Stealth) 지속 시간 체크 및 만료 시 자동 해제
         // ========================================================
-        for (int i = 1; i <= 2; ++i)
+        for (int i = 1; i <= matchPlayerCount; ++i)
         {
             if (players[i].isStealth && now >= players[i].stealthEndTime)
             {
@@ -2150,26 +2154,38 @@ int main()
             UpdateMonsterDoorOpenings(monsters, clientSocket1, clientSocket2, now);
         }
 
-        if (matchResult == 0 && puzzlePadsReady)
+        if (matchResult == 0 && puzzlePadsReady && !puzzleSolved)
         {
             bool released = false;
-            for (int id = 1; id <= 2; ++id)
-                if (puzzlePad[id] &&
-                    (!players[id].hasState || players[id].isDead ||
-                     Distance2D(players[id].position, puzzlePadPositions[id]) > 1.2f ||
-                     std::fabs(players[id].position.y - puzzlePadPositions[id].y) > 1.0f))
+            for (int padId = 1; padId <= 2; ++padId)
+            {
+                int owner = puzzlePadOwner[padId];
+                if (owner != 0 &&
+                    (!players[owner].hasState || players[owner].isDead ||
+                     Distance2D(players[owner].position, puzzlePadPositions[padId]) > 1.2f ||
+                     std::fabs(players[owner].position.y - puzzlePadPositions[padId].y) > 1.0f))
                 {
-                    puzzlePad[id] = false;
+                    puzzlePadOwner[padId] = 0;
                     released = true;
                 }
+            }
             if (released)
+            {
+                puzzleStarted = false;
+                puzzleRound = 0;
+                puzzleAnswer = -1;
+                puzzleRetryAt = 0.0;
+                BroadcastPacket(clientSocket1, clientSocket2, "S_PUZZLE_RESET");
                 BroadcastPacket(clientSocket1, clientSocket2,
-                    "S_PUZZLE_PADS|" + std::to_string(puzzlePad[1] ? 1 : 0) + "|" +
-                    std::to_string(puzzlePad[2] ? 1 : 0));
+                    "S_PUZZLE_PADS|" + std::to_string(puzzlePadOwner[1]) + "|" +
+                    std::to_string(puzzlePadOwner[2]));
+            }
         }
 
-        if (matchResult == 0 && players[1].hasState && players[2].hasState &&
-            players[1].isDead && players[2].isDead)
+        bool allDown=matchResult==0;
+        for(int id=1; id<=matchPlayerCount; ++id)
+            allDown=allDown && players[id].hasState && players[id].isDead;
+        if (allDown)
         {
             matchResult = 2;
             BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_OVER|ALL_DOWN");
@@ -2182,8 +2198,7 @@ int main()
         }
     }
 
-    closesocket(clientSocket2);
-    closesocket(clientSocket1);
+    for(int id=1; id<=matchPlayerCount; ++id) closesocket(matchSockets[id]);
     closesocket(listenSocket);
     WSACleanup();
 

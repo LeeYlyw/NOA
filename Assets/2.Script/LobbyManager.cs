@@ -9,9 +9,10 @@ public class LobbyManager : MonoBehaviour
     public TMP_Text statusText;
     public Button startButton;
     public string gameSceneName = "MapGeneration_Test";
-    readonly bool[] connected = new bool[3];
-    readonly bool[] ready = new bool[3];
-    readonly int[] roles = { -1, -1, -1 };
+    readonly bool[] connected = new bool[5];
+    readonly bool[] ready = new bool[5];
+    readonly int[] roles = { -1, -1, -1, -1, -1 };
+    public bool HasCompatibleServerState { get; private set; }
     int host;
     Font uiFont;
     GUIStyle labelStyle;
@@ -31,15 +32,20 @@ public class LobbyManager : MonoBehaviour
         if (Instance == this) Instance = null;
         if (uiFont != null) Destroy(uiFont);
     }
-    public void SetPlayerCount(int count) { if (statusText != null) statusText.text = count + " / 2"; }
-    public void ApplyState(string[] parts)
+    public void SetPlayerCount(int count) { if (statusText != null) statusText.text = count + " / 4"; }
+    public bool ApplyState(string[] parts)
     {
-        if (parts.Length != 8 || !int.TryParse(parts[1], out int h)) return;
-        int[] values = new int[6];
-        for (int i = 0; i < 6; i++) if (!int.TryParse(parts[i + 2], out values[i])) return;
+        if (parts.Length != 14 || !int.TryParse(parts[1], out int h)) return false;
+        int[] values = new int[12];
+        for (int i = 0; i < 12; i++) if (!int.TryParse(parts[i + 2], out values[i])) return false;
         host = h;
-        for (int i = 1; i <= 2; i++)
+        for (int i = 1; i <= 4; i++)
         { connected[i] = values[(i-1)*3] == 1; roles[i] = values[(i-1)*3+1]; ready[i] = values[(i-1)*3+2] == 1; }
+        int count = 0;
+        for (int i = 1; i <= 4; i++) if (connected[i]) count++;
+        SetPlayerCount(count);
+        HasCompatibleServerState = true;
+        return true;
     }
     public void StartGame() { if (NetworkClient.Instance != null) NetworkClient.Instance.RequestStart(); }
     void OnGUI()
@@ -60,7 +66,7 @@ public class LobbyManager : MonoBehaviour
         float width = Screen.width / scale;
         float height = Screen.height / scale;
         float panelWidth = Mathf.Min(560f, width - 24f);
-        float panelHeight = Mathf.Min(410f, height - 24f);
+        float panelHeight = Mathf.Min(510f, height - 24f);
         GUI.ModalWindow(GetInstanceID(), new Rect((width - panelWidth) / 2f, (height - panelHeight) / 2f, panelWidth, panelHeight), DrawLobby, "NOA - 로비", windowStyle);
         GUI.matrix = previousMatrix;
     }
@@ -69,30 +75,54 @@ public class LobbyManager : MonoBehaviour
         var net = NetworkClient.Instance;
         GUILayout.Space(16);
         GUILayout.Label(net.ConnectionStatus, labelStyle);
-        for (int i = 1; i <= 2; i++)
-            GUILayout.Label("플레이어 " + i + (host == i ? " [방장]" : "") + (i == net.playerId ? " [나]" : "") + ": " +
-                (!connected[i] ? "접속 대기" : (roles[i] >= 0 && roles[i] < names.Length ? names[roles[i]] : "직업 선택 대기") + (ready[i] ? " · 준비 완료" : " · 준비 전")), labelStyle);
-        GUILayout.Space(20);
-        bool localReady = ready[Mathf.Clamp(net.playerId, 1, 2)];
-        GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && !net.GameStarted;
+        int participantCount = 0;
+        for (int i = 1; i <= 4; i++) if (connected[i]) participantCount++;
+        GUILayout.Label("참가자  " + participantCount + " / 4", labelStyle);
+        for (int row = 0; row < 2; row++)
+        {
+            GUILayout.BeginHorizontal();
+            for (int column = 0; column < 2; column++)
+            {
+                int slot = row * 2 + column + 1;
+                GUILayout.BeginVertical(GUI.skin.box, GUILayout.Width(255f), GUILayout.Height(64f));
+                GUILayout.Label("플레이어 " + slot + (host == slot ? "  [방장]" : "") +
+                    (net.playerId == slot ? "  [나]" : ""), labelStyle);
+                GUILayout.Label(!connected[slot] ? "접속 대기" :
+                    (roles[slot] >= 0 && roles[slot] < names.Length ? names[roles[slot]] : "직업 선택 대기") +
+                    (ready[slot] ? "  ·  준비 완료" : "  ·  준비 전"), labelStyle);
+                GUILayout.EndVertical();
+            }
+            GUILayout.EndHorizontal();
+        }
+        GUILayout.Space(12);
+        bool localReady = ready[Mathf.Clamp(net.playerId, 1, 4)];
+        GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && HasCompatibleServerState && !net.GameStarted;
         GUILayout.Label("직업을 선택하세요. 동료와 같은 직업은 선택할 수 없습니다.", labelStyle);
         GUILayout.BeginHorizontal();
-        int otherPlayer = net.playerId == 1 ? 2 : 1;
         for (int i = 0; i < names.Length; i++)
         {
-            GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && !net.GameStarted &&
-                (!connected[otherPlayer] || roles[otherPlayer] != i);
+            bool taken = false;
+            for (int slot = 1; slot <= 4; slot++)
+                if (slot != net.playerId && connected[slot] && roles[slot] == i) taken = true;
+            GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && HasCompatibleServerState && !net.GameStarted &&
+                !taken;
             if (GUILayout.Button(names[i], buttonStyle, GUILayout.Height(40))) net.SelectRole(i);
         }
         GUILayout.EndHorizontal();
-        int selectedRole = roles[Mathf.Clamp(net.playerId, 1, 2)];
+        GUI.enabled = true;
+        int selectedRole = roles[Mathf.Clamp(net.playerId, 1, 4)];
         if (selectedRole >= 0 && selectedRole < descriptions.Length)
             GUILayout.Label(descriptions[selectedRole], labelStyle);
-        GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && !net.GameStarted && roles[Mathf.Clamp(net.playerId,1,2)] >= 0;
+        GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && HasCompatibleServerState && !net.GameStarted && roles[Mathf.Clamp(net.playerId,1,4)] >= 0;
         if (GUILayout.Button(localReady ? "준비 취소" : "준비", buttonStyle, GUILayout.Height(40))) net.SetReady(!localReady);
-        GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && !net.GameStarted && net.playerId == host && connected[1] && connected[2] && ready[1] && ready[2] && roles[1] != roles[2];
+        int connectedCount = 0;
+        bool allReady = true;
+        for (int slot = 1; slot <= 4; slot++) if (connected[slot])
+        { connectedCount++; if (!ready[slot] || roles[slot] < 0) allReady = false; }
+        GUI.enabled = net.IsConnected && net.HasAssignedPlayerId && HasCompatibleServerState && !net.GameStarted &&
+            net.playerId == host && connectedCount >= 2 && allReady;
         if (GUILayout.Button("게임 시작 (방장)", buttonStyle, GUILayout.Height(40))) StartGame();
         GUI.enabled = true;
-        GUILayout.Label("서로 다른 직업을 선택하고 둘 다 준비하면 시작할 수 있습니다. 단서는 누구나 획득할 수 있습니다.", labelStyle);
+        GUILayout.Label("2~4명이 서로 다른 직업을 선택하고 모두 준비하면 시작할 수 있습니다.", labelStyle);
     }
 }

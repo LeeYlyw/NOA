@@ -1217,6 +1217,19 @@ public class MapGenerator : MonoBehaviour
         p2.name = "Player2";
         AlignPlayerToFloor(p2, p2Pos);
         spawnedEntities.Add(p2);
+        List<GameObject> spawnedPlayers = new List<GameObject> { p1, p2 };
+        int participantCount = network != null ? network.PlayerCount : 2;
+        for (int id = 3; id <= participantCount; id++)
+        {
+            GameObject prefab = PlayerPrefabForRole(network.GetRole(id), null);
+            if (prefab == null || validSpawnPoints.Count == 0) return false;
+            Vector3 position = GetNearbySpawnPoint(p1Pos);
+            GameObject player = Instantiate(prefab, position, Quaternion.identity, playersRoot);
+            player.name = "Player" + id;
+            AlignPlayerToFloor(player, position);
+            spawnedEntities.Add(player);
+            spawnedPlayers.Add(player);
+        }
 
         Vector3 monsterPos = GetFarthestSpawnPoint(p1Pos, minMonsterDistance);
         if (float.IsInfinity(monsterPos.x)) return false;
@@ -1233,7 +1246,10 @@ public class MapGenerator : MonoBehaviour
         monster.name = "Monster1";
         spawnedEntities.Add(monster);
 
-        Vector3 monster2Pos = GetFarthestSpawnPointFromAll(p1Pos, p2Pos, monsterPos);
+        List<Vector3> occupiedPositions = new List<Vector3>();
+        foreach (GameObject player in spawnedPlayers) occupiedPositions.Add(player.transform.position);
+        occupiedPositions.Add(monsterPos);
+        Vector3 monster2Pos = GetFarthestSpawnPointFromAll(occupiedPositions.ToArray());
         if (float.IsInfinity(monster2Pos.x)) return false;
         if (NavMesh.SamplePosition(monster2Pos, out NavMeshHit monster2Hit, 2f, NavMesh.AllAreas) &&
             Vector2.Distance(new Vector2(monster2Pos.x, monster2Pos.z),
@@ -1335,7 +1351,7 @@ public class MapGenerator : MonoBehaviour
 
         if (NetworkClient.Instance != null)
         {
-            NetworkClient.Instance.SetupNetworkEntities(p1, p2, spawnedMonsters, spawnedPotions.ToArray(), NetworkClient.Instance.Role1, NetworkClient.Instance.Role2);
+            NetworkClient.Instance.SetupNetworkEntities(spawnedPlayers.ToArray(), spawnedMonsters, spawnedPotions.ToArray());
             Debug.Log("[MapGenerator] 맵 생성 완료 및 네트워크 연동 완료");
         }
         return true;

@@ -3,7 +3,7 @@ using UnityEngine.AI;
 using UnityEngine.UI;
 
 // One shared puzzle spawned from deterministic map positions on both clients.
-// Player 1 reads a compound sigil; player 2 identifies it while both hold the pads.
+// The blue-pad occupant reads a sigil; a different orange-pad occupant identifies it.
 public class CoopShapePuzzle : MonoBehaviour
 {
     public static CoopShapePuzzle Instance { get; private set; }
@@ -13,7 +13,7 @@ public class CoopShapePuzzle : MonoBehaviour
     static readonly string[] MarkNames = { "점", "막대", "십자" };
     static readonly Color[] ShapeColors = { new Color(0.95f, 0.2f, 0.2f), new Color(0.2f, 0.55f, 1f), new Color(1f, 0.85f, 0.1f), new Color(0.25f, 0.85f, 0.4f) };
 
-    readonly bool[] pads = new bool[3];
+    readonly int[] padOwners = new int[3];
     readonly int[] choices = { -1, -1, -1, -1 };
     readonly Texture2D[] shapeImages = new Texture2D[48 * 3];
     Canvas puzzleCanvas;
@@ -34,7 +34,6 @@ public class CoopShapePuzzle : MonoBehaviour
     Vector3 closedGatePosition;
     GameObject lockedClue;
     bool configured;
-    bool locallyOnPad;
     float nextPadReportAt;
     bool solved;
     int clue = -1;
@@ -44,11 +43,13 @@ public class CoopShapePuzzle : MonoBehaviour
 
     public int WrongFeedbackVersion { get; private set; }
     public bool IsSolved => solved;
-    public bool BluePadOccupied => pads[1];
-    public bool OrangePadOccupied => pads[2];
+    public bool BluePadOccupied => padOwners[1] != 0;
+    public bool OrangePadOccupied => padOwners[2] != 0;
+    public int BluePadOwner => padOwners[1];
+    public int OrangePadOwner => padOwners[2];
     public int CompletedRounds => solved ? totalRounds : Mathf.Clamp(round - 1, 0, totalRounds);
     public int TotalRounds => totalRounds;
-    public Vector3 GetAssignedPad(int playerId) => playerId == 1 ? firstPad : secondPad;
+    public Vector3 GetAssignedPad(int padId) => padId == 1 ? firstPad : secondPad;
     public Vector3 LockedRoomApproach { get; private set; }
 
     public static GameObject Create(Vector3 player1Spawn, Vector3 player2Spawn, Vector3 roomCenter, float tileSize)
@@ -171,26 +172,28 @@ public class CoopShapePuzzle : MonoBehaviour
             return;
         }
 
-        Vector3 pad = network.playerId == 1 ? firstPad : secondPad;
         Vector3 player = network.localPlayerTransform.position;
         PlayerController controller = network.localPlayerTransform.GetComponent<PlayerController>();
-        bool onPad = controller != null && !controller.IsDeadState &&
-            Mathf.Abs(player.y - pad.y) <= 1f &&
-            new Vector2(player.x - pad.x, player.z - pad.z).magnitude <= 1.2f;
-        if (onPad != locallyOnPad)
-        {
-            locallyOnPad = onPad;
-            nextPadReportAt = 0f;
-        }
+        bool canStand = controller != null && !controller.IsDeadState;
+        int standingPad = canStand && IsOnPad(player, firstPad) ? 1 :
+            canStand && IsOnPad(player, secondPad) ? 2 : 0;
+        int ownedPad = padOwners[1] == network.playerId ? 1 :
+            padOwners[2] == network.playerId ? 2 : 0;
         // An entry can be rejected while the server still has the previous
         // MOVE position. Retry until its S_PUZZLE_PADS state confirms it.
-        if (pads[network.playerId] != onPad && Time.time >= nextPadReportAt)
+        if (Time.time >= nextPadReportAt && ownedPad != 0 && ownedPad != standingPad)
         {
-            network.SendPuzzlePad(onPad);
+            network.SendPuzzlePad(ownedPad, false);
+            nextPadReportAt = Time.time + 0.2f;
+        }
+        else if (Time.time >= nextPadReportAt && standingPad != 0 && ownedPad == 0 &&
+            padOwners[standingPad] == 0)
+        {
+            network.SendPuzzlePad(standingPad, true);
             nextPadReportAt = Time.time + 0.2f;
         }
 
-        if (network.playerId == 2 && pads[1] && pads[2] && locallyOnPad &&
+        if (padOwners[2] == network.playerId && standingPad == 2 && BluePadOccupied &&
             choices[0] >= 0 && Time.time >= wrongUntil)
         {
             for (int i = 0; i < 4; i++)
@@ -200,11 +203,17 @@ public class CoopShapePuzzle : MonoBehaviour
         }
     }
 
+    static bool IsOnPad(Vector3 player, Vector3 pad) =>
+        Mathf.Abs(player.y - pad.y) <= 1f &&
+        new Vector2(player.x - pad.x, player.z - pad.z).magnitude <= 1.2f;
+
     public void SetPads(string[] parts)
     {
-        if (parts.Length != 3) return;
-        pads[1] = parts[1] == "1";
-        pads[2] = parts[2] == "1";
+        if (parts.Length != 3 || !int.TryParse(parts[1], out int blue) ||
+            !int.TryParse(parts[2], out int orange) || blue < 0 || blue > 4 ||
+            orange < 0 || orange > 4 || (blue != 0 && blue == orange)) return;
+        padOwners[1] = blue;
+        padOwners[2] = orange;
     }
 
     public void SetClue(string[] parts)
@@ -232,11 +241,17 @@ public class CoopShapePuzzle : MonoBehaviour
     public void SetWrong()
     {
         if (solved) return;
-        round = 0;
-        clue = -1;
-        for (int i = 0; i < choices.Length; i++) choices[i] = -1;
+        ResetProgress();
         wrongUntil = Time.time + 1.5f;
         WrongFeedbackVersion++;
+    }
+    public void ResetProgress()
+    {
+        if (solved) return;
+        round = 0;
+        clue = -1;
+        wrongUntil = 0f;
+        for (int i = 0; i < choices.Length; i++) choices[i] = -1;
     }
     public void SetSolved()
     {
@@ -294,13 +309,14 @@ public class CoopShapePuzzle : MonoBehaviour
     {
         if (puzzleCanvas == null) return;
         bool visible = configured && network != null && network.GameStarted &&
-            network.HasAssignedPlayerId && !solved && pads[1] && pads[2] &&
+            network.HasAssignedPlayerId && !solved && BluePadOccupied && OrangePadOccupied &&
+            (padOwners[1] == network.playerId || padOwners[2] == network.playerId) &&
             (ClueManager.instance == null || !ClueManager.instance.IsEnding);
         puzzleCanvas.enabled = visible;
         if (!visible) return;
 
         roundLabel.text = "협동 문양 잠금 장치   " + Mathf.Max(1, round) + " / " + totalRounds;
-        bool describing = network.playerId == 1;
+        bool describing = padOwners[1] == network.playerId;
         clueView.SetActive(describing);
         choicesView.SetActive(!describing);
         directionLabel.text = describing

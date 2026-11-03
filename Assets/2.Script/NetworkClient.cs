@@ -20,7 +20,13 @@ public class NetworkClient : MonoBehaviour
     public int serverPort = 7777;
     // Assigned by the server after connecting; never configured per build.
     public int playerId { get; private set; }
-    public bool HasAssignedPlayerId => playerId == 1 || playerId == 2;
+    public bool HasAssignedPlayerId => playerId >= 1 && playerId <= 4;
+    public int PlayerCount { get; private set; } = 2;
+    readonly GameObject[] playerObjects = new GameObject[5];
+    readonly PlayerRole[] matchPlayerRoles = new PlayerRole[5];
+    public GameObject GetPlayerObject(int id) => id >= 1 && id <= PlayerCount ? playerObjects[id] : null;
+    public Transform GetPlayerTransform(int id) => GetPlayerObject(id)?.transform;
+    public PlayerRole GetRole(int id) => id >= 1 && id <= PlayerCount ? matchPlayerRoles[id] : PlayerRole.Detector;
 
     [Header("Players")]
     public Transform localPlayerTransform;
@@ -49,14 +55,14 @@ public class NetworkClient : MonoBehaviour
     private string receiveBuffer = "";
     private PlayerController localPlayerController;
 
-    private Vector3 targetRemotePosition;
-    private Quaternion targetRemoteRotation;
-    private bool hasRemoteState = false;
-    private float targetRemoteSpeed;
-    private bool targetRemoteIsRunning;
-    private bool targetRemoteIsCrouching;
-    private bool targetRemoteIsGrounded;
-    private int targetRemoteJumpSequence;
+    private readonly Vector3[] targetRemotePositions = new Vector3[5];
+    private readonly Quaternion[] targetRemoteRotations = new Quaternion[5];
+    private readonly bool[] hasRemoteStates = new bool[5];
+    private readonly float[] targetRemoteSpeeds = new float[5];
+    private readonly bool[] targetRemoteRunning = new bool[5];
+    private readonly bool[] targetRemoteCrouching = new bool[5];
+    private readonly bool[] targetRemoteGrounded = new bool[5];
+    private readonly int[] targetRemoteJumpSequences = new int[5];
 
     void Awake()
     {
@@ -77,11 +83,21 @@ public class NetworkClient : MonoBehaviour
             }
         }
         playerId = offlineMode ? 1 : 0;
+        matchPlayerRoles[1] = Role1;
+        matchPlayerRoles[2] = Role2;
         Application.runInBackground = true;
     }
 
     public bool IsConnected => isConnected;
-    public bool HasRemotePlayerState => hasRemoteState;
+    public bool HasRemotePlayerState
+    {
+        get
+        {
+            for (int id = 1; id <= PlayerCount; id++)
+                if (id != playerId && hasRemoteStates[id]) return true;
+            return false;
+        }
+    }
     public bool GameStarted { get; private set; }
     public int SecondsLeft { get; private set; } = -1;
     private float timeLeftReceivedAt;
@@ -180,13 +196,14 @@ public class NetworkClient : MonoBehaviour
         SceneManager.LoadScene(gameObject.scene.name);
     }
 
-    public void SendPuzzlePad(bool active)
+    public void SendPuzzlePad(int padId, bool active)
     {
         // The server validates the pad against its most recent MOVE packet.
         // Send this position first so an entry is not rejected due to the
         // regular movement send interval.
         if (active) SendLocalPlayerTransform(true);
-        SendMessageToServer("C_PUZZLE_PAD|" + playerId + "|" + (active ? 1 : 0) + "\n", "Puzzle pad failed");
+        SendMessageToServer("C_PUZZLE_PAD|" + playerId + "|" + padId + "|" +
+            (active ? 1 : 0) + "\n", "Puzzle pad failed");
     }
 
     public void SendPuzzleChoice(int index) =>
@@ -286,7 +303,7 @@ public class NetworkClient : MonoBehaviour
     {
         switch (reason)
         {
-            case "Lobby full": return "로비가 가득 찼습니다.";
+            case "Lobby full": return "로비가 가득 찼습니다. 4인 빌드라면 서버 실행 파일 버전을 확인하세요.";
             case "Role taken": return "동료가 이미 선택한 직업입니다. 다른 직업을 선택하세요.";
             default: return "서버 요청이 거절됐습니다. 직업과 준비 상태를 확인하세요.";
         }
@@ -443,8 +460,10 @@ public class NetworkClient : MonoBehaviour
     void HandleConnectionLost()
     {
         isConnected = false;
-        ConnectionStatus = "서버 연결이 끊겼습니다.";
-        if (ClueManager.instance != null)
+        if (!ConnectionStatus.StartsWith("로비가 가득", StringComparison.Ordinal) &&
+            !ConnectionStatus.StartsWith("서버 버전", StringComparison.Ordinal))
+            ConnectionStatus = "서버 연결이 끊겼습니다.";
+        if (GameStarted && ClueManager.instance != null)
             ClueManager.instance.ShowConnectionLost("연결 종료");
     }
 
@@ -489,8 +508,8 @@ public class NetworkClient : MonoBehaviour
         switch (parts[0])
         {
             case "ID":
-                if (!HasAssignedPlayerId && parts.Length == 2 &&
-                    int.TryParse(parts[1], out int assignedPlayerId) && assignedPlayerId >= 1 && assignedPlayerId <= 2)
+                if (!GameStarted && parts.Length == 2 &&
+                    int.TryParse(parts[1], out int assignedPlayerId) && assignedPlayerId >= 1 && assignedPlayerId <= 4)
                 {
                     playerId = assignedPlayerId;
                     ConnectionStatus = "서버 연결 완료 · 플레이어 " + playerId;
@@ -502,17 +521,23 @@ public class NetworkClient : MonoBehaviour
                 if (parts.Length >= 2 && int.TryParse(parts[1], out int seed))
                 {
                     MapGenerator mg = FindObjectOfType<MapGenerator>();
-                    if (HasAssignedPlayerId && !GameStarted && mg != null && parts.Length >= 4 &&
-                        int.TryParse(parts[2], out int r1) && int.TryParse(parts[3], out int r2) &&
-                        r1 >= 0 && r1 <= 3 && r2 >= 0 && r2 <= 3)
+                    if (HasAssignedPlayerId && !GameStarted && mg != null && parts.Length >= 5 &&
+                        int.TryParse(parts[2], out int participantCount) && participantCount >= 2 && participantCount <= 4 &&
+                        parts.Length == participantCount + 3)
                     {
-                        Role1 = (PlayerRole)r1; Role2 = (PlayerRole)r2;
+                        for (int id = 1; id <= participantCount; id++)
+                            if (!int.TryParse(parts[id + 2], out int role) || role < 0 || role > 3)
+                                return;
+                            else matchPlayerRoles[id] = (PlayerRole)role;
+                        PlayerCount = participantCount;
+                        Role1 = matchPlayerRoles[1]; Role2 = matchPlayerRoles[2];
                         GameStarted = true; mg.GenerateMap(seed);
                     }
                 }
                 break;
             case "LOBBY":
-                if (LobbyManager.Instance != null) LobbyManager.Instance.ApplyState(parts);
+                if (LobbyManager.Instance != null && !LobbyManager.Instance.ApplyState(parts))
+                    ConnectionStatus = "서버 버전이 맞지 않습니다. 최신 Release 서버로 다시 빌드하세요.";
                 break;
             case "ERROR":
                 ConnectionStatus = parts.Length > 1 ? DescribeLobbyError(parts[1]) : "서버 오류가 발생했습니다.";
@@ -541,6 +566,9 @@ public class NetworkClient : MonoBehaviour
                 break;
             case "S_PUZZLE_PADS":
                 if (CoopShapePuzzle.Instance != null) CoopShapePuzzle.Instance.SetPads(parts);
+                break;
+            case "S_PUZZLE_RESET":
+                if (CoopShapePuzzle.Instance != null) CoopShapePuzzle.Instance.ResetProgress();
                 break;
             case "S_PUZZLE_CLUE":
                 if (CoopShapePuzzle.Instance != null) CoopShapePuzzle.Instance.SetClue(parts);
@@ -593,21 +621,24 @@ public class NetworkClient : MonoBehaviour
     void ProcessMovePacket(string[] parts)
     {
         if (parts.Length < 11) return;
-        if (!int.TryParse(parts[1], out int receivedPlayerId) || receivedPlayerId == playerId) return;
+        if (!int.TryParse(parts[1], out int receivedPlayerId) ||
+            receivedPlayerId < 1 || receivedPlayerId > PlayerCount || receivedPlayerId == playerId) return;
 
         if (float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
             float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) &&
             float.TryParse(parts[4], NumberStyles.Float, CultureInfo.InvariantCulture, out float z) &&
             float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float rotY))
         {
-            targetRemotePosition = new Vector3(x, y, z);
-            targetRemoteRotation = Quaternion.Euler(0f, rotY, 0f);
-            float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out targetRemoteSpeed);
-            targetRemoteIsRunning = parts[7] == "1";
-            targetRemoteIsCrouching = parts[8] == "1";
-            targetRemoteIsGrounded = parts[9] == "1";
-            if (!int.TryParse(parts[10], out targetRemoteJumpSequence) || targetRemoteJumpSequence < 0) return;
-            hasRemoteState = true;
+            targetRemotePositions[receivedPlayerId] = new Vector3(x, y, z);
+            targetRemoteRotations[receivedPlayerId] = Quaternion.Euler(0f, rotY, 0f);
+            float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture,
+                out targetRemoteSpeeds[receivedPlayerId]);
+            targetRemoteRunning[receivedPlayerId] = parts[7] == "1";
+            targetRemoteCrouching[receivedPlayerId] = parts[8] == "1";
+            targetRemoteGrounded[receivedPlayerId] = parts[9] == "1";
+            if (!int.TryParse(parts[10], out targetRemoteJumpSequences[receivedPlayerId]) ||
+                targetRemoteJumpSequences[receivedPlayerId] < 0) return;
+            hasRemoteStates[receivedPlayerId] = true;
         }
     }
 
@@ -673,7 +704,7 @@ public class NetworkClient : MonoBehaviour
             !float.TryParse(parts[5], NumberStyles.Float, CultureInfo.InvariantCulture, out float amount))
             return;
 
-        GameObject source = sourcePlayerId == 1 ? player1Object : player2Object;
+        GameObject source = GetPlayerObject(sourcePlayerId);
         if (source == null) return;
         foreach (SoundMonsterAI soundMonster in FindObjectsOfType<SoundMonsterAI>())
             soundMonster.HearNetworkNoise(new Vector3(x, y, z), amount, source);
@@ -693,7 +724,7 @@ public class NetworkClient : MonoBehaviour
         if (parts.Length < 3) return;
         if (int.TryParse(parts[1], out int targetPlayerId) && int.TryParse(parts[2], out int hp))
         {
-            GameObject targetObject = (targetPlayerId == 1) ? player1Object : player2Object;
+            GameObject targetObject = GetPlayerObject(targetPlayerId);
             if (targetObject != null)
             {
                 PlayerController controller = targetObject.GetComponent<PlayerController>();
@@ -706,14 +737,14 @@ public class NetworkClient : MonoBehaviour
     {
         if (parts.Length < 3 || !int.TryParse(parts[1], out int healerId) ||
             healerId != playerId || !int.TryParse(parts[2], out int accepted)) return;
-        GameObject healer = playerId == 1 ? player1Object : player2Object;
+        GameObject healer = GetPlayerObject(playerId);
         HealerSkill skill = healer != null ? healer.GetComponent<HealerSkill>() : null;
         if (skill != null) skill.OnServerHealResult(accepted == 1);
     }
 
     void ApplyPlayerDamage(int targetPlayerId, int damage)
     {
-        GameObject targetObject = (targetPlayerId == 1) ? player1Object : player2Object;
+        GameObject targetObject = GetPlayerObject(targetPlayerId);
         if (targetObject == null) return;
 
         PlayerController playerController = targetObject.GetComponent<PlayerController>();
@@ -772,7 +803,7 @@ public class NetworkClient : MonoBehaviour
             !float.TryParse(parts[6], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) ||
             !float.TryParse(parts[7], NumberStyles.Float, CultureInfo.InvariantCulture, out float z)) return;
 
-        GameObject owner = ownerId == 1 ? player1Object : ownerId == 2 ? player2Object : null;
+        GameObject owner = GetPlayerObject(ownerId);
         if (owner == null) return;
         if (parts[3] == "Teleport")
         {
@@ -783,7 +814,7 @@ public class NetworkClient : MonoBehaviour
             if (controller != null) controller.enabled = false;
             owner.transform.position = destination;
             if (controller != null) controller.enabled = true;
-            if (ownerId != playerId) targetRemotePosition = destination;
+            if (ownerId != playerId) targetRemotePositions[ownerId] = destination;
             if (ItemEffectManager.Instance != null)
                 ItemEffectManager.Instance.PlayTeleportEffect(destination);
         }
@@ -805,7 +836,7 @@ public class NetworkClient : MonoBehaviour
         }
         else if (parts[3] == "Resurrection")
         {
-            GameObject target = targetId == 1 ? player1Object : targetId == 2 ? player2Object : null;
+            GameObject target = GetPlayerObject(targetId);
             if (target != null && ItemEffectManager.Instance != null)
                 ItemEffectManager.Instance.PlayResurrectionEffect(target.transform.position);
         }
@@ -827,7 +858,7 @@ public class NetworkClient : MonoBehaviour
     void ProcessPlayerStealthPacket(string[] parts)
     {
         if (parts.Length != 3 || !int.TryParse(parts[1], out int targetId) || parts[2] != "0") return;
-        GameObject target = targetId == 1 ? player1Object : targetId == 2 ? player2Object : null;
+        GameObject target = GetPlayerObject(targetId);
         PlayerStealth stealth = target != null ? target.GetComponent<PlayerStealth>() : null;
         if (stealth != null) stealth.EndStealth();
     }
@@ -858,7 +889,7 @@ public class NetworkClient : MonoBehaviour
         if (parts.Length < 2) return;
         if (int.TryParse(parts[1], out int targetPlayerId))
         {
-            GameObject targetObj = (targetPlayerId == 1) ? player1Object : player2Object;
+            GameObject targetObj = GetPlayerObject(targetPlayerId);
             if (targetObj != null)
             {
                 PlayerController controller = targetObj.GetComponent<PlayerController>();
@@ -869,14 +900,14 @@ public class NetworkClient : MonoBehaviour
 
     void ApplyRemotePlayerTransform()
     {
-        if (!hasRemoteState || remotePlayerTransform == null) return;
-        RemotePlayer remotePlayer = remotePlayerTransform.GetComponent<RemotePlayer>();
-        if (remotePlayer != null)
+        for (int id = 1; id <= PlayerCount; id++)
         {
-            remotePlayer.SetState(targetRemotePosition, targetRemoteRotation);
-            remotePlayer.SetAnimationState(targetRemoteSpeed, targetRemoteIsRunning,
-                                           targetRemoteIsCrouching, targetRemoteIsGrounded,
-                                           targetRemoteJumpSequence);
+            if (id == playerId || !hasRemoteStates[id] || playerObjects[id] == null) continue;
+            RemotePlayer remotePlayer = playerObjects[id].GetComponent<RemotePlayer>();
+            if (remotePlayer == null) continue;
+            remotePlayer.SetState(targetRemotePositions[id], targetRemoteRotations[id]);
+            remotePlayer.SetAnimationState(targetRemoteSpeeds[id], targetRemoteRunning[id],
+                targetRemoteCrouching[id], targetRemoteGrounded[id], targetRemoteJumpSequences[id]);
         }
     }
 
@@ -918,11 +949,11 @@ public class NetworkClient : MonoBehaviour
         if (client != null) client.Close();
     }
 
-    // [수정] 외부(로비/맵생성기)에서 호출할 때 PlayerRole도 함께 전달받도록 수정
-    public void SetupNetworkEntities(GameObject p1, GameObject p2, GameObject[] spawnedMonsters, PotionItem[] spawnedItems, PlayerRole p1Role, PlayerRole p2Role)
+    public void SetupNetworkEntities(GameObject[] players, GameObject[] spawnedMonsters, PotionItem[] spawnedItems)
     {
-        player1Object = p1;
-        player2Object = p2;
+        for (int id = 1; id <= PlayerCount; id++) playerObjects[id] = players[id - 1];
+        player1Object = playerObjects[1];
+        player2Object = playerObjects[2];
         potionItems = spawnedItems;
 
         if (spawnedMonsters != null && spawnedMonsters.Length > 0)
@@ -936,37 +967,20 @@ public class NetworkClient : MonoBehaviour
             }
         }
 
-        AssignPlayerRolesAndAuthority(p1Role, p2Role);
+        AssignPlayerRolesAndAuthority();
     }
 
-    // [수정] 매개변수로 역할을 전달받아 동적으로 할당하고 스탯을 초기화
-    private void AssignPlayerRolesAndAuthority(PlayerRole role1, PlayerRole role2)
+    private void AssignPlayerRolesAndAuthority()
     {
-        if (player1Object == null || player2Object == null) return;
-
-        bool isPlayer1Local = offlineMode || (playerId == 1);
-
-        if (isPlayer1Local)
+        if (playerObjects[playerId] == null) return;
+        localPlayerTransform = playerObjects[playerId].transform;
+        int firstOther = playerId == 1 ? 2 : 1;
+        remotePlayerTransform = playerObjects[firstOther]?.transform;
+        for (int id = 1; id <= PlayerCount; id++)
         {
-            localPlayerTransform = player1Object.transform;
-            remotePlayerTransform = player2Object.transform;
-
-            if (remotePlayerTransform != null)
-            {
-                targetRemotePosition = remotePlayerTransform.position;
-                targetRemoteRotation = remotePlayerTransform.rotation;
-            }
-        }
-        else
-        {
-            localPlayerTransform = player2Object.transform;
-            remotePlayerTransform = player1Object.transform;
-
-            if (remotePlayerTransform != null)
-            {
-                targetRemotePosition = remotePlayerTransform.position;
-                targetRemoteRotation = remotePlayerTransform.rotation;
-            }
+            if (id == playerId || playerObjects[id] == null) continue;
+            targetRemotePositions[id] = playerObjects[id].transform.position;
+            targetRemoteRotations[id] = playerObjects[id].transform.rotation;
         }
 
         localPlayerController = localPlayerTransform.GetComponent<PlayerController>();
@@ -976,35 +990,27 @@ public class NetworkClient : MonoBehaviour
         foreach (SkinnedMeshRenderer body in localPlayerTransform.GetComponentsInChildren<SkinnedMeshRenderer>(true))
             body.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;
 
-        RemotePlayer p1Remote = player1Object.GetComponent<RemotePlayer>();
-        if (p1Remote != null) p1Remote.SetupPlayer(isPlayer1Local);
-
-        RemotePlayer p2Remote = player2Object.GetComponent<RemotePlayer>();
-        if (p2Remote != null) p2Remote.SetupPlayer(!isPlayer1Local);
-
-        if (offlineMode) player2Object.SetActive(false);
+        for (int id = 1; id <= PlayerCount; id++)
+        {
+            RemotePlayer remote = playerObjects[id].GetComponent<RemotePlayer>();
+            if (remote != null) remote.SetupPlayer(id == playerId);
+            if (offlineMode && id != playerId) playerObjects[id].SetActive(false);
+        }
 
         // [수정] 동적으로 역할 셋업
-        PlayerRoleSetup p1RoleSetup = player1Object.GetComponent<PlayerRoleSetup>();
-        if (p1RoleSetup == null) p1RoleSetup = player1Object.AddComponent<PlayerRoleSetup>();
-        p1RoleSetup.Setup(1, playerId, role1);
-
-        PlayerRoleSetup p2RoleSetup = player2Object.GetComponent<PlayerRoleSetup>();
-        if (p2RoleSetup == null) p2RoleSetup = player2Object.AddComponent<PlayerRoleSetup>();
-        p2RoleSetup.Setup(2, playerId, role2);
-
         MapGenerator map = FindObjectOfType<MapGenerator>();
         ClueDetector detectorTemplate = map != null && map.player1Prefab != null
             ? map.player1Prefab.GetComponent<ClueDetector>() : null;
-        EnsureRoleComponents(player1Object, role1, detectorTemplate);
-        EnsureRoleComponents(player2Object, role2, detectorTemplate);
-
-        // [추가] 각 캐릭터의 직업(역할)에 따른 스탯 적용 (러너 스탯 등)
-        PlayerController p1Controller = player1Object.GetComponent<PlayerController>();
-        if (p1Controller != null) p1Controller.InitializeStatsByRole(role1);
-
-        PlayerController p2Controller = player2Object.GetComponent<PlayerController>();
-        if (p2Controller != null) p2Controller.InitializeStatsByRole(role2);
+        for (int id = 1; id <= PlayerCount; id++)
+        {
+            GameObject player = playerObjects[id];
+            PlayerRoleSetup setup = player.GetComponent<PlayerRoleSetup>();
+            if (setup == null) setup = player.AddComponent<PlayerRoleSetup>();
+            setup.Setup(id, playerId, GetRole(id));
+            EnsureRoleComponents(player, GetRole(id), detectorTemplate);
+            PlayerController controller = player.GetComponent<PlayerController>();
+            if (controller != null) controller.InitializeStatsByRole(GetRole(id));
+        }
 
         // Prefer the local player's camera. The scene camera otherwise leaves a
         // second AudioListener active after the player prefab is spawned.

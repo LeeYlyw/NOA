@@ -13,13 +13,16 @@ def details(code):
 
 
 def main():
+    four_players = "--four-players" in sys.argv
+    player_count = 4 if four_players else 2
+    blue_id, orange_id = (3, 4) if four_players else (1, 2)
     process = subprocess.Popen(
         [str(SERVER)], cwd=str(SERVER.parent), stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW,
     )
     sockets = []
     try:
-        for _ in range(2):
+        for _ in range(player_count):
             for attempt in range(30):
                 try:
                     sockets.append(socket.create_connection(("127.0.0.1", 7777), timeout=1))
@@ -28,12 +31,12 @@ def main():
                     if attempt == 29:
                         raise
                     time.sleep(0.1)
-        read_until(sockets, lambda line: line == "ID|2")
-        send(sockets[0], "C_ROLE|1")
-        send(sockets[1], "C_ROLE|2")
+        read_until(sockets, lambda line: line == f"ID|{player_count}")
+        for player_id, sock in enumerate(sockets, start=1):
+            send(sock, f"C_ROLE|{player_id - 1}")
         time.sleep(0.1)
-        send(sockets[0], "C_READY|1")
-        send(sockets[1], "C_READY|1")
+        for sock in sockets:
+            send(sock, "C_READY|1")
         time.sleep(0.1)
         send(sockets[0], "C_START")
         start, _ = read_until(sockets, lambda line: line.startswith("START|"))
@@ -47,17 +50,18 @@ def main():
             send(sock, f"C_NAV_CHUNK|{player_id}|0|{make_mask()}")
             send(sock, f"C_NAV_END|{player_id}")
         read_until(sockets, lambda line: line == "S_NAV_READY")
-        send(sockets[0], "MOVE|1|1|0|1|0|0|0|0|1|0")
-        send(sockets[1], "MOVE|2|3|0|1|0|0|0|0|1|0")
+        send(sockets[blue_id - 1], f"MOVE|{blue_id}|1|0|1|0|0|0|0|1|0")
+        send(sockets[orange_id - 1], f"MOVE|{orange_id}|3|0|1|0|0|0|0|1|0")
         time.sleep(0.1)
-        send(sockets[0], "C_PUZZLE_PAD|1|1")
-        send(sockets[1], "C_PUZZLE_PAD|2|1")
-
+        send(sockets[blue_id - 1], f"C_PUZZLE_PAD|{blue_id}|1|1")
+        send(sockets[orange_id - 1], f"C_PUZZLE_PAD|{orange_id}|2|1")
         for attempt, round_number in enumerate((1, 2, 1, 2, 3)):
-            clue, seen = read_until([sockets[0]], lambda line: line.startswith(f"S_PUZZLE_CLUE|{round_number}|"))
+            clue, seen = read_until([sockets[blue_id - 1]], lambda line: line.startswith(f"S_PUZZLE_CLUE|{round_number}|"))
+            if attempt == 0:
+                assert f"S_PUZZLE_PADS|{blue_id}|{orange_id}" in seen, seen[-10:]
             if attempt == 2:
                 assert "S_PUZZLE_WRONG" in seen, "wrong answer did not reset the puzzle"
-            options, _ = read_until([sockets[1]], lambda line: line.startswith(f"S_PUZZLE_CHOICES|{round_number}|"))
+            options, _ = read_until([sockets[orange_id - 1]], lambda line: line.startswith(f"S_PUZZLE_CHOICES|{round_number}|"))
             answer = int(clue.split("|")[2])
             choices = [int(value) for value in options.split("|")[2:]]
             assert len(choices) == len(set(choices)) == 4 and answer in choices
@@ -77,11 +81,11 @@ def main():
                            for code in choices if code != answer)
             if attempt == 1:
                 wrong = next(index for index, code in enumerate(choices) if code != answer)
-                send(sockets[1], f"C_PUZZLE_CHOOSE|2|{wrong}")
+                send(sockets[orange_id - 1], f"C_PUZZLE_CHOOSE|{orange_id}|{wrong}")
             else:
                 if attempt == 2:
                     time.sleep(1.6)
-                send(sockets[1], f"C_PUZZLE_CHOOSE|2|{choices.index(answer)}")
+                send(sockets[orange_id - 1], f"C_PUZZLE_CHOOSE|{orange_id}|{choices.index(answer)}")
         read_until(sockets, lambda line: line == "S_PUZZLE_SOLVED")
         if "--complete-clues" in sys.argv:
             for item_id in range(1, 4):
@@ -91,7 +95,7 @@ def main():
                 assert "S_CLUE_COUNT|3|3" in seen, seen[-10:]
             print("PASS: third server-confirmed clue broadcasts clear to both clients")
             return
-        print("PASS: wrong answer resets to round one; three rounds then solve on two client sockets")
+        print(f"PASS: players {blue_id}/{orange_id} own pads; wrong answer resets; three rounds solve with {player_count} clients")
     finally:
         for sock in sockets:
             sock.close()

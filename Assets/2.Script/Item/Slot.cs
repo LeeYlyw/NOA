@@ -45,7 +45,23 @@ public class Slot : MonoBehaviour
         if (network == null || network.localPlayerTransform == null) return;
 
         Transform local = network.localPlayerTransform;
-        Transform teammate = network.remotePlayerTransform;
+        Transform teammate = null;
+        int teammateId = 0;
+        float closest = float.MaxValue;
+        for (int id = 1; id <= network.PlayerCount; id++)
+        {
+            if (id == network.playerId) continue;
+            Transform candidate = network.GetPlayerTransform(id);
+            if (candidate == null || !candidate.gameObject.activeInHierarchy) continue;
+            PlayerController candidateController = candidate.GetComponent<PlayerController>();
+            bool needsDead = item.type == ItemData.ItemType.Resurrection;
+            if (candidateController == null || candidateController.IsDeadState != needsDead) continue;
+            float distance = Vector3.Distance(local.position, candidate.position);
+            if (distance >= closest || (needsDead && distance > 5f)) continue;
+            closest = distance;
+            teammate = candidate;
+            teammateId = id;
+        }
         PlayerController controller = local.GetComponent<PlayerController>();
         if (controller == null || controller.IsDeadState) return;
 
@@ -64,7 +80,7 @@ public class Slot : MonoBehaviour
                     Vector3.Distance(local.position, teammate.position) > 5f) return;
                 PlayerController targetController = teammate.GetComponent<PlayerController>();
                 if (targetController == null || !targetController.IsDeadState) return;
-                targetId = 3 - network.playerId;
+                targetId = teammateId;
                 break;
             case ItemData.ItemType.Teleport:
                 if (teammate == null || !teammate.gameObject.activeInHierarchy ||
@@ -81,7 +97,7 @@ public class Slot : MonoBehaviour
                     Debug.LogWarning("[Teleport] No clear floor beside teammate. Item was not consumed.");
                     return;
                 }
-                targetId = 3 - network.playerId;
+                targetId = teammateId;
                 break;
             default:
                 return;
