@@ -17,7 +17,7 @@ public class MonsterChase : MonoBehaviour
     public LayerMask sightMask = ~0;
 
     [Header("Attack")]
-    public int damage = 30;
+    public int damage = 10;
     public float attackCooldown = 1.5f;
     private const float AttackImpactSeconds = 0.55f;
     private const float AttackCycleSeconds = 1.5f;
@@ -34,7 +34,7 @@ public class MonsterChase : MonoBehaviour
 
     [Header("Movement Speed")]
     public float patrolSpeed = 1.5f;
-    public float chaseSpeed = 5f;
+    public float chaseSpeed = 3.8f;
     public float searchSpeed = 2.3f;
 
     [Header("Rotation")]

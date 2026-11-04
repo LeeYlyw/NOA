@@ -514,7 +514,7 @@ MonoBehaviour:
   searchDuration: 6
   searchRadius: 3
   attackRange: 2.7
-  damage: 30
+  damage: 10
   attackCooldown: 1.5
   rotateSpeed: 5
 --- !u!114 &3937315705664015526
