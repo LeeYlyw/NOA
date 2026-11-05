@@ -227,7 +227,7 @@ Camera:
   m_Depth: -1
   m_CullingMask:
     serializedVersion: 2
-    m_Bits: 503
+    m_Bits: 511
   m_RenderingPath: -1
   m_TargetTexture: {fileID: 0}
   m_TargetDisplay: 0
@@ -751,7 +751,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   isLocalPlayer: 1
   walkSpeed: 4
-  runSpeed: 6
+  runSpeed: 7
   jumpHeight: 1.5
   gravity: -9.81
   coyoteTime: 0.1

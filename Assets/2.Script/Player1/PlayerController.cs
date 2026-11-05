@@ -383,7 +383,7 @@ public class PlayerController : MonoBehaviour
         {
             // 런너 전용 스탯으로 덮어쓰기
             walkSpeed = 4.5f;       // 기본(3f)보다 빠름
-            runSpeed = 9f;          // 기본(6f)보다 빠름
+            runSpeed = 8.5f;          // 기본(6f)보다 빠름
             maxStamina = 150f;      // 기본(100f)보다 많음
             staminaRecoveryPerSecond = 25f; // 회복 속도 증가
             maxHealth = 80;         // 밸런스를 위한 체력 페널티
