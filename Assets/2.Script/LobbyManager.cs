@@ -14,6 +14,7 @@ public class LobbyManager : MonoBehaviour
     readonly int[] roles = { -1, -1, -1, -1, -1 };
     public bool HasCompatibleServerState { get; private set; }
     int host;
+    string serverAddress;
     Font uiFont;
     GUIStyle labelStyle;
     GUIStyle buttonStyle;
@@ -33,6 +34,18 @@ public class LobbyManager : MonoBehaviour
         if (uiFont != null) Destroy(uiFont);
     }
     public void SetPlayerCount(int count) { if (statusText != null) statusText.text = count + " / 4"; }
+    public void ResetState()
+    {
+        host = 0;
+        HasCompatibleServerState = false;
+        for (int i = 0; i < connected.Length; i++)
+        {
+            connected[i] = false;
+            ready[i] = false;
+            roles[i] = -1;
+        }
+        SetPlayerCount(0);
+    }
     public bool ApplyState(string[] parts)
     {
         if (parts.Length != 14 || !int.TryParse(parts[1], out int h)) return false;
@@ -75,6 +88,19 @@ public class LobbyManager : MonoBehaviour
         var net = NetworkClient.Instance;
         GUILayout.Space(16);
         GUILayout.Label(net.ConnectionStatus, labelStyle);
+        if (!net.IsConnected)
+        {
+            if (serverAddress == null) serverAddress = net.serverIP;
+            GUILayout.Label("서버 PC 주소 (같은 PC: 127.0.0.1)", labelStyle);
+            GUI.enabled = !net.IsConnecting;
+            serverAddress = GUILayout.TextField(serverAddress);
+            if (GUILayout.Button(net.IsConnecting ? "접속 중..." : "접속", buttonStyle, GUILayout.Height(40)))
+                net.ConnectToServer(serverAddress);
+            GUI.enabled = true;
+            if (net.IsConnecting && GUILayout.Button("접속 취소", buttonStyle, GUILayout.Height(36)))
+                net.CancelConnection();
+            return;
+        }
         int participantCount = 0;
         for (int i = 1; i <= 4; i++) if (connected[i]) participantCount++;
         GUILayout.Label("참가자  " + participantCount + " / 4", labelStyle);

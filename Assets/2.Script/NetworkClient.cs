@@ -49,6 +49,7 @@ public class NetworkClient : MonoBehaviour
     private NetworkStream stream;
     private bool isConnected = false;
     private bool isReloading;
+    private Coroutine connectionRoutine;
 
     private float sendTimer = 0f;
     private int nextMimicShotId = 1;
@@ -71,6 +72,7 @@ public class NetworkClient : MonoBehaviour
         // packets connected to the runtime ending report in those scenes.
         if (ClueManager.instance == null && FindObjectOfType<ClueManager>() == null)
             gameObject.AddComponent<ClueManager>();
+        serverIP = PlayerPrefs.GetString("NOA.ServerAddress", serverIP);
         string[] args = Environment.GetCommandLineArgs();
         for (int i = 0; i + 1 < args.Length; i++)
         {
@@ -106,7 +108,8 @@ public class NetworkClient : MonoBehaviour
     public PlayerRole Role1 { get; private set; } = PlayerRole.Healer;
     public PlayerRole Role2 { get; private set; } = PlayerRole.Runner;
     public string ConnectionStatus { get; private set; } = "서버에 연결하는 중...";
-    public bool autoStartLocalServer = true;
+
+    public bool IsConnecting { get; private set; }
 
     void Start()
     {
@@ -114,7 +117,7 @@ public class NetworkClient : MonoBehaviour
         {
             ConnectionStatus = "서버 연결 중: " + serverIP + ":" + serverPort;
             if (GetComponent<LobbyManager>() == null) gameObject.AddComponent<LobbyManager>();
-            StartCoroutine(ConnectAutomatically());
+            ConnectionStatus = "서버 PC 주소를 입력하고 접속하세요.";
         }
     }
 
@@ -133,40 +136,79 @@ public class NetworkClient : MonoBehaviour
         ApplyRemotePlayerTransform();
     }
 
+    public void ConnectToServer(string address)
+    {
+        if (isConnected || IsConnecting || GameStarted || isReloading) return;
+        address = address?.Trim();
+        if (string.IsNullOrEmpty(address) || Uri.CheckHostName(address) == UriHostNameType.Unknown ||
+            serverPort < 1 || serverPort > 65535)
+        {
+            ConnectionStatus = "올바른 서버 주소를 입력하세요. 예: 192.168.0.10";
+            return;
+        }
+        serverIP = address;
+        CloseConnection();
+        if (LobbyManager.Instance != null) LobbyManager.Instance.ResetState();
+        connectionRoutine = StartCoroutine(ConnectAutomatically());
+    }
+
+    public void CancelConnection()
+    {
+        if (!IsConnecting) return;
+        if (connectionRoutine != null) StopCoroutine(connectionRoutine);
+        connectionRoutine = null;
+        CloseConnection();
+        ConnectionStatus = "접속을 취소했습니다. 주소를 수정하고 다시 접속할 수 있습니다.";
+    }
+
+    private void CloseConnection()
+    {
+        IsConnecting = false;
+        isConnected = false;
+        stream?.Close();
+        client?.Close();
+        stream = null;
+        client = null;
+        receiveBuffer = "";
+        if (!GameStarted) playerId = 0;
+    }
+
     System.Collections.IEnumerator ConnectAutomatically()
     {
-        bool launched = false;
-        for (int attempt = 0; attempt < 30; attempt++)
+        IsConnecting = true;
+        try
         {
-            client = new TcpClient();
-            var task = client.ConnectAsync(serverIP, serverPort);
-            float deadline = Time.realtimeSinceStartup + 2f;
-            while (!task.IsCompleted && Time.realtimeSinceStartup < deadline) yield return null;
-            if (task.Status == System.Threading.Tasks.TaskStatus.RanToCompletion && client.Connected)
+            for (int attempt = 0; attempt < 3; attempt++)
             {
-                stream = client.GetStream(); isConnected = true; ConnectionStatus = "서버에 연결됐습니다.";
-                yield break;
-            }
-            client.Close();
-            if (!launched && autoStartLocalServer && (serverIP == "127.0.0.1" || serverIP == "localhost"))
-            {
-                launched = true;
-                string root = System.IO.Path.GetDirectoryName(Application.dataPath);
-                string path = System.IO.Path.Combine(root, "Server", "x64", "Release", "GameServer.exe");
-                if (!System.IO.File.Exists(path))
-                    path = System.IO.Path.Combine(root, "Server", "GameServer.exe");
-                try
+                ConnectionStatus = "서버 연결 중: " + serverIP + ":" + serverPort + " (" + (attempt + 1) + "/3)";
+                client = new TcpClient();
+                System.Threading.Tasks.Task task = null;
+                try { task = client.ConnectAsync(serverIP, serverPort); }
+                catch (Exception) { client.Close(); }
+                if (task != null)
                 {
-                    if (!System.IO.File.Exists(path))
-                        throw new System.IO.FileNotFoundException("서버 실행 파일이 없습니다. Server/BuildServer.ps1로 서버를 빌드하세요.");
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = System.IO.Path.GetDirectoryName(path) });
-                    ConnectionStatus = "서버를 시작하는 중...";
+                    // Observe errors even when a timed-out or cancelled connection finishes later.
+                    _ = task.ContinueWith(t => { var ignored = t.Exception; },
+                        System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
+                    float deadline = Time.realtimeSinceStartup + 2f;
+                    while (!task.IsCompleted && Time.realtimeSinceStartup < deadline) yield return null;
+                    if (task.Status == System.Threading.Tasks.TaskStatus.RanToCompletion && client.Connected)
+                    {
+                        stream = client.GetStream();
+                        isConnected = true;
+                        ConnectionStatus = "서버에 연결됐습니다.";
+                        PlayerPrefs.SetString("NOA.ServerAddress", serverIP);
+                        PlayerPrefs.Save();
+                        yield break;
+                    }
                 }
-                catch (Exception e) { ConnectionStatus = "서버 시작 실패: " + e.Message; yield break; }
+                client.Close();
+                if (attempt < 2) yield return new WaitForSecondsRealtime(0.3f);
             }
-            yield return new WaitForSecondsRealtime(0.3f);
+            CloseConnection();
+            ConnectionStatus = "연결 실패: 서버 주소와 실행 상태를 확인한 뒤 다시 접속하세요.";
         }
-        ConnectionStatus = "연결 실패: 서버 주소와 실행 상태를 확인한 뒤 다시 시작하세요.";
+        finally { IsConnecting = false; connectionRoutine = null; }
     }
 
     public void SelectRole(int role) => SendMessageToServer("C_ROLE|" + role + "\n", "Role failed");
@@ -305,6 +347,7 @@ public class NetworkClient : MonoBehaviour
         {
             case "Lobby full": return "로비가 가득 찼습니다. 4인 빌드라면 서버 실행 파일 버전을 확인하세요.";
             case "Role taken": return "동료가 이미 선택한 직업입니다. 다른 직업을 선택하세요.";
+            case "Match in progress. Try again after the session ends.": return "게임이 진행 중입니다. 종료 후 다시 접속하세요.";
             default: return "서버 요청이 거절됐습니다. 직업과 준비 상태를 확인하세요.";
         }
     }
@@ -459,8 +502,9 @@ public class NetworkClient : MonoBehaviour
 
     void HandleConnectionLost()
     {
-        isConnected = false;
+        CloseConnection();
         if (!ConnectionStatus.StartsWith("로비가 가득", StringComparison.Ordinal) &&
+            !ConnectionStatus.StartsWith("게임이 진행 중", StringComparison.Ordinal) &&
             !ConnectionStatus.StartsWith("서버 버전", StringComparison.Ordinal))
             ConnectionStatus = "서버 연결이 끊겼습니다.";
         if (GameStarted && ClueManager.instance != null)

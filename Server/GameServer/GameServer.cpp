@@ -124,6 +124,37 @@ struct MimicShot
     double expiresAt = 0.0;
 };
 
+static std::map<int, MimicShot> mimicShots;
+
+void ResetSession()
+{
+    navigation = ServerNavigation{};
+    matchPlayerCount = 0;
+    trustedItemSpawns.clear();
+    mimicShots.clear();
+    navigationFailed = false;
+    gateOpeningTime = 0.0;
+    matchResult = 0;
+    matchStartedAt = 0.0;
+    restartRequested = false;
+    puzzlePadsReady = puzzleStarted = puzzleSolved = false;
+    puzzleAnswer = -1;
+    puzzleRound = 0;
+    puzzleRetryAt = 0.0;
+    for (int i = 0; i <= MaxPlayers; ++i) {
+        matchSockets[i] = INVALID_SOCKET;
+        navigationUploads[i] = NavigationUpload{};
+        matchRoles[i] = -1;
+        nextHealAt[i] = 0.0;
+        restartVotes[i] = false;
+    }
+    for (int i = 0; i < 3; ++i) {
+        puzzlePadPositions[i] = Vec3{};
+        puzzlePadOwner[i] = 0;
+    }
+    for (int& choice : puzzleChoices) choice = 0;
+}
+
 struct PlayerState
 {
     int playerId = 0;
@@ -1353,7 +1384,6 @@ void ProcessClientPacket(
         }
         return;
     }
-    static std::map<int, MimicShot> mimicShots;
 
     // One cooperative color/shape puzzle per match. Only the assigned client may
     // report its pad or submit a choice; the server owns the answer and result.
@@ -1953,6 +1983,9 @@ int main()
     std::cout << "Server Model : two-to-four-client TCP server" << std::endl;
 
 
+    while (true) {
+    ResetSession();
+    std::cout << "Waiting for next session on port 7777." << std::endl;
     SOCKET slots[MaxPlayers + 1] = {INVALID_SOCKET, INVALID_SOCKET, INVALID_SOCKET, INVALID_SOCKET, INVALID_SOCKET};
     int roles[MaxPlayers + 1] = {-1, -1, -1, -1, -1};
     bool ready[MaxPlayers + 1] = {};
@@ -1965,9 +1998,7 @@ int main()
         for (int i=1; i<=MaxPlayers; ++i) out << "|" << (slots[i]!=INVALID_SOCKET) << "|" << roles[i] << "|" << ready[i];
         for (int i=1; i<=MaxPlayers; ++i) if (slots[i]!=INVALID_SOCKET) SendPacket(slots[i],out.str());
     };
-    double emptySince = GetTimeSeconds();
     while (!started) {
-        if (!host && GetTimeSeconds()-emptySince > 30.0) { closesocket(listenSocket); WSACleanup(); return 0; }
         fd_set reads; FD_ZERO(&reads); FD_SET(listenSocket,&reads);
         for (int i=1;i<=MaxPlayers;++i) if(slots[i]!=INVALID_SOCKET) FD_SET(slots[i],&reads);
         timeval wait = {0,50000};
@@ -1990,7 +2021,7 @@ int main()
                 host=0;
                 for(int candidate=1; candidate<=MaxPlayers; ++candidate)
                     if(slots[candidate]!=INVALID_SOCKET) { host=candidate; break; }
-                emptySince=GetTimeSeconds(); publish(); continue;
+                publish(); continue;
             }
             pending[i].append(data,n); size_t end;
             while((end=pending[i].find('\n'))!=std::string::npos) {
@@ -2026,7 +2057,6 @@ int main()
         SendPacket(slots[id],"ID|"+std::to_string(newId));
     }
     clientSocket1=matchSockets[1]; clientSocket2=matchSockets[2];
-    closesocket(listenSocket); listenSocket=INVALID_SOCKET;
     std::random_device rd;
     int mapSeed=1+rd()%999999;
     std::string start="START|"+std::to_string(mapSeed)+"|"+std::to_string(matchPlayerCount);
@@ -2063,6 +2093,7 @@ int main()
     {
         fd_set readSet;
         FD_ZERO(&readSet);
+        FD_SET(listenSocket, &readSet);
         for (int id=1; id<=matchPlayerCount; ++id)
             FD_SET(matchSockets[id], &readSet);
 
@@ -2075,6 +2106,14 @@ int main()
         {
             std::cout << "select failed: " << WSAGetLastError() << std::endl;
             break;
+        }
+
+        if (FD_ISSET(listenSocket, &readSet)) {
+            SOCKET incoming = accept(listenSocket, nullptr, nullptr);
+            if (incoming != INVALID_SOCKET) {
+                SendPacket(incoming, "ERROR|Match in progress. Try again after the session ends.");
+                closesocket(incoming);
+            }
         }
 
         // Check the deadline before reading pickups, so a late third clue cannot win.
@@ -2199,6 +2238,7 @@ int main()
     }
 
     for(int id=1; id<=matchPlayerCount; ++id) closesocket(matchSockets[id]);
+    } // Keep the listener alive for the next lobby.
     closesocket(listenSocket);
     WSACleanup();
 
