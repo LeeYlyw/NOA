@@ -12,6 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 15b29432e5e2c5542ad33c005e59472d, type: 3}
   m_Name: flashlight_Item
   m_EditorClassIdentifier: 
-  itemName: 
+  itemName: 손전등
   icon: {fileID: 1472297220, guid: 66cb4d2d7eaa758489c854df876c4e70, type: 3}
   type: 5

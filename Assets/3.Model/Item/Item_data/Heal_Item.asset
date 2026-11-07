@@ -12,6 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 15b29432e5e2c5542ad33c005e59472d, type: 3}
   m_Name: Heal_Item
   m_EditorClassIdentifier: 
-  itemName: 
+  itemName: 회복
   icon: {fileID: 1299529512, guid: 0e4703329db60da48868b53e2f5acd3c, type: 3}
   type: 2

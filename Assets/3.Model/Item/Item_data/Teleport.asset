@@ -12,6 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 15b29432e5e2c5542ad33c005e59472d, type: 3}
   m_Name: Teleport
   m_EditorClassIdentifier: 
-  itemName: 
+  itemName: 순간이동
   icon: {fileID: -1172702803, guid: 6e1d6b6d26c941b4490009366aeed4ab, type: 3}
   type: 0

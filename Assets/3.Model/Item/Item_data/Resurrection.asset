@@ -12,6 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 15b29432e5e2c5542ad33c005e59472d, type: 3}
   m_Name: Resurrection
   m_EditorClassIdentifier: 
-  itemName: 
+  itemName: 부활
   icon: {fileID: -413336854, guid: 625fc5b1dab9e4548905ba391fc759d3, type: 3}
   type: 3

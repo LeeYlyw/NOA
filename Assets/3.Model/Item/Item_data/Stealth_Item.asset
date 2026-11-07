@@ -12,6 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 15b29432e5e2c5542ad33c005e59472d, type: 3}
   m_Name: Stealth_Item
   m_EditorClassIdentifier: 
-  itemName: 
+  itemName: 은신
   icon: {fileID: 1922669706, guid: 88fc2bde00c67e44f9f17e9f5f03c6b9, type: 3}
   type: 1
