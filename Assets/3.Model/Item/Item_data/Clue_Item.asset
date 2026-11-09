@@ -12,6 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 15b29432e5e2c5542ad33c005e59472d, type: 3}
   m_Name: Clue_Item
   m_EditorClassIdentifier: 
-  itemName: 
+  itemName: 단서
   icon: {fileID: 506360025, guid: 4805a3535910008419d4fd0c6170c071, type: 3}
   type: 4
