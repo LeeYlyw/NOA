@@ -18,6 +18,7 @@ struct NavigationDoor
     bool open = false;
     int direction = 1;
     double openingUntil = 0.0;
+    double closingUntil = 0.0;
 };
 
 struct ServerNavigation
@@ -69,6 +70,25 @@ struct ServerNavigation
             }
         }
         return bestDistance <= step * step * 6.0f ? best : -1;
+    }
+
+    // Grid edges alone do not cover moves that stay inside one cell.
+    // When a leaf closes around a monster, permit movement away on its own side.
+    int BlockingDoorOnMove(const Vec3& from, const Vec3& to) const
+    {
+        float dx = to.x - from.x, dz = to.z - from.z;
+        float length2 = dx * dx + dz * dz;
+        if (length2 <= 0.0f) return 0;
+        for (const NavigationDoor& door : doors) {
+            if (door.open) continue;
+            float x = from.x - door.position.x, z = from.z - door.position.z;
+            float dot = x * dx + z * dz;
+            if (dot >= 0.0f) continue;
+            float t = std::min(1.0f, -dot / length2);
+            x += t * dx; z += t * dz;
+            if (x * x + z * z < 1.5f * 1.5f) return door.id;
+        }
+        return 0;
     }
 
     bool CanStep(int from, int to, bool ignoreDoors = false) const

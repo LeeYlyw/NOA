@@ -467,8 +467,17 @@ bool MoveToward(MonsterState& monster, const Vec3& target, float deltaTime)
     }
     FaceTarget(monster, waypoint);
     float moveAmount = std::min(distance, monster.moveSpeed * deltaTime);
-    monster.position.x += dx / distance * moveAmount;
-    monster.position.z += dz / distance * moveAmount;
+    Vec3 next = monster.position;
+    next.x += dx / distance * moveAmount;
+    next.z += dz / distance * moveAmount;
+    int blockingDoor = navigation.BlockingDoorOnMove(monster.position, next);
+    if (blockingDoor != 0) {
+        monster.pendingDoorId = blockingDoor;
+        monster.isWalk = false;
+        monster.currentSpeed = 0.0f;
+        return false;
+    }
+    monster.position = next;
     monster.isWalk = true;
     monster.currentSpeed = monster.moveSpeed;
     return false;
@@ -1367,10 +1376,13 @@ void ProcessClientPacket(
         {
             if (door.id != doorId) continue;
             if (Distance2D(players[playerId].position, door.position) > 4.5f ||
-                std::fabs(players[playerId].position.y - door.position.y) > 5.0f ||
-                door.openingUntil > GetTimeSeconds()) return;
-            door.open = !door.open;
-            if (door.open) door.direction = direction;
+                std::fabs(players[playerId].position.y - door.position.y) > 5.0f) return;
+            bool wantOpen = !door.open && door.openingUntil == 0.0;
+            door.open = false;
+            double now = GetTimeSeconds();
+            door.openingUntil = wantOpen ? now + 0.5 : 0.0;
+            door.closingUntil = wantOpen ? 0.0 : now + 0.5;
+            if (wantOpen) door.direction = direction;
             for (int i = 0; i < 2; ++i)
             {
                 monsters[i].path.clear();
@@ -1378,8 +1390,8 @@ void ProcessClientPacket(
             }
             BroadcastPacket(clientSocket1, clientSocket2,
                 "S_DOOR_STATE|" + std::to_string(door.id) + "|" +
-                std::to_string(door.open ? 1 : 0) + "|" +
-                std::to_string(door.direction));
+                std::to_string(wantOpen ? 1 : 0) + "|" +
+                std::to_string(door.direction) + "|2");
             return;
         }
         return;
@@ -1543,12 +1555,6 @@ void ProcessClientPacket(
             return;
 
         double now = GetTimeSeconds();
-        if (!navigation.gateOpen && gateOpeningTime > 0.0 && now >= gateOpeningTime)
-        {
-            navigation.gateOpen = true;
-            for (int monsterIndex = 0; monsterIndex < 2; ++monsterIndex)
-                monsters[monsterIndex].pathGoal = -1;
-        }
         for (auto it = mimicShots.begin(); it != mimicShots.end(); )
             it = it->second.expiresAt < now ? mimicShots.erase(it) : std::next(it);
         if (mimicShots.find(shotId) != mimicShots.end()) return;
@@ -1914,7 +1920,7 @@ void UpdateMonsterDoorOpenings(MonsterState monsters[], SOCKET clientSocket1,
         for (NavigationDoor& door : navigation.doors)
         {
             if (door.id != monsters[i].pendingDoorId || door.open ||
-                door.openingUntil > 0.0) continue;
+                door.openingUntil > 0.0 || now < door.closingUntil) continue;
             door.openingUntil = now + MonsterDoorOpenSeconds;
             door.direction = 1;
             BroadcastPacket(clientSocket1, clientSocket2,
@@ -2156,6 +2162,13 @@ int main()
         if (peerDisconnected || restartRequested) break;
 
         double now = GetTimeSeconds();
+        if (gateOpeningTime > 0.0 && now >= gateOpeningTime)
+        {
+            navigation.gateOpen = true;
+            gateOpeningTime = 0.0;
+            for (auto& monster : monsters) monster.pathGoal = -1;
+            std::cout << "[Navigation] Puzzle gate open" << std::endl;
+        }
         if (!navigation.ready && !navigationFailed && !navigationTimeoutReported && now >= navigationDeadline)
         {
             BroadcastPacket(clientSocket1, clientSocket2,

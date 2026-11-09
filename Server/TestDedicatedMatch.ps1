@@ -73,6 +73,14 @@ try {
             Send-Packet $peers[$orange-1] "C_PUZZLE_CHOOSE|$orange|$choice"
         }
         foreach($peer in $peers){$null=Wait-Packet $peer '^S_PUZZLE_SOLVED$'}
+        # No mimic fires in this test. Each solved match must open the server gate on its own.
+        $expectedGateCount = if ($count -eq 2) { 1 } else { 2 }
+        $deadline = [DateTime]::UtcNow.AddSeconds(5)
+        do {
+            Start-Sleep -Milliseconds 100
+            $gateCount = @(Select-String -LiteralPath (Join-Path $PSScriptRoot 'match-check.log') -SimpleMatch '[Navigation] Puzzle gate open').Count
+        } while ($gateCount -lt $expectedGateCount -and [DateTime]::UtcNow -lt $deadline)
+        if ($gateCount -ne $expectedGateCount) { throw 'Puzzle completion did not open the server gate once per match' }
         Send-Packet $peers[0] 'MOVE|1|1|0|1|0|0|0|0|1|0'
         for($item=1;$item -le 3;$item++){Send-Packet $peers[0] "C_ITEM_PICKUP|1|$item|Clue"}
         foreach($peer in $peers){$null=Wait-Packet $peer '^S_GAME_CLEAR$'}
