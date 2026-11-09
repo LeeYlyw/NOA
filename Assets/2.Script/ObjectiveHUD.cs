@@ -150,7 +150,7 @@ public class ObjectiveHUD : MonoBehaviour
         {
             objective.text = count >= 2 ? "협동 장치로 방을 여세요" : "단서를 찾고 잠금을 해제하세요";
             if (network.offlineMode)
-                instruction.text = "협동 장치는 두 플레이어가 필요합니다.\n단서 1개는 잠긴 방 안에 있습니다.";
+                instruction.text = "파란 발판에서 문양을 확인한 뒤\n주황 발판에서 숫자 1~4로 선택하세요.";
             else if (lockPuzzle != null && network.localPlayerTransform != null)
             {
                 int targetPad = blue ? 2 : orange ? 1 :
@@ -195,7 +195,7 @@ public class ObjectiveHUD : MonoBehaviour
     void UpdateTeamStatus(NetworkClient network)
     {
         if (network.offlineMode)
-            teammateStatus.text = "동료 상태 · 연결 대기";
+            teammateStatus.text = "오프라인 테스트 · " + network.Role1;
         else
         {
             System.Text.StringBuilder team = new System.Text.StringBuilder();

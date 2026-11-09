@@ -40,6 +40,7 @@ public class CoopShapePuzzle : MonoBehaviour
     int round;
     int totalRounds = 3;
     float wrongUntil;
+    bool offlineClueRead;
 
     public int WrongFeedbackVersion { get; private set; }
     public bool IsSolved => solved;
@@ -157,7 +158,7 @@ public class CoopShapePuzzle : MonoBehaviour
     {
         NetworkClient network = NetworkClient.Instance;
         UpdatePuzzlePanel(network);
-        if (!configured || network == null || !network.IsConnected || !network.GameStarted ||
+        if (!configured || network == null || (!network.offlineMode && (!network.IsConnected || !network.GameStarted)) ||
             !network.HasAssignedPlayerId || network.localPlayerTransform == null) return;
 
         if (solved)
@@ -177,6 +178,12 @@ public class CoopShapePuzzle : MonoBehaviour
         bool canStand = controller != null && !controller.IsDeadState;
         int standingPad = canStand && IsOnPad(player, firstPad) ? 1 :
             canStand && IsOnPad(player, secondPad) ? 2 : 0;
+        if (network.offlineMode)
+        {
+            if (ClueManager.instance == null || !ClueManager.instance.IsEnding)
+                UpdateSoloPuzzle(standingPad);
+            return;
+        }
         int ownedPad = padOwners[1] == network.playerId ? 1 :
             padOwners[2] == network.playerId ? 2 : 0;
         // An entry can be rejected while the server still has the previous
@@ -206,6 +213,50 @@ public class CoopShapePuzzle : MonoBehaviour
     static bool IsOnPad(Vector3 player, Vector3 pad) =>
         Mathf.Abs(player.y - pad.y) <= 1f &&
         new Vector2(player.x - pad.x, player.z - pad.z).magnitude <= 1.2f;
+
+    void UpdateSoloPuzzle(int pad)
+    {
+        padOwners[1] = pad == 1 ? 1 : 0;
+        padOwners[2] = pad == 2 ? 1 : 0;
+        if (pad == 1 && !offlineClueRead && Time.time >= wrongUntil)
+        {
+            round++;
+            clue = Random.Range(0, 48);
+            int answerSlot = Random.Range(0, 4);
+            choices[answerSlot] = clue;
+            for (int offset = 1; offset <= 3; offset++)
+            {
+                int shape = clue / 12, color = clue / 3 % 4, mark = clue % 3;
+                if (round == 1) { shape += offset; color += offset; mark += offset; }
+                else if (round == 2) {
+                    if (offset != 2) shape++;
+                    if (offset != 1) color++;
+                    mark += offset;
+                }
+                else if (offset == 1) mark++;
+                else if (offset == 2) color++;
+                else shape++;
+                choices[(answerSlot + offset) % 4] = shape % 4 * 12 + color % 4 * 3 + mark % 3;
+            }
+            offlineClueRead = true;
+        }
+        if (pad != 2 || !offlineClueRead) return;
+        for (int i = 0; i < choices.Length; i++)
+        {
+            if (!Input.GetKeyDown((KeyCode)((int)KeyCode.Alpha1 + i)) &&
+                !Input.GetKeyDown((KeyCode)((int)KeyCode.Keypad1 + i))) continue;
+            SelectSoloChoice(i);
+            return;
+        }
+    }
+
+    void SelectSoloChoice(int index)
+    {
+        if (!offlineClueRead || solved) return;
+        offlineClueRead = false;
+        if (choices[index] != clue) SetWrong();
+        else if (round == totalRounds) SetSolved();
+    }
 
     public void SetPads(string[] parts)
     {
@@ -308,8 +359,8 @@ public class CoopShapePuzzle : MonoBehaviour
     void UpdatePuzzlePanel(NetworkClient network)
     {
         if (puzzleCanvas == null) return;
-        bool visible = configured && network != null && network.GameStarted &&
-            network.HasAssignedPlayerId && !solved && BluePadOccupied && OrangePadOccupied &&
+        bool visible = configured && network != null && (network.offlineMode ? offlineClueRead || Time.time < wrongUntil : network.GameStarted && BluePadOccupied && OrangePadOccupied) &&
+            network.HasAssignedPlayerId && !solved &&
             (padOwners[1] == network.playerId || padOwners[2] == network.playerId) &&
             (ClueManager.instance == null || !ClueManager.instance.IsEnding);
         puzzleCanvas.enabled = visible;
@@ -319,7 +370,7 @@ public class CoopShapePuzzle : MonoBehaviour
         bool describing = padOwners[1] == network.playerId;
         clueView.SetActive(describing);
         choicesView.SetActive(!describing);
-        directionLabel.text = describing
+        directionLabel.text = network.offlineMode && describing ? "문양을 기억한 뒤 주황 발판에서 선택하세요." : describing
             ? "모양·색·중앙 표시를 동료에게 설명하세요."
             : "모양·색·중앙 표시를 비교하세요. 숫자 1~4";
         if (describing)

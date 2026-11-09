@@ -101,7 +101,13 @@ public class MonsterChase : MonoBehaviour
         }
 
         if (state == State.Chase || state == State.Search)
-            OpenNearbyDoors();
+        {
+            if (WaitForNearbyDoor())
+            {
+                agent.isStopped = true;
+                return;
+            }
+        }
 
         if (state != State.Attack)
         {
@@ -123,17 +129,18 @@ public class MonsterChase : MonoBehaviour
         if (animator != null) animator.speed = 1f;
     }
 
-    void OpenNearbyDoors()
+    bool WaitForNearbyDoor()
     {
-        if (nearbyDoors == null) return;
+        if (nearbyDoors == null) return false;
         foreach (DoorInteraction door in nearbyDoors)
         {
             if (door == null) continue;
             Vector3 offset = door.GetNetworkAnchor() - transform.position;
             if (Mathf.Abs(offset.y) > 2f || new Vector2(offset.x, offset.z).sqrMagnitude > 6.25f)
                 continue;
-            door.OpenForOfflineMonster();
+            if (door.WaitForOfflineDoor()) return true;
         }
+        return false;
     }
 
     bool CanSeePlayer(Transform target)

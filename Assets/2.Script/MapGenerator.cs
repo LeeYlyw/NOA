@@ -75,7 +75,8 @@ public class MapGenerator : MonoBehaviour
     {
         if (NetworkClient.Instance != null && NetworkClient.Instance.offlineMode)
         {
-            GenerateMap(Random.Range(1, 999999));
+            int seed = NetworkClient.Instance.offlineMapSeed;
+            GenerateMap(seed == 0 ? Random.Range(1, 999999) : seed);
         }
     }
 

@@ -14,6 +14,10 @@ public class NetworkClient : MonoBehaviour
     [Header("Testing Option")]
     [Tooltip("체크 시 C++ 서버 연결 없이 유니티 에디터에서 바로 싱글 테스트를 수행합니다.")]
     public bool offlineMode = false;
+    [Tooltip("오프라인 테스트에서 조작할 직업")]
+    public PlayerRole offlineRole = PlayerRole.Detector;
+    [Tooltip("0은 무작위, 다른 값은 같은 맵을 반복 테스트합니다.")]
+    public int offlineMapSeed;
 
     [Header("Network")]
     public string serverIP = "127.0.0.1";
@@ -85,6 +89,7 @@ public class NetworkClient : MonoBehaviour
             }
         }
         playerId = offlineMode ? 1 : 0;
+        if (offlineMode) Role1 = offlineRole;
         matchPlayerRoles[1] = Role1;
         matchPlayerRoles[2] = Role2;
         Application.runInBackground = true;
@@ -1012,6 +1017,7 @@ public class NetworkClient : MonoBehaviour
         }
 
         AssignPlayerRolesAndAuthority();
+        if (offlineMode) GameStarted = localPlayerTransform != null;
     }
 
     private void AssignPlayerRolesAndAuthority()

@@ -82,11 +82,14 @@ public class DoorInteraction : MonoBehaviour
         ApplyServerState(!isOpen, direction);
     }
 
-    public void OpenForOfflineMonster()
+    public bool WaitForOfflineDoor()
     {
         NetworkClient network = NetworkClient.Instance;
-        if (network == null || !network.offlineMode || isOpen || doorHinge == null) return;
+        if (network == null || !network.offlineMode || doorHinge == null) return false;
+        if (doorCoroutine != null) return true;
+        if (isOpen) return false;
         ApplyServerState(true, 1, 0.5f);
+        return true;
     }
 
     public void ApplyServerState(bool open, int direction, float animationSpeed = -1f)
