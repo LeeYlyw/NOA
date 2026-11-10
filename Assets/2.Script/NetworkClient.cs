@@ -53,10 +53,24 @@ public class NetworkClient : MonoBehaviour
     private NetworkStream stream;
     private bool isConnected = false;
     private bool isReloading;
+    private bool restoringSession;
+    private bool receivingSnapshot;
+    private bool snapshotApplied;
+    private float lastPacketAt;
+    private float nextHeartbeatAt;
+    private float resumeRetryDeadline;
+    private int authorityEpoch = 1;
+    private float connectionNoticeUntil;
+    private GUIStyle connectionNoticeStyle;
+    public int AuthorityPlayerId { get; private set; } = 1;
+    public bool IsRestoringSession => restoringSession;
+    private string SessionKey => "NOA.Resume." + serverIP + "." + serverPort;
+    private string ResumeToken => PlayerPrefs.GetString(SessionKey, "");
+    private void ForgetSession() { PlayerPrefs.DeleteKey(SessionKey); PlayerPrefs.Save(); }
     private Coroutine connectionRoutine;
 
     private float sendTimer = 0f;
-    private int nextMimicShotId = 1;
+    private int nextMimicShotId = 100000;
     private string receiveBuffer = "";
     private PlayerController localPlayerController;
 
@@ -123,6 +137,11 @@ public class NetworkClient : MonoBehaviour
             ConnectionStatus = "서버 연결 중: " + serverIP + ":" + serverPort;
             if (GetComponent<LobbyManager>() == null) gameObject.AddComponent<LobbyManager>();
             ConnectionStatus = "서버 PC 주소를 입력하고 접속하세요.";
+            if (!string.IsNullOrEmpty(ResumeToken))
+            {
+                resumeRetryDeadline = Time.realtimeSinceStartup + 65f;
+                connectionRoutine = StartCoroutine(ConnectAutomatically());
+            }
         }
     }
 
@@ -133,10 +152,23 @@ public class NetworkClient : MonoBehaviour
 
         if (!isConnected || stream == null) return;
 
-        if (client.Client.Poll(0, SelectMode.SelectRead) && client.Client.Available == 0)
+        if (GameStarted && Time.realtimeSinceStartup - lastPacketAt > 15f)
+        { HandleConnectionLost(); return; }
+        if (GameStarted && Time.realtimeSinceStartup >= nextHeartbeatAt)
+        {
+            nextHeartbeatAt = Time.realtimeSinceStartup + 2f;
+            SendMessageToServer("C_PING\n", "Heartbeat failed");
+        }
+        if (!isConnected || client == null) return;
+        try
+        {
+            if (client.Client.Poll(0, SelectMode.SelectRead) && client.Client.Available == 0)
+            { HandleConnectionLost(); return; }
+        }
+        catch (SocketException)
         { HandleConnectionLost(); return; }
         ReceivePackets();
-        if (!isConnected || !HasAssignedPlayerId || !GameStarted) return;
+        if (!isConnected || !HasAssignedPlayerId || !GameStarted || restoringSession) return;
         SendLocalPlayerTransform();
         ApplyRemotePlayerTransform();
     }
@@ -152,6 +184,7 @@ public class NetworkClient : MonoBehaviour
             return;
         }
         serverIP = address;
+        resumeRetryDeadline = Time.realtimeSinceStartup + 65f;
         CloseConnection();
         if (LobbyManager.Instance != null) LobbyManager.Instance.ResetState();
         connectionRoutine = StartCoroutine(ConnectAutomatically());
@@ -175,7 +208,11 @@ public class NetworkClient : MonoBehaviour
         stream = null;
         client = null;
         receiveBuffer = "";
-        if (!GameStarted) playerId = 0;
+        if (!GameStarted)
+        {
+            playerId = 0;
+            restoringSession = receivingSnapshot = snapshotApplied = false;
+        }
     }
 
     System.Collections.IEnumerator ConnectAutomatically()
@@ -183,9 +220,11 @@ public class NetworkClient : MonoBehaviour
         IsConnecting = true;
         try
         {
-            for (int attempt = 0; attempt < 3; attempt++)
+            bool resuming = !string.IsNullOrEmpty(ResumeToken);
+            float deadlineForAttempts = Time.realtimeSinceStartup + 60f;
+            for (int attempt = 0; resuming ? Time.realtimeSinceStartup < deadlineForAttempts : attempt < 3; attempt++)
             {
-                ConnectionStatus = "서버 연결 중: " + serverIP + ":" + serverPort + " (" + (attempt + 1) + "/3)";
+                ConnectionStatus = "서버 연결 중: " + serverIP + ":" + serverPort + " (" + (attempt + 1) + "회)";
                 client = new TcpClient();
                 System.Threading.Tasks.Task task = null;
                 try { task = client.ConnectAsync(serverIP, serverPort); }
@@ -201,6 +240,7 @@ public class NetworkClient : MonoBehaviour
                     {
                         stream = client.GetStream();
                         isConnected = true;
+                        lastPacketAt = Time.realtimeSinceStartup;
                         ConnectionStatus = "서버에 연결됐습니다.";
                         PlayerPrefs.SetString("NOA.ServerAddress", serverIP);
                         PlayerPrefs.Save();
@@ -208,7 +248,7 @@ public class NetworkClient : MonoBehaviour
                     }
                 }
                 client.Close();
-                if (attempt < 2) yield return new WaitForSecondsRealtime(0.3f);
+                yield return new WaitForSecondsRealtime(resuming ? 1f : 0.3f);
             }
             CloseConnection();
             ConnectionStatus = "연결 실패: 서버 주소와 실행 상태를 확인한 뒤 다시 접속하세요.";
@@ -228,6 +268,7 @@ public class NetworkClient : MonoBehaviour
     public void ReturnToLobby()
     {
         if (isReloading) return;
+        ForgetSession();
         isReloading = true;
         StartCoroutine(ReloadLobby());
     }
@@ -258,14 +299,14 @@ public class NetworkClient : MonoBehaviour
 
     public void SendMimicState(int mimicId, int state)
     {
-        if (offlineMode || playerId != 1 || mimicId <= 0) return;
+        if (offlineMode || playerId != AuthorityPlayerId || mimicId <= 0) return;
         SendMessageToServer($"C_MIMIC_STATE|{playerId}|{mimicId}|{state}\n", "Mimic state failed");
     }
 
     public int SendMimicFire(int mimicId, int targetId, Vector3 start, Vector3 direction,
                              float speed, int damage)
     {
-        if (offlineMode || playerId != 1 || mimicId <= 0 || !isConnected) return 0;
+        if (offlineMode || playerId != AuthorityPlayerId || mimicId <= 0 || !isConnected) return 0;
         int shotId = nextMimicShotId++;
         string message = string.Format(CultureInfo.InvariantCulture,
             "C_MIMIC_FIRE|{0}|{1}|{2}|{3}|{4:F3}|{5:F3}|{6:F3}|{7:F3}|{8:F3}|{9:F3}|{10:F2}|{11}\n",
@@ -411,6 +452,7 @@ public class NetworkClient : MonoBehaviour
                                 edgeMask.Substring(offset, Mathf.Min(chunkSize, edgeMask.Length - offset)) +
                                 "\n", "Navigation map chunk failed");
         SendMessageToServer("C_NAV_END|" + playerId + "\n", "Navigation map end failed");
+        if (restoringSession) StartCoroutine(RequestSnapshot());
     }
 
     public void RegisterDoors(DoorInteraction[] doors)
@@ -440,7 +482,7 @@ public class NetworkClient : MonoBehaviour
             "C_ITEM_PICKUP|{0}|{1}|{2}\n",
             playerId, itemId, itemType
         );
-        if (!isConnected || !HasAssignedPlayerId || stream == null) return false;
+        if (restoringSession || !isConnected || !HasAssignedPlayerId || stream == null) return false;
         SendMessageToServer(message, "아이템 획득 요청 전송 실패");
         return isConnected;
     }
@@ -448,7 +490,7 @@ public class NetworkClient : MonoBehaviour
     public bool SendItemUseRequest(int itemId, ItemData.ItemType itemType,
         int targetPlayerId, Vector3 destination)
     {
-        if (offlineMode || !isConnected || !HasAssignedPlayerId || stream == null) return false;
+        if (offlineMode || restoringSession || !isConnected || !HasAssignedPlayerId || stream == null) return false;
         string message = string.Format(
             CultureInfo.InvariantCulture,
             "C_ITEM_USE|{0}|{1}|{2}|{3}|{4:F2}|{5:F2}|{6:F2}\n",
@@ -462,7 +504,7 @@ public class NetworkClient : MonoBehaviour
     // [추가] 힐러 스킬: 서버로 특정 플레이어의 체력 회복을 요청합니다.
     public bool SendPlayerHealRequest()
     {
-        if (offlineMode || !isConnected || !HasAssignedPlayerId || stream == null)
+        if (offlineMode || restoringSession || !isConnected || !HasAssignedPlayerId || stream == null)
             return false;
         SendMessageToServer("C_PLAYER_HEAL|" + playerId + "\n", "Heal request failed");
         return isConnected;
@@ -493,6 +535,8 @@ public class NetworkClient : MonoBehaviour
     void SendMessageToServer(string message, string errorMessage)
     {
         if (!isConnected || !HasAssignedPlayerId || stream == null) return;
+        if (restoringSession && !message.StartsWith("C_NAV_", StringComparison.Ordinal) &&
+            !message.StartsWith("C_RESUME_", StringComparison.Ordinal) && message != "C_PING\n") return;
         byte[] data = Encoding.UTF8.GetBytes(message);
         try
         {
@@ -512,8 +556,15 @@ public class NetworkClient : MonoBehaviour
             !ConnectionStatus.StartsWith("게임이 진행 중", StringComparison.Ordinal) &&
             !ConnectionStatus.StartsWith("서버 버전", StringComparison.Ordinal))
             ConnectionStatus = "서버 연결이 끊겼습니다.";
-        if (GameStarted && ClueManager.instance != null)
-            ClueManager.instance.ShowConnectionLost("연결 종료");
+        if (GameStarted && !isReloading && !string.IsNullOrEmpty(ResumeToken))
+        {
+            isReloading = true;
+            ConnectionStatus = "연결 복구 중입니다. 서버가 60초 동안 자리를 보관합니다.";
+            StartCoroutine(ReloadLobby());
+        }
+        else if (!GameStarted && !isReloading && !string.IsNullOrEmpty(ResumeToken) &&
+                 Time.realtimeSinceStartup < resumeRetryDeadline)
+            connectionRoutine = StartCoroutine(RetryResume());
     }
 
     void ReceivePackets()
@@ -525,6 +576,7 @@ public class NetworkClient : MonoBehaviour
                 byte[] buffer = new byte[1024];
                 int length = stream.Read(buffer, 0, buffer.Length);
                 if (length <= 0) break;
+                lastPacketAt = Time.realtimeSinceStartup;
                 receiveBuffer += Encoding.UTF8.GetString(buffer, 0, length);
             }
             ProcessReceiveBuffer();
@@ -554,8 +606,87 @@ public class NetworkClient : MonoBehaviour
         string[] parts = packet.Split('|');
         if (parts.Length < 1) return;
 
+        if (restoringSession && !receivingSnapshot && !snapshotApplied &&
+            parts[0] != "START" && parts[0] != "S_SNAPSHOT_BEGIN" &&
+            parts[0] != "S_PONG" && parts[0] != "S_NAV_ERROR") return;
+
         switch (parts[0])
         {
+            case "S_SESSION":
+                if (parts.Length == 2) { PlayerPrefs.SetString(SessionKey, parts[1]); PlayerPrefs.Save(); }
+                break;
+            case "S_RESUME_REQUIRED":
+                if (string.IsNullOrEmpty(ResumeToken))
+                {
+                    CloseConnection();
+                    ConnectionStatus = "게임이 진행 중입니다. 기존 참가자만 재접속할 수 있습니다.";
+                }
+                else
+                {
+                    byte[] request = Encoding.UTF8.GetBytes("C_RESUME|" + ResumeToken + "\n");
+                    stream.Write(request, 0, request.Length);
+                }
+                break;
+            case "S_RESUME_RETRY":
+                CloseConnection();
+                if (Time.realtimeSinceStartup < resumeRetryDeadline)
+                    connectionRoutine = StartCoroutine(RetryResume());
+                else ConnectionStatus = "기존 연결 종료를 확인하지 못했습니다. 잠시 뒤 다시 접속하세요.";
+                break;
+            case "S_RESUME_REJECTED":
+                ForgetSession();
+                CloseConnection();
+                ConnectionStatus = "재접속 유예가 끝났거나 이미 접속된 참가자입니다.";
+                break;
+            case "S_RESUME_ACCEPTED":
+                restoringSession = true;
+                ConnectionStatus = "맵과 게임 상태를 복원하는 중입니다.";
+                break;
+            case "S_SNAPSHOT_BEGIN":
+                receivingSnapshot = true;
+                break;
+            case "S_SNAPSHOT_PLAYER":
+                RestorePlayer(parts);
+                break;
+            case "S_SNAPSHOT_ITEM":
+                ProcessItemPickupPacket(parts);
+                break;
+            case "S_SNAPSHOT_END":
+                receivingSnapshot = false;
+                snapshotApplied = true;
+                SendMessageToServer("C_RESUME_ACK\n", "Resume confirmation failed");
+                break;
+            case "S_RESUME_COMPLETE":
+                restoringSession = false;
+                ConnectionStatus = "기존 경기에 재접속했습니다.";
+                connectionNoticeUntil = Time.unscaledTime + 5f;
+                SetLocalInputEnabled(true);
+                break;
+            case "S_AUTHORITY":
+                if (parts.Length == 3 && int.TryParse(parts[1], out int authority) &&
+                    int.TryParse(parts[2], out int epoch))
+                {
+                    AuthorityPlayerId = authority;
+                    if (authorityEpoch != epoch)
+                    {
+                        authorityEpoch = epoch;
+                        nextMimicShotId = epoch * 100000;
+                        foreach (MimicLaptop mimic in FindObjectsByType<MimicLaptop>(FindObjectsSortMode.None))
+                            mimic.ResetNetworkAuthority();
+                    }
+                }
+                break;
+            case "S_CONNECTION":
+                if (parts.Length == 3 && int.TryParse(parts[1], out int connectionId))
+                {
+                    GameObject peer = GetPlayerObject(connectionId);
+                    if (peer != null && connectionId != playerId) peer.SetActive(parts[2] == "1");
+                    connectionNoticeUntil = Time.unscaledTime + 5f;
+                    ConnectionStatus = "플레이어 " + connectionId + (parts[2] == "1" ? " 복귀" : " 연결 끊김 · 재접속 대기");
+                }
+                break;
+            case "S_PONG":
+                break;
             case "ID":
                 if (!GameStarted && parts.Length == 2 &&
                     int.TryParse(parts[1], out int assignedPlayerId) && assignedPlayerId >= 1 && assignedPlayerId <= 4)
@@ -581,10 +712,13 @@ public class NetworkClient : MonoBehaviour
                         PlayerCount = participantCount;
                         Role1 = matchPlayerRoles[1]; Role2 = matchPlayerRoles[2];
                         GameStarted = true; mg.GenerateMap(seed);
+                        lastPacketAt = Time.realtimeSinceStartup;
+                        if (restoringSession) SetLocalInputEnabled(false);
                     }
                 }
                 break;
             case "LOBBY":
+                ForgetSession();
                 if (LobbyManager.Instance != null && !LobbyManager.Instance.ApplyState(parts))
                     ConnectionStatus = "서버 버전이 맞지 않습니다. 최신 Release 서버로 다시 빌드하세요.";
                 break;
@@ -667,6 +801,70 @@ public class NetworkClient : MonoBehaviour
         }
     }
 
+    System.Collections.IEnumerator RetryResume()
+    {
+        IsConnecting = true;
+        yield return new WaitForSecondsRealtime(1f);
+        connectionRoutine = StartCoroutine(ConnectAutomatically());
+    }
+
+    void OnGUI()
+    {
+        if (!GameStarted || (!restoringSession && Time.unscaledTime >= connectionNoticeUntil)) return;
+        if (connectionNoticeStyle == null)
+            connectionNoticeStyle = new GUIStyle(GUI.skin.box) {
+                font = Font.CreateDynamicFontFromOSFont("Malgun Gothic", 16),
+                fontSize = 16, wordWrap = true
+            };
+        GUI.Box(new Rect(20, 70, Mathf.Min(480, Screen.width - 40), 56), ConnectionStatus, connectionNoticeStyle);
+    }
+
+    System.Collections.IEnumerator RequestSnapshot()
+    {
+        yield return null;
+        SendMessageToServer("C_RESUME_READY\n", "State restore failed");
+    }
+
+    void SetLocalInputEnabled(bool enabled)
+    {
+        if (localPlayerController != null) localPlayerController.enabled = enabled;
+    }
+
+    void RestorePlayer(string[] parts)
+    {
+        if (parts.Length != 10 || !int.TryParse(parts[1], out int id)) return;
+        GameObject target = GetPlayerObject(id);
+        if (target == null) return;
+        float x = float.Parse(parts[2], CultureInfo.InvariantCulture);
+        float y = float.Parse(parts[3], CultureInfo.InvariantCulture);
+        float z = float.Parse(parts[4], CultureInfo.InvariantCulture);
+        float rotation = float.Parse(parts[5], CultureInfo.InvariantCulture);
+        CharacterController character = target.GetComponent<CharacterController>();
+        if (character != null) character.enabled = false;
+        if (parts[9] == "1")
+            target.transform.SetPositionAndRotation(new Vector3(x, y, z), Quaternion.Euler(0, rotation, 0));
+        if (character != null) character.enabled = true;
+        targetRemotePositions[id] = target.transform.position;
+        targetRemoteRotations[id] = target.transform.rotation;
+        hasRemoteStates[id] = id != playerId;
+        PlayerController controller = target.GetComponent<PlayerController>();
+        if (controller != null) controller.SetHp(int.Parse(parts[6]));
+        float stealthSeconds = float.Parse(parts[7], CultureInfo.InvariantCulture);
+        PlayerStealth stealth = target.GetComponent<PlayerStealth>();
+        if (stealth != null && stealthSeconds > 0f)
+        {
+            float originalDuration = stealth.stealthDuration;
+            bool localOnly = stealth.onlyLocalPlayerCanUse;
+            stealth.onlyLocalPlayerCanUse = false;
+            stealth.stealthDuration = stealthSeconds;
+            stealth.ActivateStealth();
+            stealth.stealthDuration = originalDuration;
+            stealth.onlyLocalPlayerCanUse = localOnly;
+        }
+        HealerSkill healer = target.GetComponent<HealerSkill>();
+        if (healer != null) healer.RestoreCooldown(float.Parse(parts[8], CultureInfo.InvariantCulture));
+    }
+
     void ProcessMovePacket(string[] parts)
     {
         if (parts.Length < 11) return;
@@ -745,7 +943,7 @@ public class NetworkClient : MonoBehaviour
 
     void ProcessNoisePacket(string[] parts)
     {
-        if (parts.Length < 6 || playerId != 1) return;
+        if (parts.Length < 6 || playerId != AuthorityPlayerId) return;
         if (!int.TryParse(parts[1], out int sourcePlayerId)) return;
         if (!float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) ||
             !float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) ||

@@ -81,6 +81,12 @@ public class HealerSkill : MonoBehaviour
             currentCooldown = skillCooldown;
     }
 
+    public void RestoreCooldown(float seconds)
+    {
+        awaitingServerResult = false;
+        currentCooldown = Mathf.Max(0f, seconds);
+    }
+
     public void OnServerHealResult(bool accepted)
     {
         awaitingServerResult = false;

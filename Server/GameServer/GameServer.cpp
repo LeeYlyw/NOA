@@ -55,6 +55,15 @@ static ServerNavigation navigation;
 static constexpr int MaxPlayers = 4;
 static SOCKET matchSockets[MaxPlayers + 1] = {};
 static int matchPlayerCount = 0;
+static std::string resumeTokens[MaxPlayers + 1];
+static double reconnectUntil[MaxPlayers + 1] = {};
+static double lastReceivedAt[MaxPlayers + 1] = {};
+static bool restoring[MaxPlayers + 1] = {};
+static int authorityPlayer = 1;
+static int authorityEpoch = 1;
+static bool snapshotSent[MaxPlayers + 1] = {};
+static bool savedPosition[MaxPlayers + 1] = {};
+static constexpr double ReconnectSeconds = 60.0;
 static NavigationUpload navigationUploads[MaxPlayers + 1];
 static std::map<int, ItemSpawn> trustedItemSpawns;
 static bool navigationFailed = false;
@@ -125,13 +134,17 @@ struct MimicShot
 };
 
 static std::map<int, MimicShot> mimicShots;
+static std::map<int, int> mimicStates;
 
 void ResetSession()
 {
+    authorityPlayer = 1;
+    authorityEpoch = 1;
     navigation = ServerNavigation{};
     matchPlayerCount = 0;
     trustedItemSpawns.clear();
     mimicShots.clear();
+    mimicStates.clear();
     navigationFailed = false;
     gateOpeningTime = 0.0;
     matchResult = 0;
@@ -143,6 +156,9 @@ void ResetSession()
     puzzleRetryAt = 0.0;
     for (int i = 0; i <= MaxPlayers; ++i) {
         matchSockets[i] = INVALID_SOCKET;
+        resumeTokens[i].clear();
+        reconnectUntil[i] = lastReceivedAt[i] = 0.0;
+        restoring[i] = snapshotSent[i] = savedPosition[i] = false;
         navigationUploads[i] = NavigationUpload{};
         matchRoles[i] = -1;
         nextHealAt[i] = 0.0;
@@ -1339,7 +1355,7 @@ void ProcessClientPacket(
             !TryParseInt(parts[1], playerId) || playerId != senderPlayerId) return;
         restartVotes[playerId] = true;
         bool allVoted=true;
-        for(int id=1; id<=matchPlayerCount; ++id) allVoted=allVoted && restartVotes[id];
+        for(int id=1; id<=matchPlayerCount; ++id) allVoted=allVoted && (matchSockets[id]==INVALID_SOCKET || restoring[id] || restartVotes[id]);
         if (allVoted)
         {
             BroadcastPacket(clientSocket1, clientSocket2, "S_RESTART");
@@ -1347,6 +1363,7 @@ void ProcessClientPacket(
         }
         return;
     }
+    if (type == "C_PING") { SendPacket(matchSockets[senderPlayerId], "S_PONG"); return; }
     if (matchResult != 0) return;
     if (type == "C_NAV_FAIL")
     {
@@ -1524,10 +1541,11 @@ void ProcessClientPacket(
     if (type == "C_MIMIC_STATE")
     {
         int playerId = 0, mimicId = 0, state = -1;
-        if (senderPlayerId != 1 || parts.size() != 4 ||
+        if (senderPlayerId != authorityPlayer || parts.size() != 4 ||
             !TryParseInt(parts[1], playerId) || playerId != senderPlayerId ||
             !TryParseInt(parts[2], mimicId) || mimicId < 1 || mimicId > 128 ||
             !TryParseInt(parts[3], state) || state < 0 || state > 2) return;
+        mimicStates[mimicId] = state;
         BroadcastExcept(senderPlayerId, "S_MIMIC_STATE|" + std::to_string(mimicId) + "|" +
                                   std::to_string(state));
         return;
@@ -1538,7 +1556,7 @@ void ProcessClientPacket(
         int playerId = 0, mimicId = 0, shotId = 0, targetId = 0, damage = 0;
         Vec3 start, direction;
         float speed = 0.0f;
-        if (senderPlayerId != 1 || parts.size() != 13 ||
+        if (senderPlayerId != authorityPlayer || parts.size() != 13 ||
             !TryParseInt(parts[1], playerId) || playerId != senderPlayerId ||
             !TryParseInt(parts[2], mimicId) || mimicId < 1 || mimicId > 128 ||
             !TryParseInt(parts[3], shotId) || shotId < 1 ||
@@ -2067,6 +2085,13 @@ int main()
     int mapSeed=1+rd()%999999;
     std::string start="START|"+std::to_string(mapSeed)+"|"+std::to_string(matchPlayerCount);
     for(int id=1; id<=matchPlayerCount; ++id) start+="|"+std::to_string(matchRoles[id]);
+    for (int id=1; id<=matchPlayerCount; ++id) {
+        std::ostringstream token;
+        for (int part=0; part<8; ++part) token << std::hex << std::setw(8) << std::setfill('0') << rd();
+        resumeTokens[id] = token.str();
+        lastReceivedAt[id] = GetTimeSeconds();
+        SendPacket(matchSockets[id], "S_SESSION|" + resumeTokens[id]);
+    }
     BroadcastPacket(clientSocket1,clientSocket2,start);
 
     PlayerState players[MaxPlayers + 1];
@@ -2093,6 +2118,70 @@ int main()
     double navigationDeadline = GetTimeSeconds() + 30.0;
     bool navigationTimeoutReported = false;
 
+    struct ResumeConnection { SOCKET socket; std::string buffer; double deadline; };
+    std::vector<ResumeConnection> resumes;
+    auto publishAuthority = [&]() {
+        int next = 0;
+        for (int id=1; id<=matchPlayerCount; ++id)
+            if (matchSockets[id]!=INVALID_SOCKET && !restoring[id]) { next=id; break; }
+        if (authorityPlayer != next) {
+            authorityPlayer = next;
+            ++authorityEpoch;
+            mimicShots.clear();
+            mimicStates.clear();
+            BroadcastPacket(clientSocket1, clientSocket2, "S_AUTHORITY|" + std::to_string(next) + "|" + std::to_string(authorityEpoch));
+        }
+    };
+    auto disconnectPlayer = [&](int id) {
+        closesocket(matchSockets[id]);
+        matchSockets[id] = INVALID_SOCKET;
+        if (reconnectUntil[id] == 0.0) reconnectUntil[id] = GetTimeSeconds() + ReconnectSeconds;
+        if (!restoring[id]) savedPosition[id] = players[id].hasState;
+        restoring[id] = snapshotSent[id] = false;
+        players[id].hasState = false;
+        receiveBuffers[id].clear();
+        restartVotes[id] = false;
+        BroadcastExcept(id, "S_CONNECTION|" + std::to_string(id) + "|0");
+        publishAuthority();
+    };
+    auto snapshot = [&](int recipient) {
+        SOCKET socket = matchSockets[recipient];
+        SendPacket(socket, "S_SNAPSHOT_BEGIN");
+        SendPacket(socket, "S_AUTHORITY|" + std::to_string(authorityPlayer) + "|" + std::to_string(authorityEpoch));
+        for (const auto& state : mimicStates)
+            SendPacket(socket, "S_MIMIC_STATE|" + std::to_string(state.first) + "|" + std::to_string(state.second));
+        for (int id=1; id<=matchPlayerCount; ++id) {
+            const auto& player = players[id];
+            std::ostringstream state;
+            state << "S_SNAPSHOT_PLAYER|" << id << "|" << player.position.x << "|" << player.position.y
+                  << "|" << player.position.z << "|" << player.rotY << "|" << player.hp
+                  << "|" << std::max(0.0, player.stealthEndTime - GetTimeSeconds())
+                  << "|" << std::max(0.0, nextHealAt[id] - GetTimeSeconds())
+                  << "|" << (players[id].hasState || savedPosition[id]);
+            SendPacket(socket, state.str());
+            SendPacket(socket, "S_CONNECTION|" + std::to_string(id) + "|" +
+                std::to_string(matchSockets[id]!=INVALID_SOCKET && (!restoring[id] || id==recipient)));
+        }
+        for (const auto& entry : items) {
+            const auto& item = entry.second;
+            if (item.isPicked) SendPacket(socket, "S_SNAPSHOT_ITEM|" + std::to_string(item.itemId) + "|" +
+                std::to_string(item.isConsumed ? 0 : item.pickedByPlayerId) + "|" + ItemTypeToString(item.type));
+        }
+        for (const auto& door : navigation.doors)
+            SendPacket(socket, "S_DOOR_STATE|" + std::to_string(door.id) + "|" +
+                std::to_string(door.open || door.openingUntil > 0.0) + "|" + std::to_string(door.direction));
+        SendPacket(socket, "S_CLUE_COUNT|" + std::to_string(clueCount) + "|3");
+        if (puzzleSolved) SendPacket(socket, "S_PUZZLE_SOLVED");
+        SendPacket(socket, "S_PUZZLE_PADS|" + std::to_string(puzzlePadOwner[1]) + "|" + std::to_string(puzzlePadOwner[2]));
+        SendPacket(socket, "S_PUZZLE_PROGRESS|" + std::to_string(puzzleRound) + "|3");
+        if (matchStartedAt > 0.0) SendPacket(socket, "S_TIME_LEFT|" + std::to_string(lastTimeLeftBroadcast));
+        if (navigation.ready) SendPacket(socket, "S_NAV_READY");
+        if (matchResult==1) SendPacket(socket, "S_GAME_CLEAR");
+        if (matchResult==2) SendPacket(socket, GetTimeSeconds()-matchStartedAt>=MatchDurationSeconds ? "S_GAME_OVER|TIME" : "S_GAME_OVER|ALL_DOWN");
+        if (navigation.ready) BroadcastAllMonsterStates(clientSocket1, clientSocket2, monsters);
+        snapshotSent[recipient] = true;
+        SendPacket(socket, "S_SNAPSHOT_END");
+    };
     char buffer[1024];
 
     while (true)
@@ -2101,7 +2190,8 @@ int main()
         FD_ZERO(&readSet);
         FD_SET(listenSocket, &readSet);
         for (int id=1; id<=matchPlayerCount; ++id)
-            FD_SET(matchSockets[id], &readSet);
+            if (matchSockets[id]!=INVALID_SOCKET) FD_SET(matchSockets[id], &readSet);
+        for (const auto& pendingResume : resumes) FD_SET(pendingResume.socket, &readSet);
 
         timeval timeout;
         timeout.tv_sec = 0;
@@ -2117,9 +2207,47 @@ int main()
         if (FD_ISSET(listenSocket, &readSet)) {
             SOCKET incoming = accept(listenSocket, nullptr, nullptr);
             if (incoming != INVALID_SOCKET) {
-                SendPacket(incoming, "ERROR|Match in progress. Try again after the session ends.");
-                closesocket(incoming);
+                if (resumes.size() >= 8) closesocket(incoming);
+                else {
+                    SendPacket(incoming, "S_RESUME_REQUIRED");
+                    resumes.push_back({incoming, "", GetTimeSeconds()+5.0});
+                }
             }
+        }
+        for (auto it=resumes.begin(); it!=resumes.end();) {
+            bool finished = GetTimeSeconds() >= it->deadline;
+            if (!finished && FD_ISSET(it->socket, &readSet)) {
+                int length = recv(it->socket, buffer, sizeof(buffer), 0);
+                if (length<=0) finished=true;
+                else it->buffer.append(buffer, length);
+                if (it->buffer.size()>512) finished=true;
+                size_t newline = it->buffer.find('\n');
+                if (!finished && newline!=std::string::npos) {
+                    auto parts = Split(it->buffer.substr(0,newline), '|');
+                    int owner=0;
+                    bool busy=false;
+                    if (parts.size()==2 && parts[0]=="C_RESUME")
+                        for (int id=1; id<=matchPlayerCount; ++id)
+                            if (!resumeTokens[id].empty() && parts[1]==resumeTokens[id]) {
+                                busy=matchSockets[id]!=INVALID_SOCKET;
+                                if (!busy && reconnectUntil[id]>GetTimeSeconds()) owner=id;
+                            }
+                    if (owner) {
+                        matchSockets[owner]=it->socket;
+                        restoring[owner]=true;
+                        lastReceivedAt[owner]=GetTimeSeconds();
+                        SendPacket(it->socket, "ID|"+std::to_string(owner));
+                        SendPacket(it->socket, "S_RESUME_ACCEPTED");
+                        SendPacket(it->socket, start);
+                        it->socket=INVALID_SOCKET;
+                    } else SendPacket(it->socket, busy ? "S_RESUME_RETRY" : "S_RESUME_REJECTED");
+                    finished=true;
+                }
+            }
+            if (finished) {
+                if (it->socket!=INVALID_SOCKET) closesocket(it->socket);
+                it=resumes.erase(it);
+            } else ++it;
         }
 
         // Check the deadline before reading pickups, so a late third clue cannot win.
@@ -2141,25 +2269,61 @@ int main()
             BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_OVER|TIME");
         }
 
-        bool peerDisconnected=false;
-        for (int id=1; id<=matchPlayerCount && selectResult>0; ++id)
+        bool anyRetained=false;
+        for (int id=1; id<=matchPlayerCount; ++id)
         {
+            if (matchSockets[id]==INVALID_SOCKET) continue;
+            if (GetTimeSeconds()-lastReceivedAt[id]>(restoring[id] || !navigation.ready ? 60.0 : 15.0) ||
+                (restoring[id] && GetTimeSeconds()>=reconnectUntil[id])) { disconnectPlayer(id); continue; }
             if (!FD_ISSET(matchSockets[id], &readSet)) continue;
             int recvLength = recv(matchSockets[id], buffer, sizeof(buffer) - 1, 0);
             if (recvLength <= 0)
             {
                 std::cout << "Client " << id << " disconnected or recv failed." << std::endl;
-                BroadcastExcept(id, "S_PEER_LEFT");
-                peerDisconnected=true;
-                break;
+                disconnectPlayer(id);
+                continue;
             }
+            lastReceivedAt[id] = GetTimeSeconds();
             buffer[recvLength] = '\0';
             receiveBuffers[id].append(buffer, recvLength);
+            if (restoring[id]) {
+                size_t newline;
+                while ((newline=receiveBuffers[id].find('\n'))!=std::string::npos) {
+                    std::string packet=receiveBuffers[id].substr(0,newline);
+                    receiveBuffers[id].erase(0,newline+1);
+                    if (packet=="C_RESUME_READY" && !snapshotSent[id]) snapshot(id);
+                    else if (packet.rfind("C_NAV_",0)==0 && !navigation.ready)
+                        ProcessNavigationPacket(Split(packet,'|'), id, clientSocket1, clientSocket2, monsters);
+                    else if (packet=="C_RESUME_ACK" && snapshotSent[id]) {
+                        restoring[id]=false;
+                        reconnectUntil[id]=0.0;
+                        players[id].hasState=savedPosition[id];
+                        BroadcastExcept(id, "S_CONNECTION|"+std::to_string(id)+"|1");
+                        publishAuthority();
+                        SendPacket(matchSockets[id], "S_AUTHORITY|"+std::to_string(authorityPlayer)+"|"+std::to_string(authorityEpoch));
+                        SendPacket(matchSockets[id], "S_RESUME_COMPLETE");
+                    } else if (packet=="C_PING") SendPacket(matchSockets[id], "S_PONG");
+                }
+                if (receiveBuffers[id].size()>4096) disconnectPlayer(id);
+                continue;
+            }
             ProcessReceiveBuffer(id, receiveBuffers[id], clientSocket1, clientSocket2,
                 players, monsters, items, clueCount, needClueCount);
             if (restartRequested) break;
         }
-        if (peerDisconnected || restartRequested) break;
+        for (int id=1; id<=matchPlayerCount; ++id)
+            anyRetained = anyRetained || matchSockets[id]!=INVALID_SOCKET || reconnectUntil[id]>GetTimeSeconds();
+        bool connectedVoters=false, allConnectedVoted=true;
+        for (int id=1; id<=matchPlayerCount; ++id)
+            if (matchSockets[id]!=INVALID_SOCKET && !restoring[id]) {
+                connectedVoters=true;
+                allConnectedVoted=allConnectedVoted && restartVotes[id];
+            }
+        if (matchResult!=0 && connectedVoters && allConnectedVoted && !restartRequested) {
+            BroadcastPacket(clientSocket1, clientSocket2, "S_RESTART");
+            restartRequested=true;
+        }
+        if (!anyRetained || restartRequested) break;
 
         double now = GetTimeSeconds();
         if (gateOpeningTime > 0.0 && now >= gateOpeningTime)
@@ -2169,7 +2333,9 @@ int main()
             for (auto& monster : monsters) monster.pathGoal = -1;
             std::cout << "[Navigation] Puzzle gate open" << std::endl;
         }
-        if (!navigation.ready && !navigationFailed && !navigationTimeoutReported && now >= navigationDeadline)
+        if (!navigation.ready && !navigationFailed && !navigationTimeoutReported && now >= navigationDeadline &&
+            std::none_of(reconnectUntil + 1, reconnectUntil + matchPlayerCount + 1,
+                [now](double deadline) { return deadline > now; }))
         {
             BroadcastPacket(clientSocket1, clientSocket2,
                 "S_NAV_ERROR|Timed out waiting for matching navigation maps");
@@ -2235,9 +2401,15 @@ int main()
         }
 
         bool allDown=matchResult==0;
+        bool anyConnected=false;
         for(int id=1; id<=matchPlayerCount; ++id)
-            allDown=allDown && players[id].hasState && players[id].isDead;
-        if (allDown)
+        {
+            if (matchSockets[id]!=INVALID_SOCKET && !restoring[id]) {
+                anyConnected=true;
+                allDown=allDown && players[id].hasState && players[id].isDead;
+            } else if (reconnectUntil[id]>GetTimeSeconds() && !players[id].isDead) allDown=false;
+        }
+        if (allDown && anyConnected)
         {
             matchResult = 2;
             BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_OVER|ALL_DOWN");
@@ -2250,7 +2422,8 @@ int main()
         }
     }
 
-    for(int id=1; id<=matchPlayerCount; ++id) closesocket(matchSockets[id]);
+    for (const auto& pendingResume : resumes) closesocket(pendingResume.socket);
+    for(int id=1; id<=matchPlayerCount; ++id) if(matchSockets[id]!=INVALID_SOCKET) closesocket(matchSockets[id]);
     } // Keep the listener alive for the next lobby.
     closesocket(listenSocket);
     WSACleanup();

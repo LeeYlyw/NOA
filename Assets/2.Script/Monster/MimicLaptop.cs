@@ -35,6 +35,13 @@ public class MimicLaptop : MonoBehaviour
     public int NetworkId => networkId;
     public void SetNetworkId(int id) => networkId = id;
 
+    public void ResetNetworkAuthority()
+    {
+        target = null;
+        attackTimer = 0f;
+        state = State.Idle;
+    }
+
     private void Awake()
     {
         if (GetComponent<MonsterPresentation>() == null) gameObject.AddComponent<MonsterPresentation>();
@@ -52,9 +59,9 @@ public class MimicLaptop : MonoBehaviour
     {
         NetworkClient network = NetworkClient.Instance;
         bool online = network != null && !network.offlineMode;
-        if (online && (!network.GameStarted || networkId <= 0)) return;
+        if (online && (!network.GameStarted || !network.IsConnected || network.IsRestoringSession || networkId <= 0)) return;
 
-        if (online && network.playerId != 1)
+        if (online && network.playerId != network.AuthorityPlayerId)
         {
             UpdateLight();
             return;
@@ -144,6 +151,7 @@ public class MimicLaptop : MonoBehaviour
     private bool TargetLeftRange()
     {
         return target == null
+            || !target.gameObject.activeInHierarchy
             || target.IsDeadState
             || Vector3.Distance(transform.position, target.transform.position) > detectionRadius
             || !HasLineOfSight(target);
@@ -246,7 +254,7 @@ public class MimicLaptop : MonoBehaviour
         if (state == next) return;
         state = next;
         NetworkClient network = NetworkClient.Instance;
-        if (network != null && !network.offlineMode && network.playerId == 1)
+        if (network != null && !network.offlineMode && network.playerId == network.AuthorityPlayerId)
             network.SendMimicState(networkId, (int)next);
     }
 
