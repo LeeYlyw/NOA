@@ -15,13 +15,13 @@ try {
   Send-Packet $clients[0] 'C_START'
   foreach($c in $clients){$null=Read-Until $c "START\|\d+\|$count\|"}
   $extra=Connect-TestClient
-  try { $null=Read-Until $extra 'ERROR\|Match in progress' } finally { $extra.Close() }
+  try { $null=Read-Until $extra 'S_RESUME_REQUIRED'; Send-Packet $extra 'C_RESUME|invalid'; $null=Read-Until $extra 'S_RESUME_REJECTED' } finally { $extra.Close() }
   $clients[0].Close()
-  $null=Read-Until $clients[1] 'S_PEER_LEFT'
+  $null=Read-Until $clients[1] 'S_CONNECTION\|1\|0'
   foreach($c in $clients){$c.Close()}
-  Start-Sleep -Milliseconds 200
+  Start-Sleep -Seconds 61
   if($server.HasExited){throw 'Server exited after session'}
-  Write-Output "PASS: $count-player session, busy rejection, disconnect, next lobby"
+  Write-Output "PASS: $count-player session, new-player rejection, retained disconnect, grace expiry, next lobby"
  }
  Write-Output 'PASS: idle >30s and three sessions on same server process'
 } finally { foreach($c in $clients){$c.Close()}; if(!$server.HasExited){Stop-Process -Id $server.Id} }
