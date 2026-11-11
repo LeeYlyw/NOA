@@ -1,3 +1,10 @@
+## 2026-11-11 세션 예외 처리 마무리
+
+- 이번 범위는 세 가지로 제한했다: 맵 생성 실패/업로드 시간 초과 시 세션 종료 후 다음 로비 허용, 일반 참가자 이탈 시 기존 방장 유지, 재접속 스냅샷에 최초 패배 사유 보존.
+- 클라이언트는 S_SESSION_END 수신 시 재접속 토큰을 지워 종료된 경기에 자동 재접속하지 않는다. 재접속 준비 중 맵 실패 신고도 서버가 처리한다.
+- 자동 검사: C++ Release 및 C# 빌드 성공. test_server_operations.py에서 방장 유지, 초기 맵 실패, 재접속 중 맵 실패, 업로드 시간 초과 후 다음 로비 접속 모두 통과. 패배 사유 보존은 코드 확인이며 별도 실행 검사는 하지 않았다.
+- Unity 화면 및 실제 두 PC 검증은 미완료다. 현재 한 PC만 사용 가능하다. 프로토콜 버전·운영 로그·이동 검증·미믹 서버 AI는 이번 변경에 포함하지 않았다.
+
 ## 2026-11-07 Windows 클라이언트 빌드 완료
 
 - DedicatedClientBuild.Build 추가: NOA/Build Windows Client 메뉴 또는 CLI executeMethod로 MapGeneration_Test 씬을 Builds/WindowsClient/NOA.exe에 빌드한다. 서버 배포와 분리한다.

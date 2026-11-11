@@ -608,7 +608,8 @@ public class NetworkClient : MonoBehaviour
 
         if (restoringSession && !receivingSnapshot && !snapshotApplied &&
             parts[0] != "START" && parts[0] != "S_SNAPSHOT_BEGIN" &&
-            parts[0] != "S_PONG" && parts[0] != "S_NAV_ERROR") return;
+            parts[0] != "S_PONG" && parts[0] != "S_NAV_ERROR" &&
+            parts[0] != "S_SESSION_END") return;
 
         switch (parts[0])
         {
@@ -735,6 +736,10 @@ public class NetworkClient : MonoBehaviour
                     SecondsLeft = secondsLeft;
                     timeLeftReceivedAt = Time.unscaledTime;
                 }
+                break;
+            case "S_SESSION_END":
+                ForgetSession();
+                ConnectionStatus = "경기가 종료됐습니다. 로비로 돌아가 다시 시작할 수 있습니다.";
                 break;
             case "S_NAV_ERROR":
                 ConnectionStatus = "맵 준비 실패: " + DescribeMapFailure(parts.Length > 1 ? parts[1] : "");

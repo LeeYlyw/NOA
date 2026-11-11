@@ -44,8 +44,12 @@ def pump(seconds):
         now = time.monotonic()
         for peer in active:
             if peer.heartbeat and now >= peer.next_ping:
-                peer.send("C_PING")
+                try:
+                    peer.send("C_PING")
+                except OSError:
+                    peer.close()
                 peer.next_ping = now + 2
+        active = [peer for peer in active if peer.socket is not None]
         if not active:
             time.sleep(0.01)
             continue
@@ -53,14 +57,19 @@ def pump(seconds):
         for peer in active:
             if peer.socket not in readable:
                 continue
-            data = peer.socket.recv(65536)
+            try:
+                data = peer.socket.recv(65536)
+            except ConnectionResetError:
+                peer.close()
+                continue
             if not data:
                 peer.close()
                 continue
             peer.buffer += data
             while b"\n" in peer.buffer:
                 line, peer.buffer = peer.buffer.split(b"\n", 1)
-                peer.messages.append(line.decode().strip())
+                packet = line.decode().strip()
+                peer.messages.append(packet)
 
 
 def upload(peer, player_id, seed):

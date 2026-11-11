@@ -71,6 +71,7 @@ static double gateOpeningTime = 0.0;
 static int matchRoles[MaxPlayers + 1] = {-1, -1, -1, -1, -1};
 static double nextHealAt[MaxPlayers + 1] = {};
 static int matchResult = 0; // 0 playing, 1 clear, 2 defeat
+static std::string matchEndReason;
 static double matchStartedAt = 0.0;
 static constexpr double MatchDurationSeconds = 10.0 * 60.0;
 static bool restartVotes[MaxPlayers + 1] = {};
@@ -148,6 +149,7 @@ void ResetSession()
     navigationFailed = false;
     gateOpeningTime = 0.0;
     matchResult = 0;
+    matchEndReason.clear();
     matchStartedAt = 0.0;
     restartRequested = false;
     puzzlePadsReady = puzzleStarted = puzzleSolved = false;
@@ -2042,9 +2044,11 @@ int main()
             char data[1024]; int n=recv(slots[i],data,sizeof(data),0);
             if(n<=0) {
                 closesocket(slots[i]); slots[i]=INVALID_SOCKET; pending[i].clear(); roles[i]=-1; ready[i]=false;
-                host=0;
-                for(int candidate=1; candidate<=MaxPlayers; ++candidate)
-                    if(slots[candidate]!=INVALID_SOCKET) { host=candidate; break; }
+                if (host == i) {
+                    host=0;
+                    for(int candidate=1; candidate<=MaxPlayers; ++candidate)
+                        if(slots[candidate]!=INVALID_SOCKET) { host=candidate; break; }
+                }
                 publish(); continue;
             }
             pending[i].append(data,n); size_t end;
@@ -2177,7 +2181,7 @@ int main()
         if (matchStartedAt > 0.0) SendPacket(socket, "S_TIME_LEFT|" + std::to_string(lastTimeLeftBroadcast));
         if (navigation.ready) SendPacket(socket, "S_NAV_READY");
         if (matchResult==1) SendPacket(socket, "S_GAME_CLEAR");
-        if (matchResult==2) SendPacket(socket, GetTimeSeconds()-matchStartedAt>=MatchDurationSeconds ? "S_GAME_OVER|TIME" : "S_GAME_OVER|ALL_DOWN");
+        if (matchResult==2) SendPacket(socket, "S_GAME_OVER|" + matchEndReason);
         if (navigation.ready) BroadcastAllMonsterStates(clientSocket1, clientSocket2, monsters);
         snapshotSent[recipient] = true;
         SendPacket(socket, "S_SNAPSHOT_END");
@@ -2266,6 +2270,7 @@ int main()
             GetTimeSeconds() - matchStartedAt >= MatchDurationSeconds)
         {
             matchResult = 2;
+            matchEndReason = "TIME";
             BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_OVER|TIME");
         }
 
@@ -2293,7 +2298,8 @@ int main()
                     receiveBuffers[id].erase(0,newline+1);
                     if (packet=="C_RESUME_READY" && !snapshotSent[id]) snapshot(id);
                     else if (packet.rfind("C_NAV_",0)==0 && !navigation.ready)
-                        ProcessNavigationPacket(Split(packet,'|'), id, clientSocket1, clientSocket2, monsters);
+                        ProcessClientPacket(id, packet, clientSocket1, clientSocket2,
+                            players, monsters, items, clueCount, needClueCount);
                     else if (packet=="C_RESUME_ACK" && snapshotSent[id]) {
                         restoring[id]=false;
                         reconnectUntil[id]=0.0;
@@ -2340,6 +2346,11 @@ int main()
             BroadcastPacket(clientSocket1, clientSocket2,
                 "S_NAV_ERROR|Timed out waiting for matching navigation maps");
             navigationTimeoutReported = true;
+        }
+        if (navigationFailed || navigationTimeoutReported)
+        {
+            BroadcastPacket(clientSocket1, clientSocket2, "S_SESSION_END|MAP_FAILED");
+            break;
         }
         float deltaTime = static_cast<float>(now - lastUpdateTime);
         lastUpdateTime = now;
@@ -2412,6 +2423,7 @@ int main()
         if (allDown && anyConnected)
         {
             matchResult = 2;
+            matchEndReason = "ALL_DOWN";
             BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_OVER|ALL_DOWN");
         }
 
