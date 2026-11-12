@@ -5,6 +5,7 @@ public class FlickeringLight : MonoBehaviour
 {
     [SerializeField] private Light targetLight;
     [SerializeField] private float interval = 3f;
+    [SerializeField] private bool steadyLight;
 
     private void Awake()
     {
@@ -14,8 +15,16 @@ public class FlickeringLight : MonoBehaviour
 
     private void OnEnable()
     {
-        if (targetLight != null)
-            StartCoroutine(FlickerRoutine());
+        if (targetLight == null)
+            return;
+
+        if (steadyLight)
+        {
+            targetLight.enabled = true;
+            return;
+        }
+
+        StartCoroutine(FlickerRoutine());
     }
 
     private IEnumerator FlickerRoutine()

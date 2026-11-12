@@ -19,6 +19,7 @@ public class MapGenerator : MonoBehaviour
 
     [Header("복도 모듈 프리팹 (1:1 매칭용)")]
     public GameObject prefabI;
+    public GameObject prefabINumbered;
     public GameObject prefabL;
     public GameObject prefabU;
     public GameObject prefabO;
@@ -927,6 +928,8 @@ public class MapGenerator : MonoBehaviour
     void SpawnPrefabsSafely()
     {
         float startOffset = -(mapSize * tileSize) / 2f + (tileSize / 2f);
+        int straightWallSequence = 0;
+        int numberedWallSequence = 0;
 
         for (int x = 0; x < mapSize; x++)
         {
@@ -950,18 +953,18 @@ public class MapGenerator : MonoBehaviour
                     switch (mask)
                     {
                         case 0: break;
-                        case 1: SpawnWall(prefabI, pos, Quaternion.Euler(0, 180, 0)); break;
-                        case 2: SpawnWall(prefabI, pos, Quaternion.Euler(0, 270, 0)); break;
-                        case 4: SpawnWall(prefabI, pos, Quaternion.Euler(0, 0, 0)); break;
-                        case 8: SpawnWall(prefabI, pos, Quaternion.Euler(0, 90, 0)); break;
+                        case 1: SpawnStraightWall(pos, Quaternion.Euler(0, 180, 0), ref straightWallSequence, ref numberedWallSequence); break;
+                        case 2: SpawnStraightWall(pos, Quaternion.Euler(0, 270, 0), ref straightWallSequence, ref numberedWallSequence); break;
+                        case 4: SpawnStraightWall(pos, Quaternion.Euler(0, 0, 0), ref straightWallSequence, ref numberedWallSequence); break;
+                        case 8: SpawnStraightWall(pos, Quaternion.Euler(0, 90, 0), ref straightWallSequence, ref numberedWallSequence); break;
 
                         case 5:
-                            SpawnWall(prefabI, pos, Quaternion.Euler(0, 0, 0));
-                            SpawnWall(prefabI, pos, Quaternion.Euler(0, 180, 0));
+                            SpawnStraightWall(pos, Quaternion.Euler(0, 0, 0), ref straightWallSequence, ref numberedWallSequence);
+                            SpawnStraightWall(pos, Quaternion.Euler(0, 180, 0), ref straightWallSequence, ref numberedWallSequence);
                             break;
                         case 10:
-                            SpawnWall(prefabI, pos, Quaternion.Euler(0, 90, 0));
-                            SpawnWall(prefabI, pos, Quaternion.Euler(0, 270, 0));
+                            SpawnStraightWall(pos, Quaternion.Euler(0, 90, 0), ref straightWallSequence, ref numberedWallSequence);
+                            SpawnStraightWall(pos, Quaternion.Euler(0, 270, 0), ref straightWallSequence, ref numberedWallSequence);
                             break;
 
                         case 3: SpawnWall(prefabL, pos, Quaternion.Euler(0, 0, 0)); break;
@@ -984,12 +987,27 @@ public class MapGenerator : MonoBehaviour
         }
     }
 
-    void SpawnWall(GameObject prefab, Vector3 pos, Quaternion rot)
+    void SpawnStraightWall(Vector3 pos, Quaternion rot, ref int sequence, ref int numberedSequence)
+    {
+        sequence++;
+        bool numbered = prefabINumbered != null && sequence % 5 == 1;
+        GameObject instance = SpawnWall(numbered ? prefabINumbered : prefabI, pos, rot);
+        if (numbered && instance != null)
+        {
+            WallNumberSign sign = instance.GetComponent<WallNumberSign>();
+            if (sign != null) sign.SetNumber(++numberedSequence);
+        }
+    }
+
+    GameObject SpawnWall(GameObject prefab, Vector3 pos, Quaternion rot)
     {
         if (prefab != null)
         {
-            spawnedWalls.Add(Instantiate(prefab, pos, rot, wallsRoot));
+            GameObject instance = Instantiate(prefab, pos, rot, wallsRoot);
+            spawnedWalls.Add(instance);
+            return instance;
         }
+        return null;
     }
 
     private static void EnsureBarrelCollision(GameObject room)
