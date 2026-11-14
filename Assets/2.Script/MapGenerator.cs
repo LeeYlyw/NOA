@@ -34,6 +34,7 @@ public class MapGenerator : MonoBehaviour
     public GameObject player4Prefab;
     public GameObject monsterPrefab;
     public GameObject monster2Prefab;
+    public GameObject monster3Prefab;
     public GameObject[] itemPrefabs;
 
     [Header("스폰 설정")]
@@ -148,12 +149,16 @@ public class MapGenerator : MonoBehaviour
             // locations before accepting a layout. Never fall back into a wall.
             int clearMonster1Points = 0;
             int clearMonster2Points = 0;
+            int clearMonster3Points = 0;
             foreach (Vector3 point in corridorMonsterSpawns)
             {
                 if (IsMonsterSpawnClear(point, monsterPrefab)) clearMonster1Points++;
                 if (IsMonsterSpawnClear(point, monster2Prefab)) clearMonster2Points++;
+                if (monster3Prefab != null && IsMonsterSpawnClear(point, monster3Prefab)) clearMonster3Points++;
             }
-            if (clearMonster1Points < 2 || clearMonster2Points < 2)
+            int requiredMonsterPoints = monster3Prefab != null ? 3 : 2;
+            if (clearMonster1Points < requiredMonsterPoints || clearMonster2Points < requiredMonsterPoints ||
+                (monster3Prefab != null && clearMonster3Points < requiredMonsterPoints))
             {
                 Debug.LogWarning($"[MapGenerator] Seed {selectedSeed}: monster spawn clearance 1={clearMonster1Points}, 2={clearMonster2Points}; retrying layout.");
                 spawnFailures++;
@@ -223,17 +228,18 @@ public class MapGenerator : MonoBehaviour
         if (network == null || network.offlineMode || !network.IsConnected ||
             !network.HasAssignedPlayerId) return;
 
-        Vector3[] monsterPositions = new Vector3[2];
-        bool[] foundMonster = new bool[2];
+        int monsterCount = monster3Prefab != null ? 3 : 2;
+        Vector3[] monsterPositions = new Vector3[monsterCount];
+        bool[] foundMonster = new bool[monsterCount];
         foreach (GameObject entity in spawnedEntities)
         {
             if (entity == null) continue;
             MonsterNetworkSetup setup = entity.GetComponent<MonsterNetworkSetup>();
-            if (setup == null || setup.monsterId < 1 || setup.monsterId > 2) continue;
+            if (setup == null || setup.monsterId < 1 || setup.monsterId > monsterCount) continue;
             monsterPositions[setup.monsterId - 1] = entity.transform.position;
             foundMonster[setup.monsterId - 1] = true;
         }
-        if (!foundMonster[0] || !foundMonster[1])
+        if (!foundMonster[0] || !foundMonster[1] || (monsterCount == 3 && !foundMonster[2]))
         {
             Debug.LogError("[MapGenerator] Cannot send navigation map without both monster spawns.");
             ReportGenerationFailure("Monster spawn missing from navigation map");
@@ -253,7 +259,8 @@ public class MapGenerator : MonoBehaviour
         Vector3 gate = puzzleRoomCenter + Vector3.back * (tileSize * 0.5f);
         network.SendNavigationMap(seed, width, height, origin, origin, step,
                                   gate.x, gate.z, tileSize * 0.5f - 0.2f,
-                                  monsterPositions[0], monsterPositions[1], edgeMask, spawnedDoors.ToArray());
+                                  monsterPositions[0], monsterPositions[1], edgeMask, spawnedDoors.ToArray(),
+                                  monsterCount == 3 ? monsterPositions[2] : (Vector3?)null);
     }
 
     string BuildServerNavigationMask()
@@ -1287,7 +1294,22 @@ public class MapGenerator : MonoBehaviour
         LogMonsterVisualOffset(monster2);
         if (NavMesh.FindClosestEdge(monster2Pos, out NavMeshHit monster2Edge, NavMesh.AllAreas))
             Debug.Log($"[MapGenerator] Monster 2 spawn {monster2Pos}, NavMesh edge clearance {monster2Edge.distance:F2}m, bed blockers {bedVisualBounds.Count}.");
-        GameObject[] spawnedMonsters = new GameObject[] { monster, monster2 };
+        var monsterList = new List<GameObject> { monster, monster2 };
+        if (monster3Prefab != null)
+        {
+            occupiedPositions.Add(monster2Pos);
+            Vector3 monster3Pos = GetFarthestSpawnPointForPrefab(monster3Prefab, occupiedPositions.ToArray());
+            if (float.IsInfinity(monster3Pos.x)) return false;
+            if (!NavMesh.SamplePosition(monster3Pos, out NavMeshHit monster3Hit, 2f, NavMesh.AllAreas) ||
+                Vector2.Distance(new Vector2(monster3Pos.x, monster3Pos.z),
+                    new Vector2(monster3Hit.position.x, monster3Hit.position.z)) > 0.5f) return false;
+            GameObject monster3 = Instantiate(monster3Prefab, monster3Hit.position, Quaternion.identity, monstersRoot);
+            monster3.name = "Monster3";
+            spawnedEntities.Add(monster3);
+            monsterList.Add(monster3);
+            LogMonsterVisualOffset(monster3);
+        }
+        GameObject[] spawnedMonsters = monsterList.ToArray();
 
         ItemData clueData = null;
         List<GameObject> ordinaryItemPrefabs = new List<GameObject>();
@@ -1578,11 +1600,16 @@ public class MapGenerator : MonoBehaviour
 
     Vector3 GetFarthestSpawnPointFromAll(params Vector3[] positions)
     {
+        return GetFarthestSpawnPointForPrefab(monster2Prefab, positions);
+    }
+
+    Vector3 GetFarthestSpawnPointForPrefab(GameObject prefab, params Vector3[] positions)
+    {
         int bestIndex = -1;
         float bestMinimumDistance = -1f;
         for (int i = 0; i < corridorMonsterSpawns.Count; i++)
         {
-            if (!IsMonsterSpawnClear(corridorMonsterSpawns[i], monster2Prefab)) continue;
+            if (!IsMonsterSpawnClear(corridorMonsterSpawns[i], prefab)) continue;
             float minimumDistance = float.MaxValue;
             foreach (Vector3 position in positions)
                 minimumDistance = Mathf.Min(minimumDistance, Vector3.Distance(position, corridorMonsterSpawns[i]));

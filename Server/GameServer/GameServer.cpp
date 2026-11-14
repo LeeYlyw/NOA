@@ -46,12 +46,14 @@ struct NavigationUpload
     std::map<int, ItemSpawn> items;
     Vec3 pads[3];
     bool hasPad[3] = {};
-    Vec3 monsterSpawns[2];
+    Vec3 monsterSpawns[3];
+    int monsterCount = 2;
     float originX = 0.0f, originZ = 0.0f, step = 2.0f;
     float gateX = 0.0f, gateZ = 0.0f, gateHalfWidth = 0.0f;
 };
 
 static ServerNavigation navigation;
+static int activeMonsterCount = 2;
 static constexpr int MaxPlayers = 4;
 static SOCKET matchSockets[MaxPlayers + 1] = {};
 static int matchPlayerCount = 0;
@@ -160,6 +162,7 @@ void ResetSession()
     std::fill(std::begin(fuseOwner), std::end(fuseOwner), 0);
     std::fill(std::begin(breakerRepaired), std::end(breakerRepaired), false);
     powerQuestEnabled = false;
+    activeMonsterCount = 2;
     for (auto& repair : repairs) repair = {};
     repairSequence = 0;
     mimicShots.clear();
@@ -946,7 +949,7 @@ void ProcessNoisePacket(const std::vector<std::string>& parts, int senderPlayerI
         Distance2D(noisePosition, players[playerId].position) > 2.0f)
         return;
 
-    for (int i = 0; i < 2; ++i)
+    for (int i = 0; i < activeMonsterCount; ++i)
     {
         MonsterState& monster = monsters[i];
 
@@ -1120,7 +1123,7 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
 
     if (parts[0] == "C_NAV_BEGIN")
     {
-        if (parts.size() != 17) return;
+        if (parts.size() != 17 && parts.size() != 20) return;
         int seed = 0, width = 0, height = 0;
         NavigationUpload candidate;
         if (!TryParseInt(parts[2], seed) || !TryParseInt(parts[3], width) ||
@@ -1135,7 +1138,8 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
             candidate.step < 0.5f || candidate.step > 4.0f ||
             candidate.gateHalfWidth < 0.0f || candidate.gateHalfWidth > 50.0f)
             return;
-        for (int i = 0; i < 2; ++i)
+        candidate.monsterCount = parts.size() == 20 ? 3 : 2;
+        for (int i = 0; i < candidate.monsterCount; ++i)
         {
             int offset = 11 + i * 3;
             if (!TryParseFloat(parts[offset], candidate.monsterSpawns[i].x) ||
@@ -1330,7 +1334,8 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
         }
     }
     navigation.ready = true;
-    for (int i = 0; i < 2; ++i)
+    activeMonsterCount = source.monsterCount;
+    for (int i = 0; i < activeMonsterCount; ++i)
     {
         if (navigation.ClosestCell(source.monsterSpawns[i]) < 0)
         {
@@ -1531,7 +1536,7 @@ void ProcessClientPacket(
             door.openingUntil = wantOpen ? now + 0.5 : 0.0;
             door.closingUntil = wantOpen ? 0.0 : now + 0.5;
             if (wantOpen) door.direction = direction;
-            for (int i = 0; i < 2; ++i)
+            for (int i = 0; i < activeMonsterCount; ++i)
             {
                 monsters[i].path.clear();
                 monsters[i].pathGoal = -1;
@@ -2022,6 +2027,8 @@ void InitializeMonsters(MonsterState monsters[])
     monsters[1].closeAwarenessRange = 2.7f;
     monsters[1].attackCooldown = 1.5;
     monsters[1].damage = 10;
+    monsters[2] = monsters[0];
+    monsters[2].monsterId = 3;
 }
 
 void UpdateMonsters(
@@ -2032,7 +2039,7 @@ void UpdateMonsters(
     float deltaTime,
     double now)
 {
-    for (int i = 0; i < 2; ++i)
+    for (int i = 0; i < activeMonsterCount; ++i)
     {
         monsters[i].pendingDoorId = 0;
         if (monsters[i].type == MonsterType::Vision)
@@ -2057,14 +2064,14 @@ void UpdateMonsterDoorOpenings(MonsterState monsters[], SOCKET clientSocket1,
         {
             door.open = true;
             door.openingUntil = 0.0;
-            for (int i = 0; i < 2; ++i)
+            for (int i = 0; i < activeMonsterCount; ++i)
             {
                 monsters[i].path.clear();
                 monsters[i].pathGoal = -1;
             }
         }
     }
-    for (int i = 0; i < 2; ++i)
+    for (int i = 0; i < activeMonsterCount; ++i)
     {
         for (NavigationDoor& door : navigation.doors)
         {
@@ -2082,7 +2089,7 @@ void UpdateMonsterDoorOpenings(MonsterState monsters[], SOCKET clientSocket1,
 
 void BroadcastAllMonsterStates(SOCKET clientSocket1, SOCKET clientSocket2, MonsterState monsters[])
 {
-    for (int i = 0; i < 2; ++i)
+    for (int i = 0; i < activeMonsterCount; ++i)
     {
         BroadcastMonsterState(clientSocket1, clientSocket2, monsters[i]);
     }
@@ -2234,7 +2241,7 @@ int main()
         players[i].hp = players[i].maxHp = matchRoles[i]==3 ? 80 : 100;
     }
 
-    MonsterState monsters[2];
+    MonsterState monsters[3];
     InitializeMonsters(monsters);
 
     std::map<int, ItemState> items;

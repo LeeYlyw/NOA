@@ -401,7 +401,7 @@ public class NetworkClient : MonoBehaviour
     public void SendNavigationMap(int seed, int width, int height, float originX,
                                   float originZ, float step, float gateX, float gateZ,
                                   float gateHalfWidth, Vector3 monster1, Vector3 monster2,
-                                  string edgeMask, DoorInteraction[] doors)
+                                  string edgeMask, DoorInteraction[] doors, Vector3? monster3 = null)
     {
         if (offlineMode || !isConnected || !HasAssignedPlayerId ||
             string.IsNullOrEmpty(edgeMask) || edgeMask.Length != width * height) return;
@@ -411,6 +411,12 @@ public class NetworkClient : MonoBehaviour
             playerId, seed, width, height, originX, originZ, step, gateX, gateZ,
             gateHalfWidth, monster1.x, monster1.y, monster1.z,
             monster2.x, monster2.y, monster2.z);
+        if (monster3.HasValue)
+        {
+            Vector3 third = monster3.Value;
+            header = header.TrimEnd('\n') + string.Format(CultureInfo.InvariantCulture,
+                "|{0:F2}|{1:F2}|{2:F2}\n", third.x, third.y, third.z);
+        }
         SendMessageToServer(header, "Navigation map header failed");
 
         if (doors != null)

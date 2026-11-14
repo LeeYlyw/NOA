@@ -16,6 +16,7 @@ public class MonsterNetworkSetup : MonoBehaviour
 
     void Awake()
     {
+        if (monsterId == 3 && GetComponent<MonsterCloak>() == null) gameObject.AddComponent<MonsterCloak>();
         if (GetComponent<MonsterPresentation>() == null) gameObject.AddComponent<MonsterPresentation>();
         EnsureBodyCollider();
     }

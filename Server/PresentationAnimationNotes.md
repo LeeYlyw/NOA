@@ -1,5 +1,10 @@
 # 연출 보강과 팀원 모션 작업 메모
 
+## 2026-11-15 몬스터 3 연결
+
+- 친구가 연결한 Monster 3 프리팹과 Animator Controller를 그대로 사용한다. 기존 RemoteMonster의 Speed/isWalk/isAttack/Attack 및 Base Layer.MonsterAttack 연결과 이름이 일치함을 정적으로 확인했다. 모션/컨트롤러/모델 수정 없음.
+- 추가 은신 표현은 런타임 재질 교체이며 뼈대나 애니메이션을 바꾸지 않는다. 실제 보행·공격 모션과 원본 재질 복귀의 Unity 확인은 남았다.
+
 현재 연출은 C# 표시 코드와 C++ 서버 판정을 사용합니다. 애니메이션 클립, Animator Controller, 모델, 프리팹, 공유 머티리얼은 수정하지 않았습니다.
 
 ## 구현한 연출
