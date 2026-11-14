@@ -140,7 +140,7 @@ public class MapGenerator : MonoBehaviour
             Physics.SyncTransforms();
             if (!RepairBlockedEmptyOpenings()) { openingFailures++; continue; }
             if (!CollectReachableSpawnPoints() ||
-                validSpawnPoints.Count < 6 + RequiredSupplySpawnCount())
+            validSpawnPoints.Count < 12 + RequiredSupplySpawnCount())
             { spawnFailures++; continue; }
             RebuildNavMesh();
             if (!ValidateNavMeshConnectivity() || !ValidatePuzzleRoomAccess()) { navigationFailures++; continue; }
@@ -1323,6 +1323,12 @@ public class MapGenerator : MonoBehaviour
         spawnedEntities.Add(lockedClue.gameObject);
         spawnedPotions.Add(lockedClue);
         puzzle.GetComponent<CoopShapePuzzle>().SetLockedClue(lockedClue.gameObject);
+
+        GameObject powerRoot = new GameObject("Power restoration quest");
+        powerRoot.transform.SetParent(gameplayRoot, false);
+        PowerRestoration power = powerRoot.AddComponent<PowerRestoration>();
+        for (int i = 0; i < 6; i++)
+            power.CreateObject(i, GetRandomSpawnPoint(removePoint: true));
 
         if (ordinaryItemPrefabs.Count > 0)
         {

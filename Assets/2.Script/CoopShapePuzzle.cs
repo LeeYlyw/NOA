@@ -104,7 +104,7 @@ public class CoopShapePuzzle : MonoBehaviour
     public void SetLockedClue(GameObject clue)
     {
         lockedClue = clue;
-        if (lockedClue != null) lockedClue.SetActive(solved);
+        if (lockedClue != null) lockedClue.SetActive(solved && (PowerRestoration.Instance == null || PowerRestoration.Instance.IsComplete));
     }
 
     Vector3 FindPadPosition(Vector3 spawn, Vector3 otherPad)
@@ -161,7 +161,7 @@ public class CoopShapePuzzle : MonoBehaviour
         if (!configured || network == null || (!network.offlineMode && (!network.IsConnected || !network.GameStarted)) ||
             !network.HasAssignedPlayerId || network.localPlayerTransform == null) return;
 
-        if (solved)
+        if (solved && (PowerRestoration.Instance == null || PowerRestoration.Instance.IsComplete))
         {
             if (roomGate != null)
             {
@@ -173,6 +173,7 @@ public class CoopShapePuzzle : MonoBehaviour
             return;
         }
 
+        if (solved) return;
         Vector3 player = network.localPlayerTransform.position;
         PlayerController controller = network.localPlayerTransform.GetComponent<PlayerController>();
         bool canStand = controller != null && !controller.IsDeadState;
@@ -307,7 +308,12 @@ public class CoopShapePuzzle : MonoBehaviour
     public void SetSolved()
     {
         solved = true;
-        if (lockedClue != null) lockedClue.SetActive(true);
+        if (lockedClue != null) lockedClue.SetActive(PowerRestoration.Instance == null || PowerRestoration.Instance.IsComplete);
+    }
+
+    public void RefreshLockedClue()
+    {
+        if (lockedClue != null) lockedClue.SetActive(solved && (PowerRestoration.Instance == null || PowerRestoration.Instance.IsComplete));
     }
 
     void CreatePuzzlePanel()

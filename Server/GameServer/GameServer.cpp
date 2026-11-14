@@ -66,6 +66,14 @@ static bool savedPosition[MaxPlayers + 1] = {};
 static constexpr double ReconnectSeconds = 60.0;
 static NavigationUpload navigationUploads[MaxPlayers + 1];
 static std::map<int, ItemSpawn> trustedItemSpawns;
+static int fuseOwner[3] = {};
+static bool breakerRepaired[3] = {};
+static bool powerQuestEnabled = false;
+
+static bool PowerRestored()
+{
+    return !powerQuestEnabled || (breakerRepaired[0] && breakerRepaired[1] && breakerRepaired[2]);
+}
 static bool navigationFailed = false;
 static double gateOpeningTime = 0.0;
 static int matchRoles[MaxPlayers + 1] = {-1, -1, -1, -1, -1};
@@ -144,6 +152,9 @@ void ResetSession()
     navigation = ServerNavigation{};
     matchPlayerCount = 0;
     trustedItemSpawns.clear();
+    std::fill(std::begin(fuseOwner), std::end(fuseOwner), 0);
+    std::fill(std::begin(breakerRepaired), std::end(breakerRepaired), false);
+    powerQuestEnabled = false;
     mimicShots.clear();
     mimicStates.clear();
     navigationFailed = false;
@@ -1011,7 +1022,7 @@ void ProcessItemPickupPacket(
         !players[playerId].hasState || players[playerId].isDead ||
         Distance2D(players[playerId].position, trusted->second.position) > 2.0f ||
         std::fabs(players[playerId].position.y - trusted->second.position.y) > 2.5f ||
-        (itemId == 3 && !puzzleSolved))
+        (itemId == 3 && (!puzzleSolved || !PowerRestored())))
     {
         std::cout << "[ITEM DENY] Item map, range, puzzle, or player state invalid. player "
                   << playerId << " item " << itemId << std::endl;
@@ -1194,7 +1205,9 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
             !TryParseInt(parts[2], itemId) || itemId < 1 || itemId > 256 ||
             (itemId <= 3 && parts[3] != "Clue") ||
             (itemId > 3 && parts[3] == "Clue") ||
-            StringToItemType(parts[3]) == ItemType::Unknown ||
+            (StringToItemType(parts[3]) == ItemType::Unknown &&
+             !((itemId >= 240 && itemId <= 242 && parts[3] == "PowerFuse") ||
+               (itemId >= 243 && itemId <= 245 && parts[3] == "PowerBreaker"))) ||
             upload.items.count(itemId) != 0 ||
             !TryParseFloat(parts[4], spawn.position.x) ||
             !TryParseFloat(parts[5], spawn.position.y) ||
@@ -1264,6 +1277,15 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
     }
 
     trustedItemSpawns = source.items;
+    powerQuestEnabled = source.items.count(240) != 0;
+    if (powerQuestEnabled)
+        for (int id = 240; id <= 245; ++id)
+            if (source.items.count(id) == 0 || source.items.at(id).type != (id < 243 ? "PowerFuse" : "PowerBreaker"))
+            {
+                navigationFailed = true;
+                BroadcastPacket(clientSocket1, clientSocket2, "S_NAV_ERROR|Incomplete power quest layout");
+                return;
+            }
     navigation.width = source.width;
     navigation.height = source.height;
     navigation.originX = source.originX;
@@ -1381,6 +1403,41 @@ void ProcessClientPacket(
     if (StartsWith(type, "C_NAV_"))
     {
         ProcessNavigationPacket(parts, senderPlayerId, clientSocket1, clientSocket2, monsters);
+        return;
+    }
+    if (type == "C_POWER")
+    {
+        int playerId = 0, objectId = 0;
+        if (parts.size() != 3 || !navigation.ready || !powerQuestEnabled ||
+            !TryParseInt(parts[1], playerId) || playerId != senderPlayerId ||
+            !TryParseInt(parts[2], objectId) || objectId < 240 || objectId > 245 ||
+            !players[playerId].hasState || players[playerId].isDead) return;
+        const Vec3& position = trustedItemSpawns.at(objectId).position;
+        if (Distance2D(players[playerId].position, position) > 2.0f ||
+            std::fabs(players[playerId].position.y - position.y) > 2.5f) return;
+        if (objectId < 243)
+        {
+            int index = objectId - 240;
+            if (fuseOwner[index] != 0) return;
+            fuseOwner[index] = playerId;
+        }
+        else
+        {
+            int index = objectId - 243;
+            if (breakerRepaired[index]) return;
+            int fuse = 0;
+            while (fuse < 3 && fuseOwner[fuse] != playerId) ++fuse;
+            if (fuse == 3) return;
+            fuseOwner[fuse] = -1;
+            breakerRepaired[index] = true;
+            if (PowerRestored() && puzzleSolved) gateOpeningTime = GetTimeSeconds() + 1.05;
+        }
+        for (int id = 1; id <= matchPlayerCount; ++id)
+            if (matchSockets[id] != INVALID_SOCKET)
+                SendPacket(matchSockets[id], "S_POWER|" + std::to_string(fuseOwner[0]) + "|" +
+                    std::to_string(fuseOwner[1]) + "|" + std::to_string(fuseOwner[2]) + "|" +
+                    std::to_string(breakerRepaired[0]) + "|" + std::to_string(breakerRepaired[1]) + "|" +
+                    std::to_string(breakerRepaired[2]));
         return;
     }
     if (type == "C_DOOR_TOGGLE")
@@ -1516,7 +1573,7 @@ void ProcessClientPacket(
             else
             {
                 puzzleSolved = true;
-                gateOpeningTime = GetTimeSeconds() + 1.05;
+                if (PowerRestored()) gateOpeningTime = GetTimeSeconds() + 1.05;
                 BroadcastPacket(clientSocket1, clientSocket2, "S_PUZZLE_SOLVED");
             }
         }
@@ -1658,7 +1715,7 @@ void ProcessClientPacket(
         {
             bool reportsClue = parts[3] == "Clue";
             if (reportsClue != (requestedId >= 1 && requestedId <= 3) ||
-                (requestedId == 3 && !puzzleSolved)) {
+                (requestedId == 3 && (!puzzleSolved || !PowerRestored()))) {
                 SendPacket(GetSocketByPlayerId(senderPlayerId, clientSocket1, clientSocket2),
                     "S_ITEM_PICKUP_DENIED|" + std::to_string(requestedId));
                 return;
@@ -2175,6 +2232,10 @@ int main()
             SendPacket(socket, "S_DOOR_STATE|" + std::to_string(door.id) + "|" +
                 std::to_string(door.open || door.openingUntil > 0.0) + "|" + std::to_string(door.direction));
         SendPacket(socket, "S_CLUE_COUNT|" + std::to_string(clueCount) + "|3");
+        if (powerQuestEnabled) SendPacket(socket, "S_POWER|" + std::to_string(fuseOwner[0]) + "|" +
+            std::to_string(fuseOwner[1]) + "|" + std::to_string(fuseOwner[2]) + "|" +
+            std::to_string(breakerRepaired[0]) + "|" + std::to_string(breakerRepaired[1]) + "|" +
+            std::to_string(breakerRepaired[2]));
         if (puzzleSolved) SendPacket(socket, "S_PUZZLE_SOLVED");
         SendPacket(socket, "S_PUZZLE_PADS|" + std::to_string(puzzlePadOwner[1]) + "|" + std::to_string(puzzlePadOwner[2]));
         SendPacket(socket, "S_PUZZLE_PROGRESS|" + std::to_string(puzzleRound) + "|3");
@@ -2317,8 +2378,19 @@ int main()
                 players, monsters, items, clueCount, needClueCount);
             if (restartRequested) break;
         }
+        bool returnedFuse = false;
         for (int id=1; id<=matchPlayerCount; ++id)
+        {
             anyRetained = anyRetained || matchSockets[id]!=INVALID_SOCKET || reconnectUntil[id]>GetTimeSeconds();
+            if (matchSockets[id] == INVALID_SOCKET && reconnectUntil[id] > 0.0 && reconnectUntil[id] <= GetTimeSeconds())
+                for (int& owner : fuseOwner)
+                    if (owner == id) { owner = 0; returnedFuse = true; }
+        }
+        if (returnedFuse)
+            BroadcastPacket(clientSocket1, clientSocket2, "S_POWER|" + std::to_string(fuseOwner[0]) + "|" +
+                std::to_string(fuseOwner[1]) + "|" + std::to_string(fuseOwner[2]) + "|" +
+                std::to_string(breakerRepaired[0]) + "|" + std::to_string(breakerRepaired[1]) + "|" +
+                std::to_string(breakerRepaired[2]));
         bool connectedVoters=false, allConnectedVoted=true;
         for (int id=1; id<=matchPlayerCount; ++id)
             if (matchSockets[id]!=INVALID_SOCKET && !restoring[id]) {

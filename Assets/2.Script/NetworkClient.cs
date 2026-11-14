@@ -446,6 +446,16 @@ public class NetworkClient : MonoBehaviour
                 SendMessageToServer(itemPacket, "Navigation item upload failed");
             }
 
+        if (PowerRestoration.Instance != null)
+            for (int i = 0; i < 6; i++)
+            {
+                Vector3 position = PowerRestoration.Instance.Position(i);
+                SendMessageToServer(string.Format(CultureInfo.InvariantCulture,
+                    "C_NAV_ITEM|{0}|{1}|{2}|{3:F2}|{4:F2}|{5:F2}\n", playerId, 240 + i,
+                    i < 3 ? "PowerFuse" : "PowerBreaker", position.x, position.y, position.z),
+                    "Power quest upload failed");
+            }
+
         const int chunkSize = 1000;
         for (int offset = 0, sequence = 0; offset < edgeMask.Length; offset += chunkSize, sequence++)
             SendMessageToServer("C_NAV_CHUNK|" + playerId + "|" + sequence + "|" +
@@ -453,6 +463,12 @@ public class NetworkClient : MonoBehaviour
                                 "\n", "Navigation map chunk failed");
         SendMessageToServer("C_NAV_END|" + playerId + "\n", "Navigation map end failed");
         if (restoringSession) StartCoroutine(RequestSnapshot());
+    }
+
+    public void SendPowerRequest(int objectId)
+    {
+        if (!offlineMode && !restoringSession && isConnected && HasAssignedPlayerId)
+            SendMessageToServer($"C_POWER|{playerId}|{objectId}\n", "Power interaction failed");
     }
 
     public void RegisterDoors(DoorInteraction[] doors)
@@ -613,6 +629,9 @@ public class NetworkClient : MonoBehaviour
 
         switch (parts[0])
         {
+            case "S_POWER":
+                if (PowerRestoration.Instance != null) PowerRestoration.Instance.ApplyState(parts);
+                break;
             case "S_SESSION":
                 if (parts.Length == 2) { PlayerPrefs.SetString(SessionKey, parts[1]); PlayerPrefs.Save(); }
                 break;
