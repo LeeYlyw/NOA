@@ -10,6 +10,8 @@ public class GamePresentation : MonoBehaviour
     CanvasGroup group;
     CanvasGroup damageGroup;
     float damageUntil;
+    Texture2D damageVignette;
+    const float DamageFadeSeconds = 0.65f;
     Text caption;
     AudioSource speaker;
     Font font;
@@ -74,27 +76,41 @@ public class GamePresentation : MonoBehaviour
         damageGroup.alpha = 0f;
         damageGroup.interactable = false;
         damageGroup.blocksRaycasts = false;
-        AddDamageBand(damageUi.transform, "Top", new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -100));
-        AddDamageBand(damageUi.transform, "Bottom", new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 100));
-        AddDamageBand(damageUi.transform, "Left", new Vector2(0, 0), new Vector2(0, 1), new Vector2(95, 0));
-        AddDamageBand(damageUi.transform, "Right", new Vector2(1, 0), new Vector2(1, 1), new Vector2(-95, 0));
+        CreateDamageVignette(damageUi.transform);
     }
 
-    static void AddDamageBand(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 size)
+    void CreateDamageVignette(Transform parent)
     {
-        RectTransform rect = new GameObject(name, typeof(RectTransform), typeof(Image)).GetComponent<RectTransform>();
+        const int resolution = 256;
+        damageVignette = new Texture2D(resolution, resolution, TextureFormat.RGBA32, false);
+        damageVignette.name = "Soft damage vignette";
+        damageVignette.wrapMode = TextureWrapMode.Clamp;
+        damageVignette.filterMode = FilterMode.Bilinear;
+        Color32[] pixels = new Color32[resolution * resolution];
+        for (int y = 0; y < resolution; y++)
+        for (int x = 0; x < resolution; x++)
+        {
+            float u = 2f * x / (resolution - 1) - 1f;
+            float v = 2f * y / (resolution - 1) - 1f;
+            float radius = Mathf.Sqrt(u * u + v * v);
+            float edge = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.55f, 1.35f, radius));
+            pixels[y * resolution + x] = new Color(0.42f, 0.015f, 0.025f, edge * 0.55f);
+        }
+        damageVignette.SetPixels32(pixels);
+        damageVignette.Apply(false, true);
+        RectTransform rect = new GameObject("Soft damage edges", typeof(RectTransform), typeof(RawImage)).GetComponent<RectTransform>();
         rect.SetParent(parent, false);
-        rect.anchorMin = anchorMin;
-        rect.anchorMax = anchorMax;
-        rect.offsetMin = Vector2.Min(Vector2.zero, size);
-        rect.offsetMax = Vector2.Max(Vector2.zero, size);
-        rect.GetComponent<Image>().color = new Color(0.75f, 0.025f, 0.035f, 0.65f);
-        rect.GetComponent<Image>().raycastTarget = false;
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = rect.offsetMax = Vector2.zero;
+        RawImage image = rect.GetComponent<RawImage>();
+        image.texture = damageVignette;
+        image.raycastTarget = false;
     }
 
     public void FlashDamage()
     {
-        damageUntil = Time.unscaledTime + 0.7f;
+        damageUntil = Time.unscaledTime + DamageFadeSeconds;
         damageGroup.alpha = 1f;
     }
 
@@ -123,9 +139,8 @@ public class GamePresentation : MonoBehaviour
         }
         float alpha = Time.unscaledTime < noticeUntil ? 1 : 0;
         group.alpha = Mathf.MoveTowards(group.alpha, alpha, Time.unscaledDeltaTime * 5);
-        damageGroup.alpha = Time.unscaledTime < damageUntil
-            ? Mathf.MoveTowards(damageGroup.alpha, 0.45f, Time.unscaledDeltaTime * 1.2f)
-            : Mathf.MoveTowards(damageGroup.alpha, 0f, Time.unscaledDeltaTime * 2.5f);
+        float remainingDamage = Mathf.Clamp01((damageUntil - Time.unscaledTime) / DamageFadeSeconds);
+        damageGroup.alpha = ended ? 0f : remainingDamage * remainingDamage;
     }
 
     // Lightweight fallback sounds. Dedicated authored clips can override monster cues.
@@ -162,6 +177,7 @@ public class GamePresentation : MonoBehaviour
 
     void OnDestroy()
     {
+        if (damageVignette != null) Destroy(damageVignette);
         if (Instance == this) Instance = null;
         foreach (AudioClip clip in clips.Values) if (clip != null) Destroy(clip);
         if (font != null) Destroy(font);
