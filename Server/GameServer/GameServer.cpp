@@ -2382,7 +2382,8 @@ int main()
         for (int id=1; id<=matchPlayerCount; ++id)
         {
             anyRetained = anyRetained || matchSockets[id]!=INVALID_SOCKET || reconnectUntil[id]>GetTimeSeconds();
-            if (matchSockets[id] == INVALID_SOCKET && reconnectUntil[id] > 0.0 && reconnectUntil[id] <= GetTimeSeconds())
+            if (players[id].isDead || (matchSockets[id] == INVALID_SOCKET &&
+                reconnectUntil[id] > 0.0 && reconnectUntil[id] <= GetTimeSeconds()))
                 for (int& owner : fuseOwner)
                     if (owner == id) { owner = 0; returnedFuse = true; }
         }
