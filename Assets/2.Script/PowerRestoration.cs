@@ -15,6 +15,7 @@ public class PowerRestoration : MonoBehaviour
     bool waitingForRepair;
     string repairFeedback = "";
     float feedbackUntil;
+    bool showOfflineGuide = true;
     public bool BlocksJump => repairObject >= 0 || inputFrame == Time.frameCount;
     public bool UsesInteraction
     {
@@ -123,6 +124,7 @@ public class PowerRestoration : MonoBehaviour
     {
         NetworkClient network = NetworkClient.Instance;
         if (network == null || network.localPlayerTransform == null || !network.GameStarted) return;
+        if (network.offlineMode && Input.GetKeyDown(KeyCode.F6)) showOfflineGuide = !showOfflineGuide;
         if (ClueManager.instance != null && ClueManager.instance.IsEnding)
         {
             if (repairObject >= 0) CancelRepair(network);
@@ -228,6 +230,7 @@ public class PowerRestoration : MonoBehaviour
         PlayerController player = network.localPlayerTransform.GetComponent<PlayerController>();
         if (player == null || player.IsDeadState) return;
         if (repairObject >= 0) { DrawRepair(); return; }
+        if (network.offlineMode) DrawOfflineGuide(network);
         if (Time.unscaledTime < feedbackUntil)
             GUI.Label(new Rect(origin.x, origin.y + height + 4, width, label.CalcHeight(new GUIContent(repairFeedback), width)), repairFeedback, label);
         int nearby = FindNearbyObject(network.localPlayerTransform.position);
@@ -238,6 +241,59 @@ public class PowerRestoration : MonoBehaviour
             float promptHeight = label.CalcHeight(new GUIContent(prompt), width);
             GUI.Label(new Rect(origin.x, origin.y + height + 4, width, promptHeight), prompt, label);
         }
+    }
+
+    void DrawOfflineGuide(NetworkClient network)
+    {
+        float panelWidth = Mathf.Min(340, Screen.width - 24);
+        var guideStyle = new GUIStyle(label) { fontSize = 16, wordWrap = true };
+        if (!showOfflineGuide)
+        {
+            GUI.Label(new Rect(12, Screen.height - 34, panelWidth, 30), "F6: 테스트용 위치 안내 켜기", guideStyle);
+            return;
+        }
+        Camera view = network.localPlayerTransform.GetComponentInChildren<Camera>();
+        if (view == null) view = Camera.main;
+        if (view == null) return;
+        Vector3 position = network.localPlayerTransform.position;
+        int nearestFuse = -1, nearestBreaker = -1;
+        float fuseDistance = float.PositiveInfinity, breakerDistance = float.PositiveInfinity;
+        for (int i = 0; i < objects.Length; i++)
+        {
+            if (objects[i] == null || (i < 3 ? owners[i] != 0 : repaired[i - 3])) continue;
+            float distance = Vector3.Distance(position, Position(i));
+            if (i < 3 && distance < fuseDistance) { nearestFuse = i; fuseDistance = distance; }
+            if (i >= 3 && distance < breakerDistance) { nearestBreaker = i; breakerDistance = distance; }
+        }
+        float top = Screen.height - 122;
+        GUI.Box(new Rect(12, top, panelWidth, 110), GUIContent.none);
+        GUI.Label(new Rect(22, top + 6, panelWidth - 20, 26), "오프라인 위치 안내 · F6 숨기기", guideStyle);
+        GUI.Label(new Rect(22, top + 34, panelWidth - 20, 26), GuideText(nearestFuse, view, position, "남은 퓨즈 없음"), guideStyle);
+        GUI.Label(new Rect(22, top + 62, panelWidth - 20, 26), GuideText(nearestBreaker, view, position, "차단기 복구 완료"), guideStyle);
+        int target = HeldFuses(network.playerId) > 0 ? nearestBreaker : nearestFuse;
+        if (target < 0) return;
+        Vector3 screen = view.WorldToScreenPoint(Position(target) + Vector3.up * 0.8f);
+        // Behind-camera objects use the direction guide rather than a mirrored marker.
+        if (screen.z <= 0 || screen.x < 0 || screen.x > Screen.width || screen.y < 0 || screen.y > Screen.height) return;
+        float markerWidth = Mathf.Min(210, Screen.width - 24);
+        Rect marker = new Rect(Mathf.Clamp(screen.x - markerWidth / 2, 12, Screen.width - markerWidth - 12),
+            Mathf.Clamp(Screen.height - screen.y, 155, Mathf.Max(155, Screen.height - 165)), markerWidth, 32);
+        Color oldColor = GUI.color;
+        GUI.color = target < 3 ? Color.yellow : new Color(1f, 0.65f, 0.3f);
+        GUI.Box(marker, GUIContent.none);
+        var markerStyle = new GUIStyle(guideStyle) { alignment = TextAnchor.MiddleCenter };
+        GUI.Label(marker, $"{(target < 3 ? "퓨즈" : "차단기")} {target % 3 + 1} · {Vector3.Distance(position, Position(target)):0}m", markerStyle);
+        GUI.color = oldColor;
+    }
+
+    string GuideText(int index, Camera view, Vector3 position, string empty)
+    {
+        if (index < 0) return empty;
+        Vector3 direction = Position(index) - position;
+        float angle = Vector3.SignedAngle(Vector3.ProjectOnPlane(view.transform.forward, Vector3.up),
+            Vector3.ProjectOnPlane(direction, Vector3.up), Vector3.up);
+        string side = Mathf.Abs(angle) > 135 ? "뒤쪽" : Mathf.Abs(angle) < 30 ? "정면" : angle > 0 ? "오른쪽" : "왼쪽";
+        return $"{(index < 3 ? "퓨즈" : "차단기")} {index % 3 + 1} · {side} · 직선 {direction.magnitude:0}m";
     }
 
     void DrawRepair()
