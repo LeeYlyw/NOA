@@ -43,26 +43,53 @@ public class PowerRestoration : MonoBehaviour
         if (CoopShapePuzzle.Instance != null) CoopShapePuzzle.Instance.RefreshLockedClue();
     }
 
-    void Update()
+    int FindNearbyObject(Vector3 position)
     {
-        NetworkClient network = NetworkClient.Instance;
-        if (network == null || network.localPlayerTransform == null || !network.GameStarted || !Input.GetKeyDown(KeyCode.E)) return;
+        int nearest = -1;
+        float nearestDistance = 2f;
         for (int i = 0; i < objects.Length; i++)
         {
             if ((i < 3 && owners[i] != 0) || (i >= 3 && repaired[i - 3])) continue;
-            if (Vector3.Distance(network.localPlayerTransform.position, objects[i].transform.position) > 2f) continue;
-            if (!network.offlineMode) network.SendPowerRequest(240 + i);
+            float distance = Vector3.Distance(position, objects[i].transform.position);
+            if (distance <= nearestDistance) { nearest = i; nearestDistance = distance; }
+        }
+        return nearest;
+    }
+
+    int HeldFuses(int playerId)
+    {
+        int held = 0;
+        for (int i = 0; i < owners.Length; i++)
+            if (owners[i] == playerId) held++;
+        return held;
+    }
+
+    void Update()
+    {
+        NetworkClient network = NetworkClient.Instance;
+        if (network == null || network.localPlayerTransform == null || !network.GameStarted) return;
+        PlayerController player = network.localPlayerTransform.GetComponent<PlayerController>();
+        if (player == null) return;
+        if (player.IsDeadState)
+        {
+            if (network.offlineMode)
+                for (int fuse = 0; fuse < 3; fuse++)
+                    if (owners[fuse] == network.playerId) { owners[fuse] = 0; objects[fuse].SetActive(true); }
+            return;
+        }
+        if (!Input.GetKeyDown(KeyCode.E)) return;
+        int i = FindNearbyObject(network.localPlayerTransform.position);
+        if (i < 0 || (i >= 3 && HeldFuses(network.playerId) == 0)) return;
+        if (!network.offlineMode) network.SendPowerRequest(240 + i);
+        else
+        {
+            if (i < 3) owners[i] = 1;
             else
-            {
-                if (i < 3) owners[i] = 1;
-                else
-                    for (int fuse = 0; fuse < 3; fuse++)
-                        if (owners[fuse] == 1) { owners[fuse] = -1; repaired[i - 3] = true; break; }
-                string[] state = { "S_POWER", owners[0].ToString(), owners[1].ToString(), owners[2].ToString(),
-                    repaired[0] ? "1" : "0", repaired[1] ? "1" : "0", repaired[2] ? "1" : "0" };
-                ApplyState(state);
-            }
-            break;
+                for (int fuse = 0; fuse < 3; fuse++)
+                    if (owners[fuse] == 1) { owners[fuse] = -1; repaired[i - 3] = true; break; }
+            string[] state = { "S_POWER", owners[0].ToString(), owners[1].ToString(), owners[2].ToString(),
+                repaired[0] ? "1" : "0", repaired[1] ? "1" : "0", repaired[2] ? "1" : "0" };
+            ApplyState(state);
         }
     }
 
@@ -71,17 +98,17 @@ public class PowerRestoration : MonoBehaviour
         NetworkClient network = NetworkClient.Instance;
         if (network == null || !network.GameStarted || network.localPlayerTransform == null) return;
         if (label == null) label = new GUIStyle(GUI.skin.label) { fontSize = 20, normal = { textColor = Color.white } };
-        int count = 0, held = 0;
-        for (int i = 0; i < 3; i++) { if (repaired[i]) count++; if (owners[i] == network.playerId) held++; }
+        int count = 0, held = HeldFuses(network.playerId);
+        for (int i = 0; i < 3; i++) if (repaired[i]) count++;
         GUI.Label(new Rect(20, 90, 450, 30), $"전원 복구 {count}/3  |  보유 퓨즈 {held}", label);
-        for (int i = 0; i < objects.Length; i++)
+        PlayerController player = network.localPlayerTransform.GetComponent<PlayerController>();
+        if (player == null || player.IsDeadState) return;
+        int nearby = FindNearbyObject(network.localPlayerTransform.position);
+        if (nearby >= 0)
         {
-            if ((i < 3 && owners[i] != 0) || (i >= 3 && repaired[i - 3])) continue;
-            if (Vector3.Distance(network.localPlayerTransform.position, objects[i].transform.position) <= 2f)
-            {
-                GUI.Label(new Rect(20, 120, 500, 30), i < 3 ? "E: 퓨즈 획득" : "E: 퓨즈로 차단기 복구", label);
-                break;
-            }
+            string prompt = nearby < 3 ? "E: 퓨즈 획득" :
+                held > 0 ? "E: 퓨즈로 차단기 복구" : "차단기 복구에 퓨즈가 필요합니다";
+            GUI.Label(new Rect(20, 120, 500, 30), prompt, label);
         }
     }
 }
