@@ -78,7 +78,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1967020351154677018, guid: ec79f989074188c4abe99049e9f050a8, type: 3}
       propertyPath: m_ApplyRootMotion
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 3664067536313353356, guid: ec79f989074188c4abe99049e9f050a8, type: 3}
       propertyPath: m_LocalPosition.x

@@ -58,7 +58,7 @@ Material:
     - _Texture_Smoothness: 6
     - _World_Aligned_Textures: 0
     m_Colors:
-    - _Color: {r: 0.627451, g: 0.654902, b: 0.6627451, a: 0}
+    - _Color: {r: 0.41142756, g: 0.4641747, b: 0.4792453, a: 0}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
 --- !u!114 &2543138440645015404
