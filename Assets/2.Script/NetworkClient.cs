@@ -465,6 +465,18 @@ public class NetworkClient : MonoBehaviour
         if (restoringSession) StartCoroutine(RequestSnapshot());
     }
 
+    public void SendRepairHit(int sequence, float elapsed)
+    {
+        if (!offlineMode && !restoringSession && isConnected)
+            SendMessageToServer("C_REPAIR_HIT|" + sequence + "|" + elapsed.ToString("F4", CultureInfo.InvariantCulture) + "\n", "Repair input failed");
+    }
+
+    public void SendRepairCancel()
+    {
+        if (!offlineMode && !restoringSession && isConnected)
+            SendMessageToServer("C_REPAIR_CANCEL\n", "Repair cancellation failed");
+    }
+
     public void SendPowerRequest(int objectId)
     {
         if (!offlineMode && !restoringSession && isConnected && HasAssignedPlayerId)
@@ -631,6 +643,12 @@ public class NetworkClient : MonoBehaviour
         {
             case "S_POWER":
                 if (PowerRestoration.Instance != null) PowerRestoration.Instance.ApplyState(parts);
+                break;
+            case "S_REPAIR":
+                if (PowerRestoration.Instance != null) PowerRestoration.Instance.ApplyRepairChallenge(parts);
+                break;
+            case "S_REPAIR_END":
+                if (PowerRestoration.Instance != null && parts.Length == 2) PowerRestoration.Instance.EndRepair(parts[1]);
                 break;
             case "S_SESSION":
                 if (parts.Length == 2) { PlayerPrefs.SetString(SessionKey, parts[1]); PlayerPrefs.Save(); }

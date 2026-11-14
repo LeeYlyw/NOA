@@ -69,6 +69,11 @@ static std::map<int, ItemSpawn> trustedItemSpawns;
 static int fuseOwner[3] = {};
 static bool breakerRepaired[3] = {};
 static bool powerQuestEnabled = false;
+struct RepairAttempt { int objectId = 0, sequence = 0, progress = 0; double started = 0; float target = 0; };
+static RepairAttempt repairs[MaxPlayers + 1];
+static int repairSequence = 0;
+static constexpr float RepairDuration = 2.4f;
+static constexpr float RepairWindow = 0.16f;
 
 static bool PowerRestored()
 {
@@ -155,6 +160,8 @@ void ResetSession()
     std::fill(std::begin(fuseOwner), std::end(fuseOwner), 0);
     std::fill(std::begin(breakerRepaired), std::end(breakerRepaired), false);
     powerQuestEnabled = false;
+    for (auto& repair : repairs) repair = {};
+    repairSequence = 0;
     mimicShots.clear();
     mimicStates.clear();
     navigationFailed = false;
@@ -1353,6 +1360,18 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
               << monsters[1].position.z << ")" << std::endl;
 }
 
+static void SendRepairChallenge(int playerId, const std::string& result)
+{
+    auto& repair = repairs[playerId];
+    repair.sequence = ++repairSequence;
+    repair.started = GetTimeSeconds();
+    repair.target = 0.35f + static_cast<float>(std::rand() % 36) / 100.0f;
+    SendPacket(matchSockets[playerId], "S_REPAIR|" + std::to_string(repair.objectId) + "|" +
+        std::to_string(repair.sequence) + "|" + std::to_string(repair.progress) + "|" +
+        std::to_string(repair.target) + "|" + std::to_string(RepairWindow) + "|" +
+        std::to_string(RepairDuration) + "|" + result);
+}
+
 void ProcessClientPacket(
     int senderPlayerId,
     const std::string& packet,
@@ -1405,6 +1424,52 @@ void ProcessClientPacket(
         ProcessNavigationPacket(parts, senderPlayerId, clientSocket1, clientSocket2, monsters);
         return;
     }
+    if (type == "C_REPAIR_CANCEL")
+    {
+        repairs[senderPlayerId] = {};
+        SendPacket(matchSockets[senderPlayerId], "S_REPAIR_END|CANCEL");
+        return;
+    }
+    if (type == "C_REPAIR_HIT")
+    {
+        int sequence = 0;
+        float elapsed = 0;
+        auto& repair = repairs[senderPlayerId];
+        if (parts.size() != 3 || !TryParseInt(parts[1], sequence) ||
+            !TryParseFloat(parts[2], elapsed) || repair.objectId == 0 || sequence != repair.sequence) return;
+        const auto& player = players[senderPlayerId];
+        const Vec3& position = trustedItemSpawns.at(repair.objectId).position;
+        int fuse = 0;
+        while (fuse < 3 && fuseOwner[fuse] != senderPlayerId) ++fuse;
+        if (!player.hasState || player.isDead || fuse == 3 ||
+            Distance2D(player.position, position) > 2.0f ||
+            std::fabs(player.position.y - position.y) > 2.5f || breakerRepaired[repair.objectId - 243])
+        {
+            repair = {};
+            SendPacket(matchSockets[senderPlayerId], "S_REPAIR_END|CANCEL");
+            return;
+        }
+        double serverElapsed = GetTimeSeconds() - repair.started;
+        bool success = elapsed >= 0 && elapsed <= RepairDuration &&
+            serverElapsed >= elapsed - 0.1 && serverElapsed <= elapsed + 0.75 &&
+            elapsed / RepairDuration >= repair.target &&
+            elapsed / RepairDuration <= repair.target + RepairWindow;
+        repair.progress = success ? repair.progress + 1 : std::max(0, repair.progress - 1);
+        if (!success)
+            ProcessNoisePacket({"C_NOISE", std::to_string(senderPlayerId),
+                std::to_string(position.x), std::to_string(player.position.y), std::to_string(position.z), "10"},
+                senderPlayerId, players, monsters);
+        if (repair.progress < 3) { SendRepairChallenge(senderPlayerId, success ? "OK" : "MISS"); return; }
+        breakerRepaired[repair.objectId - 243] = true;
+        fuseOwner[fuse] = -1;
+        repair = {};
+        if (PowerRestored() && puzzleSolved) gateOpeningTime = GetTimeSeconds() + 1.05;
+        BroadcastPacket(clientSocket1, clientSocket2, "S_POWER|" + std::to_string(fuseOwner[0]) + "|" +
+            std::to_string(fuseOwner[1]) + "|" + std::to_string(fuseOwner[2]) + "|" +
+            std::to_string(breakerRepaired[0]) + "|" + std::to_string(breakerRepaired[1]) + "|" + std::to_string(breakerRepaired[2]));
+        SendPacket(matchSockets[senderPlayerId], "S_REPAIR_END|DONE");
+        return;
+    }
     if (type == "C_POWER")
     {
         int playerId = 0, objectId = 0;
@@ -1428,9 +1493,16 @@ void ProcessClientPacket(
             int fuse = 0;
             while (fuse < 3 && fuseOwner[fuse] != playerId) ++fuse;
             if (fuse == 3) return;
-            fuseOwner[fuse] = -1;
-            breakerRepaired[index] = true;
-            if (PowerRestored() && puzzleSolved) gateOpeningTime = GetTimeSeconds() + 1.05;
+            if (repairs[playerId].objectId != 0) return;
+            for (int id = 1; id <= matchPlayerCount; ++id)
+                if (repairs[id].objectId == objectId)
+                {
+                    SendPacket(matchSockets[playerId], "S_REPAIR_END|BUSY");
+                    return;
+                }
+            repairs[playerId].objectId = objectId;
+            SendRepairChallenge(playerId, "START");
+            return;
         }
         for (int id = 1; id <= matchPlayerCount; ++id)
             if (matchSockets[id] != INVALID_SOCKET)
@@ -2194,6 +2266,7 @@ int main()
         }
     };
     auto disconnectPlayer = [&](int id) {
+        repairs[id] = {};
         closesocket(matchSockets[id]);
         matchSockets[id] = INVALID_SOCKET;
         if (reconnectUntil[id] == 0.0) reconnectUntil[id] = GetTimeSeconds() + ReconnectSeconds;
@@ -2379,6 +2452,20 @@ int main()
             if (restartRequested) break;
         }
         bool returnedFuse = false;
+        for (int id = 1; id <= matchPlayerCount; ++id)
+        {
+            auto& repair = repairs[id];
+            if (repair.objectId == 0) continue;
+            const Vec3& position = trustedItemSpawns.at(repair.objectId).position;
+            if (matchResult != 0 || players[id].isDead || !players[id].hasState ||
+                Distance2D(players[id].position, position) > 2.0f ||
+                std::fabs(players[id].position.y - position.y) > 2.5f ||
+                GetTimeSeconds() - repair.started > 8.0)
+            {
+                repair = {};
+                if (matchSockets[id] != INVALID_SOCKET) SendPacket(matchSockets[id], "S_REPAIR_END|CANCEL");
+            }
+        }
         for (int id=1; id<=matchPlayerCount; ++id)
         {
             anyRetained = anyRetained || matchSockets[id]!=INVALID_SOCKET || reconnectUntil[id]>GetTimeSeconds();

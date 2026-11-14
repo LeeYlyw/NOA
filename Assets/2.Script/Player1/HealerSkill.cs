@@ -36,7 +36,8 @@ public class HealerSkill : MonoBehaviour
             return;
         }
 
-        if (!awaitingServerResult && Input.GetKeyDown(KeyCode.E))
+        if (!awaitingServerResult && Input.GetKeyDown(KeyCode.E) &&
+            (PowerRestoration.Instance == null || !PowerRestoration.Instance.UsesInteraction))
             UseHealSkill();
     }
 

@@ -209,7 +209,7 @@ public class PlayerController : MonoBehaviour
         }
 
         // 점프 입력
-        if (isLocalPlayer && !isDead && Input.GetKeyDown(KeyCode.Space) && coyoteTimer > 0f)
+        if (isLocalPlayer && !isDead && Input.GetKeyDown(KeyCode.Space) && coyoteTimer > 0f && (PowerRestoration.Instance == null || !PowerRestoration.Instance.BlocksJump))
         {
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
             coyoteTimer = 0f;

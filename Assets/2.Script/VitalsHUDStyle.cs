@@ -8,6 +8,21 @@ public class VitalsHUDStyle : MonoBehaviour
     Text hpText;
     Text staminaText;
     Font font;
+    readonly Vector3[] screenCorners = new Vector3[4];
+
+    public bool TryGetScreenBottom(out Vector2 bottomLeft)
+    {
+        bottomLeft = Vector2.zero;
+        if (stamina == null || !stamina.gameObject.activeInHierarchy) return false;
+        RectTransform rect = stamina.GetComponent<RectTransform>();
+        Canvas canvas = stamina.GetComponentInParent<Canvas>();
+        Camera camera = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+            ? canvas.worldCamera : null;
+        rect.GetWorldCorners(screenCorners);
+        Vector2 screen = RectTransformUtility.WorldToScreenPoint(camera, screenCorners[0]);
+        bottomLeft = new Vector2(screen.x, Screen.height - screen.y);
+        return true;
+    }
 
     public void Bind(Slider health, Slider energy)
     {
