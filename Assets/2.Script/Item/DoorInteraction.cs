@@ -64,7 +64,7 @@ public class DoorInteraction : MonoBehaviour
 
     private void Update()
     {
-        if (!isNear || !Input.GetKeyDown(KeyCode.F))
+        if (!isNear || !Input.GetKeyDown(KeyCode.F) || ItemPickupInteraction.BlocksDoorInteraction)
             return;
 
         int direction = 1;

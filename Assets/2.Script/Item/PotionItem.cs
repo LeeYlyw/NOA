@@ -8,18 +8,37 @@ public class PotionItem : MonoBehaviour
     private bool isRequestingPickup = false;
     private InventoryManager requestingInventory;
     private float nextPickupAttemptAt;
+    private PlayerController nearbyLocalPlayer;
+    private float lastContactAt = -100f;
 
     [Header("Item Data")]
     public ItemData itemData;
+    public PlayerController NearbyLocalPlayer => nearbyLocalPlayer;
 
     private void OnTriggerEnter(Collider other)
     {
-        TryPickup(other);
+        TrackNearbyPlayer(other);
     }
 
     private void OnTriggerStay(Collider other)
     {
-        TryPickup(other);
+        TrackNearbyPlayer(other);
+    }
+
+    private void OnTriggerExit(Collider other)
+    {
+        PlayerController player = other.GetComponentInParent<PlayerController>();
+        if (player != null && player == nearbyLocalPlayer)
+        {
+            nearbyLocalPlayer = null;
+            ItemPickupInteraction.Unregister(this);
+        }
+    }
+
+    private void OnDisable()
+    {
+        nearbyLocalPlayer = null;
+        ItemPickupInteraction.Unregister(this);
     }
 
     private void Update()
@@ -30,20 +49,34 @@ public class PotionItem : MonoBehaviour
             DenyPickup();
     }
 
-    private void TryPickup(Collider other)
+    private void TrackNearbyPlayer(Collider other)
     {
-        if (isPicked || isRequestingPickup || Time.unscaledTime < nextPickupAttemptAt)
-            return;
-
         PlayerController player = other.GetComponent<PlayerController>();
         if (player == null)
             player = other.GetComponentInParent<PlayerController>();
         // CharacterController belongs to the player root, even when the
         // imported character prefab does not carry the Player tag.
-        if (player == null || !player.isLocalPlayer || player.IsDeadState)
+        if (player == null || !player.isLocalPlayer || player.IsDeadState || itemData == null || isPicked)
             return;
 
-        if (itemData == null) return;
+        nearbyLocalPlayer = player;
+        lastContactAt = Time.unscaledTime;
+        ItemPickupInteraction.Register(this);
+    }
+
+    public bool CanInteract(PlayerController player)
+    {
+        return player != null && player == nearbyLocalPlayer && player.isLocalPlayer &&
+            player.gameObject.activeInHierarchy && !player.IsDeadState && gameObject.activeInHierarchy &&
+            itemData != null && !isPicked && !isRequestingPickup &&
+            Time.unscaledTime - lastContactAt < 0.2f;
+    }
+
+    public bool TryPickup(PlayerController player)
+    {
+        if (!CanInteract(player) || Time.unscaledTime < nextPickupAttemptAt)
+            return false;
+
         nextPickupAttemptAt = Time.unscaledTime + 0.75f;
 
         if (itemData.type != ItemData.ItemType.Clue)
@@ -52,7 +85,7 @@ public class PotionItem : MonoBehaviour
             if (requestingInventory == null || !requestingInventory.TryReservePickup(itemId))
             {
                 Debug.Log("[Item] Inventory is full; pickup remains in the world.");
-                return;
+                return false;
             }
         }
 
@@ -63,13 +96,18 @@ public class PotionItem : MonoBehaviour
                 (!NetworkClient.Instance.IsConnected || !NetworkClient.Instance.HasAssignedPlayerId))
             {
                 DenyPickup();
-                return;
+                return false;
             }
             isRequestingPickup = true;
-            if (!NetworkClient.Instance.SendItemPickupRequest(itemId, itemData)) DenyPickup();
-            return;
+            if (!NetworkClient.Instance.SendItemPickupRequest(itemId, itemData))
+            {
+                DenyPickup();
+                return false;
+            }
+            return true;
         }
         DenyPickup();
+        return false;
     }
 
     public void DenyPickup()
