@@ -64,7 +64,8 @@ public class DoorInteraction : MonoBehaviour
 
     private void Update()
     {
-        if (!isNear || !Input.GetKeyDown(KeyCode.F) || ItemPickupInteraction.BlocksDoorInteraction)
+        // Item pickup and chair movement take priority over the door on the F key.
+        if (!isNear || !Input.GetKeyDown(KeyCode.F) || ItemPickupInteraction.BlocksDoorInteraction || ChairInteraction.BlocksDoorInteraction)
             return;
 
         int direction = 1;

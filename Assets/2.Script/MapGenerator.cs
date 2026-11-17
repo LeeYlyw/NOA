@@ -62,6 +62,8 @@ public class MapGenerator : MonoBehaviour
     private readonly List<Bounds> bedVisualBounds = new List<Bounds>();
     private readonly List<GameObject> spawnedEntities = new List<GameObject>();
     private readonly List<DoorInteraction> spawnedDoors = new List<DoorInteraction>();
+    // 실제 배치된 방의 의자를 모아 오프라인 숨겨진 아이템 대상을 고른다.
+    private readonly List<ChairInteraction> spawnedChairs = new List<ChairInteraction>();
     private Transform roomsRoot;
     private Transform wallsRoot;
     private Transform gameplayRoot;
@@ -127,6 +129,8 @@ public class MapGenerator : MonoBehaviour
             spawnedWalls.Clear();
             bedVisualBounds.Clear();
             spawnedDoors.Clear();
+            // 맵 생성 재시도 시 이전 배치의 의자 목록을 버린다.
+            spawnedChairs.Clear();
             hasPuzzleRoom = false;
 
             if (!PlaceRooms()) { roomFailures++; continue; }
@@ -186,7 +190,8 @@ public class MapGenerator : MonoBehaviour
         if (network != null) network.RegisterDoors(spawnedDoors.ToArray());
         string navigationMask = network != null && !network.offlineMode && network.IsConnected
             ? BuildServerNavigationMask() : null;
-        if (!SpawnEntities())
+        // 확정된 맵 시드로 의자와 숨겨진 아이템을 같은 방식으로 선택한다.
+        if (!SpawnEntities(selectedSeed))
         {
             ReportGenerationFailure("Required map entities could not be spawned");
             return;
@@ -536,6 +541,8 @@ public class MapGenerator : MonoBehaviour
                         door.SetNetworkId(nextDoorId++);
                         spawnedDoors.Add(door);
                     }
+                    // 공용 의자 프리팹에 붙은 상호작용 컴포넌트를 방마다 수집한다.
+                    spawnedChairs.AddRange(roomInstance.GetComponentsInChildren<ChairInteraction>(true));
 
                     placed = true;
                     centralRoomPlaced = true;
@@ -1212,7 +1219,7 @@ public class MapGenerator : MonoBehaviour
         return !Physics.CheckCapsule(bottom, top, radius, ~0, QueryTriggerInteraction.Ignore);
     }
 
-    bool SpawnEntities()
+    bool SpawnEntities(int generationSeed)
     {
         if (validSpawnPoints.Count < 4)
         {
@@ -1394,6 +1401,57 @@ public class MapGenerator : MonoBehaviour
                     spawnedPotions.Add(potion);
                 }
             }
+        }
+
+        // 서버에는 추가 아이템 ID가 등록되지 않으므로 현재는 오프라인에서만 생성한다.
+        NetworkClient currentNetwork = NetworkClient.Instance;
+        if (currentNetwork != null && currentNetwork.offlineMode && spawnedChairs.Count > 0)
+        {
+            // 부활 아이템은 제외하고, 단서 3개는 고정 퀘스트 아이템으로 유지한다.
+            List<GameObject> hiddenItemPrefabs = ordinaryItemPrefabs.FindAll(prefab =>
+            {
+                PotionItem item = prefab != null ? prefab.GetComponent<PotionItem>() : null;
+                return item != null && item.itemData != null &&
+                    item.itemData.type != ItemData.ItemType.Resurrection &&
+                    item.itemData.type != ItemData.ItemType.Clue;
+            });
+            if (hiddenItemPrefabs.Count > 0)
+            {
+                List<ChairInteraction> candidates = new List<ChairInteraction>(spawnedChairs);
+                // 별도 시드 난수로 섞어 기존 일반 아이템 드롭 순서를 바꾸지 않는다.
+                System.Random chairRandom = new System.Random(generationSeed ^ 0x4A17B);
+                for (int i = candidates.Count - 1; i > 0; i--)
+                {
+                    int swap = chairRandom.Next(i + 1);
+                    ChairInteraction other = candidates[i];
+                    candidates[i] = candidates[swap];
+                    candidates[swap] = other;
+                }
+                for (int i = hiddenItemPrefabs.Count - 1; i > 0; i--)
+                {
+                    int swap = chairRandom.Next(i + 1);
+                    GameObject other = hiddenItemPrefabs[i];
+                    hiddenItemPrefabs[i] = hiddenItemPrefabs[swap];
+                    hiddenItemPrefabs[swap] = other;
+                }
+                // 의자 약 3분의 1을 고르고 가능한 아이템 종류를 순환 배치한다.
+                int hiddenCount = (candidates.Count + 1) / 3;
+                for (int i = 0; i < hiddenCount; i++)
+                {
+                    ChairInteraction chair = candidates[i];
+                    GameObject itemObject = Instantiate(hiddenItemPrefabs[i % hiddenItemPrefabs.Count],
+                        chair.HiddenItemPosition,
+                        Quaternion.identity, itemsRoot);
+                    PotionItem pickup = itemObject.GetComponent<PotionItem>();
+                    if (pickup == null) { DisposeGeneratedObject(itemObject); continue; }
+                    // 일반 아이템 및 전원 퀘스트 ID와 겹치지 않도록 1000부터 부여한다.
+                    pickup.itemId = 1000 + i;
+                    chair.SetHiddenItem(itemObject);
+                    spawnedEntities.Add(itemObject);
+                    spawnedPotions.Add(pickup);
+                }
+            }
+            else Debug.LogWarning("[MapGenerator] No eligible item prefab for chair discoveries.");
         }
 
         if (NetworkClient.Instance != null)
