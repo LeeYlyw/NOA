@@ -64,6 +64,7 @@ public class MapGenerator : MonoBehaviour
     private readonly List<DoorInteraction> spawnedDoors = new List<DoorInteraction>();
     // 실제 배치된 방의 의자를 모아 오프라인 숨겨진 아이템 대상을 고른다.
     private readonly List<ChairInteraction> spawnedChairs = new List<ChairInteraction>();
+    private readonly List<CassetteInteraction> spawnedCassettes = new List<CassetteInteraction>();
     private Transform roomsRoot;
     private Transform wallsRoot;
     private Transform gameplayRoot;
@@ -131,6 +132,7 @@ public class MapGenerator : MonoBehaviour
             spawnedDoors.Clear();
             // 맵 생성 재시도 시 이전 배치의 의자 목록을 버린다.
             spawnedChairs.Clear();
+            spawnedCassettes.Clear();
             hasPuzzleRoom = false;
 
             if (!PlaceRooms()) { roomFailures++; continue; }
@@ -543,6 +545,7 @@ public class MapGenerator : MonoBehaviour
                     }
                     // 공용 의자 프리팹에 붙은 상호작용 컴포넌트를 방마다 수집한다.
                     spawnedChairs.AddRange(roomInstance.GetComponentsInChildren<ChairInteraction>(true));
+                    spawnedCassettes.AddRange(roomInstance.GetComponentsInChildren<CassetteInteraction>(true));
 
                     placed = true;
                     centralRoomPlaced = true;
@@ -1452,6 +1455,33 @@ public class MapGenerator : MonoBehaviour
                 }
             }
             else Debug.LogWarning("[MapGenerator] No eligible item prefab for chair discoveries.");
+        }
+
+        // 카세트 보상도 서버 아이템 목록에 없으므로 오프라인에서만 만든다.
+        if (currentNetwork != null && currentNetwork.offlineMode && spawnedCassettes.Count > 0)
+        {
+            GameObject resurrectionPrefab = ordinaryItemPrefabs.Find(prefab =>
+            {
+                PotionItem item = prefab != null ? prefab.GetComponent<PotionItem>() : null;
+                return item != null && item.itemData != null &&
+                    item.itemData.type == ItemData.ItemType.Resurrection;
+            });
+            if (resurrectionPrefab != null)
+            {
+                for (int i = 0; i < spawnedCassettes.Count; i++)
+                {
+                    CassetteInteraction cassette = spawnedCassettes[i];
+                    GameObject reward = Instantiate(resurrectionPrefab, cassette.transform.position,
+                        Quaternion.identity, itemsRoot);
+                    PotionItem pickup = reward.GetComponent<PotionItem>();
+                    if (pickup == null) { DisposeGeneratedObject(reward); continue; }
+                    pickup.itemId = 2000 + i; // 일반 아이템과 의자 보상 ID를 피한다.
+                    cassette.SetReward(reward);
+                    spawnedEntities.Add(reward);
+                    spawnedPotions.Add(pickup);
+                }
+            }
+            else Debug.LogWarning("[MapGenerator] No resurrection prefab for cassette rewards.");
         }
 
         if (NetworkClient.Instance != null)

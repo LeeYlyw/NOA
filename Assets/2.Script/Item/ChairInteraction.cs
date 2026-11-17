@@ -65,7 +65,8 @@ public class ChairInteraction : MonoBehaviour
     {
         // 아이템과 의자가 겹치면 F 홀드 아이템 획득을 우선한다.
         if (!Input.GetKeyDown(KeyCode.F) || lastUseFrame == Time.frameCount ||
-            ItemPickupInteraction.BlocksDoorInteraction || ClosestChair() != this) return;
+            ItemPickupInteraction.BlocksDoorInteraction ||
+            CassetteInteraction.BlocksOtherInteraction || ClosestChair() != this) return;
 
         lastUseFrame = Time.frameCount;
         pulled = !pulled;
@@ -108,7 +109,8 @@ public class ChairInteraction : MonoBehaviour
 
     private void OnGUI()
     {
-        if (ClosestChair() != this || ItemPickupInteraction.BlocksDoorInteraction) return;
+        if (ClosestChair() != this || ItemPickupInteraction.BlocksDoorInteraction ||
+            CassetteInteraction.BlocksOtherInteraction) return;
         GUI.Box(new Rect(Screen.width * 0.5f - 85f, Screen.height * 0.5f + 70f, 170f, 36f),
             pulled ? "F  의자 넣기" : "F  의자 빼기");
     }
