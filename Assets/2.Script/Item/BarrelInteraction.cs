@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.AI;
 
 // 드럼통 조사는 현재 오프라인에서만 처리한다. 한 드럼통은 한 번만 조사한다.
 [DisallowMultipleComponent]
@@ -12,9 +11,10 @@ public class BarrelInteraction : MonoBehaviour
     private static BarrelInteraction closestThisFrame;
 
     [Min(0.5f)] public float interactionRange = 2.5f;
-    [Min(0.3f)] public float rewardDistance = 0.9f;
+    [Min(0f)] public float rewardTopGap = 0.08f;
 
     private GameObject reward;
+    private float rewardBottomOffset;
     private bool inspected;
     private string feedback;
     private float feedbackUntil;
@@ -34,7 +34,15 @@ public class BarrelInteraction : MonoBehaviour
     public void SetReward(GameObject item)
     {
         reward = item;
-        if (reward != null) reward.SetActive(false);
+        if (reward == null) return;
+
+        // 아이템의 피벗이 모델 바닥과 다를 수 있으므로 렌더러의 아래쪽을 기록한다.
+        float bottom = float.PositiveInfinity;
+        foreach (Renderer renderer in reward.GetComponentsInChildren<Renderer>(true))
+            bottom = Mathf.Min(bottom, renderer.bounds.min.y);
+        rewardBottomOffset = float.IsPositiveInfinity(bottom)
+            ? 0f : reward.transform.position.y - bottom;
+        reward.SetActive(false);
     }
 
     private void Update()
@@ -48,7 +56,7 @@ public class BarrelInteraction : MonoBehaviour
         closestFrame = -1;
         if (reward != null)
         {
-            PositionRewardTowardPlayer();
+            PositionRewardOnTop();
             reward.SetActive(true);
             reward = null;
             feedback = "아이템 발견";
@@ -57,21 +65,37 @@ public class BarrelInteraction : MonoBehaviour
         feedbackUntil = Time.time + 1.5f;
     }
 
-    private void PositionRewardTowardPlayer()
+    private void PositionRewardOnTop()
     {
-        Transform player = NetworkClient.Instance.localPlayerTransform;
-        Vector3 direction = player.position - transform.position;
-        direction.y = 0f;
-        if (direction.sqrMagnitude < 0.01f) direction = transform.forward;
-        direction.y = 0f;
-        direction.Normalize();
+        // 실제 드럼통 윗면 높이를 사용해 모델끼리 겹치지 않게 올린다.
+        Bounds barrelBounds = default;
+        bool hasBounds = false;
+        foreach (Renderer renderer in GetComponentsInChildren<Renderer>(true))
+        {
+            if (!hasBounds) { barrelBounds = renderer.bounds; hasBounds = true; }
+            else barrelBounds.Encapsulate(renderer.bounds);
+        }
+        if (!hasBounds)
+            foreach (Collider collider in GetComponentsInChildren<Collider>(true))
+            {
+                if (!hasBounds) { barrelBounds = collider.bounds; hasBounds = true; }
+                else barrelBounds.Encapsulate(collider.bounds);
+            }
+        if (!hasBounds) barrelBounds = new Bounds(transform.position, Vector3.one);
 
-        Vector3 target = transform.position + direction * rewardDistance;
-        if (NavMesh.SamplePosition(target, out NavMeshHit floor, 1.5f, NavMesh.AllAreas))
-            target.y = floor.position.y + 0.25f;
-        else
-            target.y = transform.parent != null ? transform.parent.position.y + 0.25f : 0.25f;
-        reward.transform.position = target;
+        float top = barrelBounds.max.y;
+        reward.transform.position = new Vector3(barrelBounds.center.x,
+            top + rewardTopGap + rewardBottomOffset, barrelBounds.center.z);
+
+        // 아이템은 위에 보이되, 플레이어가 드럼통 옆에서 F 홀드로 주울 수 있게 한다.
+        SphereCollider reach = reward.AddComponent<SphereCollider>();
+        reach.isTrigger = true;
+        Vector3 reachCenter = new Vector3(barrelBounds.center.x, top - 0.9f,
+            barrelBounds.center.z);
+        reach.center = reward.transform.InverseTransformPoint(reachCenter);
+        Vector3 scale = reward.transform.lossyScale;
+        float maxScale = Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
+        reach.radius = 1.2f / Mathf.Max(0.01f, maxScale);
     }
 
     private void OnGUI()
