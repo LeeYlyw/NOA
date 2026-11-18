@@ -67,7 +67,8 @@ public class ChairInteraction : MonoBehaviour
         if (!Input.GetKeyDown(KeyCode.F) || lastUseFrame == Time.frameCount ||
             ItemPickupInteraction.BlocksDoorInteraction ||
             CassetteInteraction.BlocksOtherInteraction ||
-            BarrelInteraction.BlocksOtherInteraction || ClosestChair() != this) return;
+            BarrelInteraction.BlocksOtherInteraction ||
+            BedInteraction.BlocksOtherInteraction || ClosestChair() != this) return;
 
         lastUseFrame = Time.frameCount;
         pulled = !pulled;
@@ -112,7 +113,8 @@ public class ChairInteraction : MonoBehaviour
     {
         if (ClosestChair() != this || ItemPickupInteraction.BlocksDoorInteraction ||
             CassetteInteraction.BlocksOtherInteraction ||
-            BarrelInteraction.BlocksOtherInteraction) return;
+            BarrelInteraction.BlocksOtherInteraction ||
+            BedInteraction.BlocksOtherInteraction) return;
         GUI.Box(new Rect(Screen.width * 0.5f - 85f, Screen.height * 0.5f + 70f, 170f, 36f),
             pulled ? "F  의자 넣기" : "F  의자 빼기");
     }

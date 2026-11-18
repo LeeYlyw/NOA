@@ -67,6 +67,7 @@ public class MapGenerator : MonoBehaviour
     private readonly List<CassetteInteraction> spawnedCassettes = new List<CassetteInteraction>();
     // 각 방의 드럼통을 따로 보관해 방마다 보상 하나만 배치한다.
     private readonly List<BarrelInteraction[]> barrelRooms = new List<BarrelInteraction[]>();
+    private readonly List<BedInteraction[]> bedRooms = new List<BedInteraction[]>();
     private Transform roomsRoot;
     private Transform wallsRoot;
     private Transform gameplayRoot;
@@ -136,6 +137,7 @@ public class MapGenerator : MonoBehaviour
             spawnedChairs.Clear();
             spawnedCassettes.Clear();
             barrelRooms.Clear();
+            bedRooms.Clear();
             hasPuzzleRoom = false;
 
             if (!PlaceRooms()) { roomFailures++; continue; }
@@ -537,7 +539,8 @@ public class MapGenerator : MonoBehaviour
                     }
                     GameObject roomInstance = Instantiate(room.prefab, new Vector3(posX, 0, posZ),
                                                           Quaternion.identity, roomsRoot);
-                    CollectBedVisualBounds(roomInstance);
+                    BedInteraction[] roomBeds = CollectBedVisualBounds(roomInstance);
+                    if (roomBeds.Length > 0) bedRooms.Add(roomBeds);
                     EnsureBarrelCollision(roomInstance);
                     BarrelInteraction[] roomBarrels = CollectRoomBarrels(roomInstance);
                     if (roomBarrels.Length > 0) barrelRooms.Add(roomBarrels);
@@ -1071,8 +1074,9 @@ public class MapGenerator : MonoBehaviour
         return barrels.ToArray();
     }
 
-    private void CollectBedVisualBounds(GameObject room)
+    private BedInteraction[] CollectBedVisualBounds(GameObject room)
     {
+        List<BedInteraction> beds = new List<BedInteraction>();
         foreach (Transform child in room.GetComponentsInChildren<Transform>(true))
         {
             if (!child.name.StartsWith("Cama", System.StringComparison.OrdinalIgnoreCase)) continue;
@@ -1087,6 +1091,10 @@ public class MapGenerator : MonoBehaviour
             }
             if (!found) continue;
             bedVisualBounds.Add(visual);
+            BedInteraction interaction = child.GetComponent<BedInteraction>();
+            if (interaction == null) interaction = child.gameObject.AddComponent<BedInteraction>();
+            interaction.Configure(visual);
+            beds.Add(interaction);
             // The imported concave mattress collider leaves empty volume below
             // its surface. Bake a solid footprint so patrol paths avoid it too.
             float floorY = Mathf.Min(room.transform.position.y, visual.min.y);
@@ -1098,6 +1106,7 @@ public class MapGenerator : MonoBehaviour
             obstacle.size = new Vector3(visual.size.x,
                 Mathf.Max(0.2f, visual.max.y - floorY), visual.size.z);
         }
+        return beds.ToArray();
     }
 
     bool NeedsCorridorWall(int cx, int cz, int nx, int nz)
@@ -1541,6 +1550,43 @@ public class MapGenerator : MonoBehaviour
                 }
             }
             else Debug.LogWarning("[MapGenerator] No eligible item prefab for barrel rewards.");
+        }
+
+        // 드럼통과 동일하게 침대가 있는 방마다 침대 하나에만 일반 아이템을 숨긴다.
+        if (currentNetwork != null && currentNetwork.offlineMode && bedRooms.Count > 0)
+        {
+            List<GameObject> bedItemPrefabs = ordinaryItemPrefabs.FindAll(prefab =>
+            {
+                PotionItem item = prefab != null ? prefab.GetComponent<PotionItem>() : null;
+                return item != null && item.itemData != null &&
+                    item.itemData.type != ItemData.ItemType.Resurrection &&
+                    item.itemData.type != ItemData.ItemType.Clue;
+            });
+            if (bedItemPrefabs.Count > 0)
+            {
+                System.Random bedRandom = new System.Random(generationSeed ^ 0xBED49);
+                for (int i = bedItemPrefabs.Count - 1; i > 0; i--)
+                {
+                    int swap = bedRandom.Next(i + 1);
+                    GameObject other = bedItemPrefabs[i];
+                    bedItemPrefabs[i] = bedItemPrefabs[swap];
+                    bedItemPrefabs[swap] = other;
+                }
+                for (int i = 0; i < bedRooms.Count; i++)
+                {
+                    BedInteraction[] beds = bedRooms[i];
+                    BedInteraction selected = beds[bedRandom.Next(beds.Length)];
+                    GameObject reward = Instantiate(bedItemPrefabs[i % bedItemPrefabs.Count],
+                        selected.transform.position, Quaternion.identity, itemsRoot);
+                    PotionItem pickup = reward.GetComponent<PotionItem>();
+                    if (pickup == null) { DisposeGeneratedObject(reward); continue; }
+                    pickup.itemId = 4000 + i; // 다른 보상 아이템 ID와 구분한다.
+                    selected.SetReward(reward);
+                    spawnedEntities.Add(reward);
+                    spawnedPotions.Add(pickup);
+                }
+            }
+            else Debug.LogWarning("[MapGenerator] No eligible item prefab for bed rewards.");
         }
 
         if (NetworkClient.Instance != null)
