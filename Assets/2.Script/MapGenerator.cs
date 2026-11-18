@@ -65,6 +65,8 @@ public class MapGenerator : MonoBehaviour
     // 실제 배치된 방의 의자를 모아 오프라인 숨겨진 아이템 대상을 고른다.
     private readonly List<ChairInteraction> spawnedChairs = new List<ChairInteraction>();
     private readonly List<CassetteInteraction> spawnedCassettes = new List<CassetteInteraction>();
+    // 각 방의 드럼통을 따로 보관해 방마다 보상 하나만 배치한다.
+    private readonly List<BarrelInteraction[]> barrelRooms = new List<BarrelInteraction[]>();
     private Transform roomsRoot;
     private Transform wallsRoot;
     private Transform gameplayRoot;
@@ -133,6 +135,7 @@ public class MapGenerator : MonoBehaviour
             // 맵 생성 재시도 시 이전 배치의 의자 목록을 버린다.
             spawnedChairs.Clear();
             spawnedCassettes.Clear();
+            barrelRooms.Clear();
             hasPuzzleRoom = false;
 
             if (!PlaceRooms()) { roomFailures++; continue; }
@@ -536,6 +539,8 @@ public class MapGenerator : MonoBehaviour
                                                           Quaternion.identity, roomsRoot);
                     CollectBedVisualBounds(roomInstance);
                     EnsureBarrelCollision(roomInstance);
+                    BarrelInteraction[] roomBarrels = CollectRoomBarrels(roomInstance);
+                    if (roomBarrels.Length > 0) barrelRooms.Add(roomBarrels);
                     foreach (MimicLaptop mimic in roomInstance.GetComponentsInChildren<MimicLaptop>(true))
                         mimic.SetNetworkId(nextMimicId++);
                     foreach (DoorInteraction door in roomInstance.GetComponentsInChildren<DoorInteraction>(true))
@@ -1049,6 +1054,23 @@ public class MapGenerator : MonoBehaviour
         }
     }
 
+    private static BarrelInteraction[] CollectRoomBarrels(GameObject room)
+    {
+        List<BarrelInteraction> barrels = new List<BarrelInteraction>();
+        foreach (Transform node in room.GetComponentsInChildren<Transform>(true))
+        {
+            if (node.name.IndexOf("barrel", System.StringComparison.OrdinalIgnoreCase) < 0 ||
+                (node.parent != null &&
+                 node.parent.name.IndexOf("barrel", System.StringComparison.OrdinalIgnoreCase) >= 0) ||
+                node.GetComponentInChildren<MeshFilter>(true) == null) continue;
+
+            BarrelInteraction interaction = node.GetComponent<BarrelInteraction>();
+            if (interaction == null) interaction = node.gameObject.AddComponent<BarrelInteraction>();
+            barrels.Add(interaction);
+        }
+        return barrels.ToArray();
+    }
+
     private void CollectBedVisualBounds(GameObject room)
     {
         foreach (Transform child in room.GetComponentsInChildren<Transform>(true))
@@ -1482,6 +1504,43 @@ public class MapGenerator : MonoBehaviour
                 }
             }
             else Debug.LogWarning("[MapGenerator] No resurrection prefab for cassette rewards.");
+        }
+
+        // 드럼통 세 개가 있는 방도 보상은 방마다 하나만 준다. 나머지 드럼통은 비어 있다.
+        if (currentNetwork != null && currentNetwork.offlineMode && barrelRooms.Count > 0)
+        {
+            List<GameObject> barrelItemPrefabs = ordinaryItemPrefabs.FindAll(prefab =>
+            {
+                PotionItem item = prefab != null ? prefab.GetComponent<PotionItem>() : null;
+                return item != null && item.itemData != null &&
+                    item.itemData.type != ItemData.ItemType.Resurrection &&
+                    item.itemData.type != ItemData.ItemType.Clue;
+            });
+            if (barrelItemPrefabs.Count > 0)
+            {
+                System.Random barrelRandom = new System.Random(generationSeed ^ 0x7B493);
+                for (int i = barrelItemPrefabs.Count - 1; i > 0; i--)
+                {
+                    int swap = barrelRandom.Next(i + 1);
+                    GameObject other = barrelItemPrefabs[i];
+                    barrelItemPrefabs[i] = barrelItemPrefabs[swap];
+                    barrelItemPrefabs[swap] = other;
+                }
+                for (int i = 0; i < barrelRooms.Count; i++)
+                {
+                    BarrelInteraction[] barrels = barrelRooms[i];
+                    BarrelInteraction selected = barrels[barrelRandom.Next(barrels.Length)];
+                    GameObject reward = Instantiate(barrelItemPrefabs[i % barrelItemPrefabs.Count],
+                        selected.transform.position, Quaternion.identity, itemsRoot);
+                    PotionItem pickup = reward.GetComponent<PotionItem>();
+                    if (pickup == null) { DisposeGeneratedObject(reward); continue; }
+                    pickup.itemId = 3000 + i; // 일반·의자·카세트 아이템 ID와 구분한다.
+                    selected.SetReward(reward);
+                    spawnedEntities.Add(reward);
+                    spawnedPotions.Add(pickup);
+                }
+            }
+            else Debug.LogWarning("[MapGenerator] No eligible item prefab for barrel rewards.");
         }
 
         if (NetworkClient.Instance != null)
