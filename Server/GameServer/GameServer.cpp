@@ -1431,6 +1431,7 @@ void ProcessClientPacket(
     }
     if (type == "C_REPAIR_CANCEL")
     {
+        if (repairs[senderPlayerId].objectId == 0) return;
         repairs[senderPlayerId] = {};
         SendPacket(matchSockets[senderPlayerId], "S_REPAIR_END|CANCEL");
         return;
@@ -1494,11 +1495,11 @@ void ProcessClientPacket(
         else
         {
             int index = objectId - 243;
-            if (breakerRepaired[index]) return;
+            if (breakerRepaired[index]) { SendPacket(matchSockets[playerId], "S_REPAIR_END|DONE"); return; }
             int fuse = 0;
             while (fuse < 3 && fuseOwner[fuse] != playerId) ++fuse;
-            if (fuse == 3) return;
-            if (repairs[playerId].objectId != 0) return;
+            if (fuse == 3) { SendPacket(matchSockets[playerId], "S_REPAIR_END|NO_FUSE"); return; }
+            if (repairs[playerId].objectId != 0) { SendPacket(matchSockets[playerId], "S_REPAIR_END|BUSY"); return; }
             for (int id = 1; id <= matchPlayerCount; ++id)
                 if (repairs[id].objectId == objectId)
                 {

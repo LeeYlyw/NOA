@@ -47,7 +47,8 @@ public class PowerRestoration : MonoBehaviour
         repairObject = -1;
         waitingForRepair = false;
         repairFeedback = reason == "DONE" ? "차단기 복구 완료" :
-            reason == "BUSY" ? "동료가 수리 중입니다" : "수리 중단 · 퓨즈는 유지됩니다";
+            reason == "BUSY" ? "차단기를 수리 중입니다" :
+            reason == "NO_FUSE" ? "보유한 퓨즈가 없습니다" : "수리 중단 · 퓨즈는 유지됩니다";
         feedbackUntil = Time.unscaledTime + 2f;
     }
 
