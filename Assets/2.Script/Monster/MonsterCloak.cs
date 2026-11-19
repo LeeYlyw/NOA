@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 // Visibility is local presentation only; the server continues to own AI and damage.
 public class MonsterCloak : MonoBehaviour
@@ -11,12 +12,17 @@ public class MonsterCloak : MonoBehaviour
     ShadowCastingMode[] shadows;
     Material shimmer;
     bool revealed;
+    Vector3 previousPosition;
+    float motionStrength = 0.25f;
+    Camera viewerCamera;
+    static readonly int MotionStrength = Shader.PropertyToID("_MotionStrength");
 
     void Start()
     {
         Shader shader = Resources.Load<Shader>("MonsterCloak");
         if (shader == null) { Debug.LogError("[MonsterCloak] Shimmer shader missing."); enabled = false; return; }
         shimmer = new Material(shader);
+        previousPosition = transform.position;
         visuals = GetComponentsInChildren<Renderer>(true);
         originals = new Material[visuals.Length][];
         cloaked = new Material[visuals.Length][];
@@ -36,6 +42,15 @@ public class MonsterCloak : MonoBehaviour
     {
         NetworkClient network = NetworkClient.Instance;
         Transform viewer = network != null ? network.localPlayerTransform : null;
+        if (viewer != null && (viewerCamera == null || !viewerCamera.transform.IsChildOf(viewer)))
+        {
+            viewerCamera = viewer.GetComponentInChildren<Camera>();
+            if (viewerCamera != null) viewerCamera.GetUniversalAdditionalCameraData().requiresColorTexture = true;
+        }
+        float speed = (transform.position - previousPosition).magnitude / Mathf.Max(Time.deltaTime, 0.001f);
+        previousPosition = transform.position;
+        motionStrength = Mathf.MoveTowards(motionStrength, Mathf.Lerp(0.25f, 1f, Mathf.Clamp01(speed / 3.8f)), Time.deltaTime * 3f);
+        if (shimmer != null) shimmer.SetFloat(MotionStrength, motionStrength);
         bool nearby = viewer != null && (viewer.position - transform.position).sqrMagnitude <= revealDistance * revealDistance;
         SetRevealed(nearby);
     }
