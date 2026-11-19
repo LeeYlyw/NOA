@@ -241,6 +241,18 @@ public class ClueManager : MonoBehaviour
         Cursor.visible = true;
         Time.timeScale = 0f;
     }
+    public static void NotifyOfflineDeath(PlayerController player)
+    {
+        NetworkClient network = NetworkClient.Instance;
+        if (network == null || !network.offlineMode || player == null ||
+            !player.isLocalPlayer || !player.IsDeadState) return;
+        ClueManager manager = instance;
+        if (manager == null) manager = network.GetComponent<ClueManager>();
+        if (manager == null) manager = network.gameObject.AddComponent<ClueManager>();
+        Debug.Log("[Offline ending] Local player died; showing defeat report.");
+        manager.ShowDefeat("ALL_DOWN");
+    }
+
     public void ShowDefeat(string reason = "ALL_DOWN")
     {
         if (isEnding) return;

@@ -321,8 +321,10 @@ public class PlayerController : MonoBehaviour
             animator.SetBool("isDead", true);
         }
 
+        currentHp = 0;
         Debug.Log("Player Died");
         UpdateUI();
+        ClueManager.NotifyOfflineDeath(this);
     }
 
     public bool IsRunning()
