@@ -103,11 +103,9 @@ public class BarrelInteraction : MonoBehaviour
         if (ItemPickupInteraction.BlocksDoorInteraction ||
             CassetteInteraction.BlocksOtherInteraction) return;
         if (ClosestBarrel() == this)
-            GUI.Box(new Rect(Screen.width * 0.5f - 85f, Screen.height * 0.5f + 70f, 170f, 36f),
-                "F  드럼통 조사");
+            InteractionPrompt.Draw("F  드럼통 조사");
         else if (Time.time < feedbackUntil)
-            GUI.Box(new Rect(Screen.width * 0.5f - 85f, Screen.height * 0.5f + 70f, 170f, 36f),
-                feedback);
+            InteractionPrompt.Draw(feedback);
     }
 
     // 드럼통을 조사하는 F 입력이 의자나 문도 작동시키지 않도록 한다.

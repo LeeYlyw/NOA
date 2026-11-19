@@ -115,8 +115,7 @@ public class ChairInteraction : MonoBehaviour
             CassetteInteraction.BlocksOtherInteraction ||
             BarrelInteraction.BlocksOtherInteraction ||
             BedInteraction.BlocksOtherInteraction) return;
-        GUI.Box(new Rect(Screen.width * 0.5f - 85f, Screen.height * 0.5f + 70f, 170f, 36f),
-            pulled ? "F  의자 넣기" : "F  의자 빼기");
+        InteractionPrompt.Draw(pulled ? "F  의자 넣기" : "F  의자 빼기");
     }
 
     // 의자 조작에 사용한 F가 근처 문까지 열지 않도록 막는다.

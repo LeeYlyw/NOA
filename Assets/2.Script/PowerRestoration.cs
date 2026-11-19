@@ -9,7 +9,7 @@ public class PowerRestoration : MonoBehaviour
     readonly int[] owners = new int[3];
     readonly bool[] repaired = new bool[3];
     GUIStyle label;
-    VitalsHUDStyle vitals;
+
     int repairObject = -1, repairSequence, repairProgress, inputFrame = -1;
     float repairStart, repairTarget, repairWindow = 0.16f, repairDuration = 2.4f;
     bool waitingForRepair;
@@ -65,6 +65,8 @@ public class PowerRestoration : MonoBehaviour
     }
 
     public bool IsComplete => repaired[0] && repaired[1] && repaired[2];
+    public int RepairedCount => (repaired[0] ? 1 : 0) + (repaired[1] ? 1 : 0) + (repaired[2] ? 1 : 0);
+    public int LocalHeldFuses => NetworkClient.Instance != null ? HeldFuses(NetworkClient.Instance.playerId) : 0;
 
     void Awake() { Instance = this; }
     void OnDestroy() { if (Instance == this) Instance = null; }
@@ -215,31 +217,22 @@ public class PowerRestoration : MonoBehaviour
         if (network == null || !network.GameStarted || network.localPlayerTransform == null) return;
         if (ClueManager.instance != null && ClueManager.instance.IsEnding) return;
         if (label == null) label = new GUIStyle(GUI.skin.label) { fontSize = 20, normal = { textColor = Color.white } };
-        int count = 0, held = HeldFuses(network.playerId);
-        for (int i = 0; i < 3; i++) if (repaired[i]) count++;
-        if (vitals == null) vitals = network.localPlayerTransform.GetComponentInChildren<VitalsHUDStyle>();
-        if (vitals == null) vitals = FindFirstObjectByType<VitalsHUDStyle>();
-        Vector2 origin = new Vector2(30, 156);
-        if (vitals != null && vitals.TryGetScreenBottom(out Vector2 bottomLeft))
-            origin = bottomLeft + new Vector2(0, 12);
-        float width = Mathf.Max(1, Screen.width - origin.x - 20);
+        int held = HeldFuses(network.playerId);
         label.wordWrap = true;
-        string progress = $"전원 복구 {count}/3  |  보유 퓨즈 {held}";
-        float height = label.CalcHeight(new GUIContent(progress), width);
-        GUI.Label(new Rect(origin.x, origin.y, width, height), progress, label);
+        // Shared objective HUD owns the persistent power progress.
         PlayerController player = network.localPlayerTransform.GetComponent<PlayerController>();
         if (player == null || player.IsDeadState) return;
         if (repairObject >= 0) { DrawRepair(); return; }
         if (network.offlineMode) DrawOfflineGuide(network);
         if (Time.unscaledTime < feedbackUntil)
-            GUI.Label(new Rect(origin.x, origin.y + height + 4, width, label.CalcHeight(new GUIContent(repairFeedback), width)), repairFeedback, label);
+            InteractionPrompt.Draw("", repairFeedback);
         int nearby = FindNearbyObject(network.localPlayerTransform.position);
         if (nearby >= 0 && Time.unscaledTime >= feedbackUntil)
         {
             string prompt = nearby < 3 ? "E: 퓨즈 획득" :
                 held > 0 ? "E: 차단기 수리 시작" : "차단기 복구에 퓨즈가 필요합니다";
-            float promptHeight = label.CalcHeight(new GUIContent(prompt), width);
-            GUI.Label(new Rect(origin.x, origin.y + height + 4, width, promptHeight), prompt, label);
+
+            InteractionPrompt.Draw(nearby < 3 || held > 0 ? "E" : "", prompt.Replace("E: ", ""));
         }
     }
 

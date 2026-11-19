@@ -133,6 +133,13 @@ public class DoorInteraction : MonoBehaviour
         return positiveDistance >= negativeDistance ? positive : negative;
     }
 
+    private void OnGUI()
+    {
+        if (!isNear || ItemPickupInteraction.BlocksDoorInteraction ||
+            CassetteInteraction.BlocksOtherInteraction || BarrelInteraction.BlocksOtherInteraction ||
+            BedInteraction.BlocksOtherInteraction || ChairInteraction.BlocksDoorInteraction) return;
+        InteractionPrompt.Draw("F", isOpen ? "\uBB38 \uB2EB\uAE30" : "\uBB38 \uC5F4\uAE30");
+    }
     private void OnTriggerEnter(Collider other)
     {
         if (!other.CompareTag("Player"))
@@ -145,7 +152,7 @@ public class DoorInteraction : MonoBehaviour
         nearbyPlayer = player.transform;
 
         if (interactionUI != null)
-            interactionUI.SetActive(true);
+            interactionUI.SetActive(false);
     }
 
     private void OnTriggerExit(Collider other)

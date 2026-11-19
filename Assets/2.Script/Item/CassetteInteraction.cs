@@ -108,8 +108,7 @@ public class CassetteInteraction : MonoBehaviour
     private void OnGUI()
     {
         if (ClosestCassette() != this || ItemPickupInteraction.BlocksDoorInteraction) return;
-        GUI.Box(new Rect(Screen.width * 0.5f - 85f, Screen.height * 0.5f + 70f, 170f, 36f),
-            playing ? "F  카세트 끄기" : "F  카세트 켜기");
+        InteractionPrompt.Draw(playing ? "F  카세트 끄기" : "F  카세트 켜기");
     }
 
     public static bool BlocksOtherInteraction => lastUseFrame == Time.frameCount ||

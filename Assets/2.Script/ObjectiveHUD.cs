@@ -10,6 +10,8 @@ public class ObjectiveHUD : MonoBehaviour
     Text objective;
     Text clues;
     Text puzzle;
+    Text power;
+    Image[] powerMarks;
     Text instruction;
     Image[] clueMarks;
     Image[] roundMarks;
@@ -41,24 +43,26 @@ public class ObjectiveHUD : MonoBehaviour
         scaler.referenceResolution = new Vector2(1440, 810);
         scaler.matchWidthOrHeight = 0.5f;
 
-        RectTransform panel = Rect(root.transform, "Objective panel", 28, 28, 350, 444);
+        RectTransform panel = Rect(root.transform, "Objective panel", 28, 28, 350, 454);
         objectivePanel = panel;
         panel.anchorMin = panel.anchorMax = panel.pivot = new Vector2(1, 1);
         panel.anchoredPosition = new Vector2(-28, -28);
         panel.gameObject.AddComponent<Image>().color = new Color(0.025f, 0.045f, 0.065f, 0.9f);
         panel.GetComponent<Image>().raycastTarget = false;
-        Bar(panel, "Accent", 0, 0, 4, 444, accent);
+        Bar(panel, "Accent", 0, 0, 3, 454, accent);
         Label(panel, "현재 목표  ·  [J] 수집 기록", 20, 16, 310, 23, 14, accent);
         objective = Label(panel, "", 20, 43, 310, 54, 21, Color.white);
-        clues = Label(panel, "", 20, 106, 310, 25, 18, Color.white);
-        clueMarks = Marks(panel, "Clue", 140);
-        puzzle = Label(panel, "", 20, 162, 310, 25, 18, Color.white);
-        roundMarks = Marks(panel, "Round", 196);
-        bluePad = Label(panel, "", 20, 216, 150, 24, 15, muted);
-        orangePad = Label(panel, "", 175, 216, 155, 24, 15, muted);
-        instruction = Label(panel, "", 20, 248, 310, 48, 15, muted);
-        teammateStatus = Label(panel, "", 20, 304, 310, 94, 15, Color.white);
-        roleHint = Label(panel, "", 20, 402, 310, 38, 14, muted);
+        instruction = Label(panel, "", 20, 99, 310, 54, 15, muted);
+        power = Label(panel, "", 20, 166, 310, 25, 17, Color.white);
+        powerMarks = Marks(panel, "Power", 197);
+        puzzle = Label(panel, "", 20, 212, 310, 25, 17, Color.white);
+        roundMarks = Marks(panel, "Round", 243);
+        bluePad = Label(panel, "", 20, 254, 150, 24, 14, muted);
+        orangePad = Label(panel, "", 175, 254, 155, 24, 14, muted);
+        clues = Label(panel, "", 20, 289, 310, 25, 17, Color.white);
+        clueMarks = Marks(panel, "Clue", 320);
+        teammateStatus = Label(panel, "", 20, 338, 310, 70, 14, Color.white);
+        roleHint = Label(panel, "", 20, 414, 310, 36, 14, muted);
         RectTransform timerPanel = Rect(root.transform, "Time limit", 0, 28, 174, 54);
         timerPanel.anchorMin = timerPanel.anchorMax = timerPanel.pivot = new Vector2(0.5f, 1f);
         timerPanel.anchoredPosition = new Vector2(0, -28);
@@ -96,6 +100,12 @@ public class ObjectiveHUD : MonoBehaviour
         CoopShapePuzzle lockPuzzle = CoopShapePuzzle.Instance;
         int count = Mathf.Clamp(manager.clueCount, 0, 3);
         bool solved = lockPuzzle != null && lockPuzzle.IsSolved;
+        PowerRestoration restoration = PowerRestoration.Instance;
+        bool powered = restoration == null || restoration.IsComplete;
+        int powerCount = restoration != null ? restoration.RepairedCount : 3;
+        int heldFuses = restoration != null ? restoration.LocalHeldFuses : 0;
+        power.text = restoration == null ? "전원 복구    해당 없음" : powered ? "전원 복구    완료" :
+            $"전원 복구   {powerCount}/3   ·   퓨즈 {heldFuses}";
         int completed = lockPuzzle == null ? 0 : lockPuzzle.CompletedRounds;
         int rounds = lockPuzzle == null ? 3 : lockPuzzle.TotalRounds;
         clues.text = "공유 단서    " + count + " / 3";
@@ -104,10 +114,11 @@ public class ObjectiveHUD : MonoBehaviour
         {
             clueMarks[i].color = i < count ? accent : new Color(0.17f, 0.22f, 0.27f);
             roundMarks[i].color = i < completed ? accent : new Color(0.17f, 0.22f, 0.27f);
+            powerMarks[i].color = i < powerCount ? accent : new Color(0.17f, 0.22f, 0.27f);
         }
         bool blue = lockPuzzle != null && lockPuzzle.BluePadOccupied;
         bool orange = lockPuzzle != null && lockPuzzle.OrangePadOccupied;
-        bluePad.text = solved ? "잠긴 방 개방" : "파란 발판 · " + (blue ? "준비" : "대기");
+        bluePad.text = solved ? (powered ? "기록실 개방 조건 충족" : "전원 복구 필요") : "파란 발판 · " + (blue ? "준비" : "대기");
         orangePad.text = solved ? "" : "주황 발판 · " + (orange ? "준비" : "대기");
         bluePad.color = blue || solved ? new Color(0.3f, 0.75f, 1f) : muted;
         orangePad.color = orange ? new Color(1f, 0.66f, 0.3f) : muted;
@@ -121,6 +132,12 @@ public class ObjectiveHUD : MonoBehaviour
         {
             objective.text = "모든 단서 확보";
             instruction.text = "임무 완료를 확인하고 있습니다.";
+        }
+        else if (solved && !powered)
+        {
+            objective.text = "기록실 전원을 복구하세요";
+            instruction.text = heldFuses > 0 ? "차단기에 퓨즈를 사용해 수리하세요.\n전원이 복구되면 기록실이 열립니다." :
+                "퓨즈를 찾아 차단기를 수리하세요.\n잠금 장치는 이미 해제했습니다.";
         }
         else if (solved)
         {
@@ -165,6 +182,12 @@ public class ObjectiveHUD : MonoBehaviour
         }
 
         UpdateTeamStatus(network);
+        if (!solved && !powered && !(blue && orange))
+        {
+            objective.text = "기록실을 개방하세요";
+            instruction.text = "전원 복구와 협동 잠금 해제가 필요합니다.\n" +
+                (heldFuses > 0 ? "보유한 퓨즈로 차단기를 수리할 수 있습니다." : "퓨즈를 찾고, 동료와 발판을 확인하세요.");
+        }
     }
 
     string GetLockedRoomRoute(Vector3 player, Vector3 entrance)
@@ -195,7 +218,7 @@ public class ObjectiveHUD : MonoBehaviour
     void UpdateTeamStatus(NetworkClient network)
     {
         if (network.offlineMode)
-            teammateStatus.text = "오프라인 테스트 · " + network.Role1;
+            teammateStatus.text = "오프라인 테스트";
         else
         {
             System.Text.StringBuilder team = new System.Text.StringBuilder();

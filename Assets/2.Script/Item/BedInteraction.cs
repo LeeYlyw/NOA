@@ -109,11 +109,9 @@ public class BedInteraction : MonoBehaviour
             CassetteInteraction.BlocksOtherInteraction ||
             BarrelInteraction.BlocksOtherInteraction) return;
         if (ClosestBed() == this)
-            GUI.Box(new Rect(Screen.width * 0.5f - 85f, Screen.height * 0.5f + 70f, 170f, 36f),
-                "F  침대 조사");
+            InteractionPrompt.Draw("F  침대 조사");
         else if (Time.time < feedbackUntil)
-            GUI.Box(new Rect(Screen.width * 0.5f - 85f, Screen.height * 0.5f + 70f, 170f, 36f),
-                feedback);
+            InteractionPrompt.Draw(feedback);
     }
 
     public static bool BlocksOtherInteraction => lastUseFrame == Time.frameCount ||

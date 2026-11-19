@@ -64,7 +64,7 @@ public class ItemPickupInteraction : MonoBehaviour
             if (Input.GetKey(KeyCode.F)) waitForRelease = true;
         }
 
-        visualRoot.SetActive(candidate != null);
+        visualRoot.SetActive(false);
         if (candidate == null) return;
         if (!Input.GetKey(KeyCode.F))
         {
@@ -103,6 +103,12 @@ public class ItemPickupInteraction : MonoBehaviour
             closest = item;
         }
         return closest;
+    }
+
+    void OnGUI()
+    {
+        if (focusedItem != null && focusedItem.CanInteract(localPlayer) && Cursor.lockState == CursorLockMode.Locked)
+            InteractionPrompt.Draw("F", "길게 눌러 획득", heldSeconds / HoldSeconds);
     }
 
     private void ResetCast()
