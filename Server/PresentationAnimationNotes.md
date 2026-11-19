@@ -1,5 +1,11 @@
 # 연출 보강과 팀원 모션 작업 메모
 
+## 2026-11-19 몬스터 3 애니메이션 연결 수정
+
+- `Monster 3.prefab`의 Animator가 존재하지 않는 컨트롤러 GUID를 참조하던 것을 저장소의 `Monster 3.controller`로 연결했다.
+- 컨트롤러의 `MonsterAttack` 상태가 걷기 FBX를 참조하던 것을 `Rake@attack2.FBX`로 교체하고, 정지 상태에서도 `isAttack`으로 공격 상태에 들어가도록 전환을 추가했다. 공격 후 이동 중일 때만 Run으로 돌아가게 했다. Idle/Run 기존 모션과 FBX 원본은 유지했다.
+- 멀티에서는 서버의 `S_MONSTER_STATE`에 포함된 `isWalk`, `isAttack`, `attackSequence`를 기존 `RemoteMonster`가 적용한다. 공격 번호 증가 때 `Base Layer.MonsterAttack`을 다시 시작하는 경로와 컨트롤러 상태 이름이 일치한다. 실제 두 PC에서 모션과 피해 시점의 일치는 확인이 필요하다.
+
 ## 2026-11-15 몬스터 3 연결
 
 - 친구가 연결한 Monster 3 프리팹과 Animator Controller를 그대로 사용한다. 기존 RemoteMonster의 Speed/isWalk/isAttack/Attack 및 Base Layer.MonsterAttack 연결과 이름이 일치함을 정적으로 확인했다. 모션/컨트롤러/모델 수정 없음.

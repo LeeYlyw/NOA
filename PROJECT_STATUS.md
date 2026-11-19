@@ -348,3 +348,7 @@
 - 자동 검증 완료. C++ Release 빌드와 Server/GameServer.exe 갱신, C# 컴파일 오류 0개(기존 경고 13개). Server/test_reconnect.py의 초기 맵 준비 중 복귀, 방장 종료, 잘못된/중복 토큰, 스냅샷 전 ACK 거절, 위치·아이템·은신·단서 복원, 무통신 단절/복귀, 실제 60초 만료, 전원 이탈 후 로비, 4인 방장 이탈 후 3·4번 퍼즐/클리어, 결과 복귀와 이탈자 포함 재시작 투표 검사를 통과했다. 기존 TestDedicatedMatch.ps1의 2인→4인 완주·다음 판 초기화도 통과했다.
 - Unity 배치 자동 검사. ReconnectSmoke가 실제 MapGeneration_Test 씬과 테스트 TCP 상대를 사용하여 자동 재접속, 씬/맵 재생성, 토큰, 위치·HP·인벤토리·동료 숨김·미믹 담당·남은 시간·치유 쿨다운 복원을 확인했다. 사람이 보는 Unity 화면의 움직임·연출과 실제 두 PC/네 PC 네트워크 단절 시험은 아직 미확인이다.
 - 실행 예. 서버 빌드 후 Python으로 Server/test_reconnect.py 실행. Unity 클라이언트 검사는 -batchmode -executeMethod ReconnectSmoke.Run -serverPort 17777로 실행하며 성공 시 종료 코드 0과 unity-reconnect-smoke.log의 PASS를 남긴다. 기존 TestDedicatedSession.ps1도 새 접속 거절 절차와 60초 유예에 맞췄으며, 이 스크립트 자체의 재실행은 하지 않았다.
+## 2026-11-19 몬스터 3 애니메이션 연결
+
+- 몬스터 3 프리팹의 누락된 Animator Controller 참조를 저장소의 컨트롤러로 수정했다. 공격 상태가 걷기 클립을 쓰던 연결을 공격 클립으로 바꾸고, Idle에서도 공격으로 전환되게 했다.
+- 멀티의 서버 상태/공격 번호 수신과 `RemoteMonster` 재생 경로는 기존 구현을 사용한다. 정적 참조 검사와 `git diff --check` 통과. Unity 화면 및 실제 두 PC에서 Idle/이동/반복 공격과 은신 중 모션은 아직 확인이 필요하다.
