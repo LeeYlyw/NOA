@@ -56,7 +56,8 @@ public class BedInteraction : MonoBehaviour
         if (!Input.GetKeyDown(KeyCode.F) || lastUseFrame == Time.frameCount ||
             ItemPickupInteraction.BlocksDoorInteraction ||
             CassetteInteraction.BlocksOtherInteraction ||
-            BarrelInteraction.BlocksOtherInteraction || ClosestBed() != this) return;
+            BarrelInteraction.BlocksOtherInteraction ||
+            CabinetInteraction.BlocksOtherInteraction || ClosestBed() != this) return;
 
         lastUseFrame = Time.frameCount;
         inspected = true;
@@ -107,7 +108,8 @@ public class BedInteraction : MonoBehaviour
     {
         if (ItemPickupInteraction.BlocksDoorInteraction ||
             CassetteInteraction.BlocksOtherInteraction ||
-            BarrelInteraction.BlocksOtherInteraction) return;
+            BarrelInteraction.BlocksOtherInteraction ||
+            CabinetInteraction.BlocksOtherInteraction) return;
         if (ClosestBed() == this)
             InteractionPrompt.Draw("F  침대 조사");
         else if (Time.time < feedbackUntil)
