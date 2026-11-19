@@ -1081,6 +1081,7 @@ public class MapGenerator : MonoBehaviour
         return barrels.ToArray();
     }
 
+    // 생성된 방에서 침대의 실제 외형 범위를 찾고 상호작용과 몬스터 길찾기 영역을 설정한다.
     private BedInteraction[] CollectBedVisualBounds(GameObject room)
     {
         List<BedInteraction> beds = new List<BedInteraction>();
@@ -1097,21 +1098,25 @@ public class MapGenerator : MonoBehaviour
                 else visual.Encapsulate(renderer.bounds);
             }
             if (!found) continue;
+            // 메시 외형 범위는 몬스터 스폰 위치가 침대와 겹치는지 검사할 때도 사용한다.
             bedVisualBounds.Add(visual);
             BedInteraction interaction = child.GetComponent<BedInteraction>();
             if (interaction == null) interaction = child.gameObject.AddComponent<BedInteraction>();
             interaction.Configure(visual);
             beds.Add(interaction);
-            // The imported concave mattress collider leaves empty volume below
-            // its surface. Bake a solid footprint so patrol paths avoid it too.
+            // 침대 위에 보이지 않는 BoxCollider를 씌우면 플레이어가 매트리스로 점프할 수 없다.
+            // 충돌은 침대 원본 콜라이더에 맡기고, 이 영역만 NavMesh에서 걸을 수 없게 만든다.
             float floorY = Mathf.Min(room.transform.position.y, visual.min.y);
+            // 침대 외형의 바닥부터 윗면까지 덮는 길찾기 전용 영역이다. 물리 충돌은 없다.
             GameObject footprint = new GameObject("Runtime Bed Footprint");
             footprint.transform.SetParent(room.transform);
             footprint.transform.position = new Vector3(
                 visual.center.x, (floorY + visual.max.y) * 0.5f, visual.center.z);
-            BoxCollider obstacle = footprint.AddComponent<BoxCollider>();
+            NavMeshModifierVolume obstacle = footprint.AddComponent<NavMeshModifierVolume>();
+            obstacle.center = Vector3.zero;
             obstacle.size = new Vector3(visual.size.x,
                 Mathf.Max(0.2f, visual.max.y - floorY), visual.size.z);
+            obstacle.area = NavMesh.GetAreaFromName("Not Walkable");
         }
         return beds.ToArray();
     }

@@ -73,7 +73,7 @@ MonoBehaviour:
   m_Name:
   m_EditorClassIdentifier:
   interactionRange: 2.5
-  pullDistance: 1.8
+  pullDistance: 2.3
   moveDuration: 0.35
   desk: {fileID: 0}
   fallbackPullDirection: {x: 0, y: 0, z: -1}

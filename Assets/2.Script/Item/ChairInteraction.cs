@@ -14,7 +14,7 @@ public class ChairInteraction : MonoBehaviour
     private static ChairInteraction closestThisFrame;
 
     [Min(0.5f)] public float interactionRange = 2.5f;
-    [Min(0.3f)] public float pullDistance = 1.8f;
+    [Min(0.3f)] public float pullDistance = 2.3f;
     [Min(0.05f)] public float moveDuration = 0.35f;
     public Transform desk;
     public Vector3 fallbackPullDirection = Vector3.back;
