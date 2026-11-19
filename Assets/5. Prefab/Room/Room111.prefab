@@ -2012,6 +2012,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 451dbb348b55b71498b2a6ea798bbd58, type: 3}
       insertIndex: -1
       addedObject: {fileID: 4401572502204393588}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 451dbb348b55b71498b2a6ea798bbd58, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 6973116452143541701}
   m_SourcePrefab: {fileID: 100100000, guid: 451dbb348b55b71498b2a6ea798bbd58, type: 3}
 --- !u!4 &6254582595344688367 stripped
 Transform:
@@ -2035,19 +2038,19 @@ AudioSource:
   OutputAudioMixerGroup: {fileID: 0}
   m_audioClip: {fileID: 8300000, guid: 8ba5413b67593704dafa29c8120584aa, type: 3}
   m_Resource: {fileID: 8300000, guid: 8ba5413b67593704dafa29c8120584aa, type: 3}
-  m_PlayOnAwake: 1
-  m_Volume: 0.2
+  m_PlayOnAwake: 0
+  m_Volume: 0.8
   m_Pitch: 1
   Loop: 1
   Mute: 0
   Spatialize: 0
   SpatializePostEffects: 0
   Priority: 128
-  DopplerLevel: 1
-  MinDistance: 1
-  MaxDistance: 500
+  DopplerLevel: 0
+  MinDistance: 3
+  MaxDistance: 18
   Pan2D: 0
-  rolloffMode: 0
+  rolloffMode: 1
   BypassEffects: 0
   BypassListenerEffects: 0
   BypassReverbZones: 0
@@ -2120,6 +2123,22 @@ AudioSource:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+--- !u!114 &6973116452143541701
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6739475316951760469}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1f86ad3eb7c94a8b82375983dc2471fb, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  interactionRange: 2.5
+  rewardAfterSeconds: 3
+  rewardDistance: 0.9
+  playbackVolume: 0.8
 --- !u!1001 &5912913633234817602
 PrefabInstance:
   m_ObjectHideFlags: 0

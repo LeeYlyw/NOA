@@ -62,6 +62,12 @@ public class MapGenerator : MonoBehaviour
     private readonly List<Bounds> bedVisualBounds = new List<Bounds>();
     private readonly List<GameObject> spawnedEntities = new List<GameObject>();
     private readonly List<DoorInteraction> spawnedDoors = new List<DoorInteraction>();
+    // 실제 배치된 방의 의자를 모아 오프라인 숨겨진 아이템 대상을 고른다.
+    private readonly List<ChairInteraction> spawnedChairs = new List<ChairInteraction>();
+    private readonly List<CassetteInteraction> spawnedCassettes = new List<CassetteInteraction>();
+    // 각 방의 드럼통을 따로 보관해 방마다 보상 하나만 배치한다.
+    private readonly List<BarrelInteraction[]> barrelRooms = new List<BarrelInteraction[]>();
+    private readonly List<BedInteraction[]> bedRooms = new List<BedInteraction[]>();
     private Transform roomsRoot;
     private Transform wallsRoot;
     private Transform gameplayRoot;
@@ -127,6 +133,11 @@ public class MapGenerator : MonoBehaviour
             spawnedWalls.Clear();
             bedVisualBounds.Clear();
             spawnedDoors.Clear();
+            // 맵 생성 재시도 시 이전 배치의 의자 목록을 버린다.
+            spawnedChairs.Clear();
+            spawnedCassettes.Clear();
+            barrelRooms.Clear();
+            bedRooms.Clear();
             hasPuzzleRoom = false;
 
             if (!PlaceRooms()) { roomFailures++; continue; }
@@ -186,7 +197,8 @@ public class MapGenerator : MonoBehaviour
         if (network != null) network.RegisterDoors(spawnedDoors.ToArray());
         string navigationMask = network != null && !network.offlineMode && network.IsConnected
             ? BuildServerNavigationMask() : null;
-        if (!SpawnEntities())
+        // 확정된 맵 시드로 의자와 숨겨진 아이템을 같은 방식으로 선택한다.
+        if (!SpawnEntities(selectedSeed))
         {
             ReportGenerationFailure("Required map entities could not be spawned");
             return;
@@ -527,8 +539,11 @@ public class MapGenerator : MonoBehaviour
                     }
                     GameObject roomInstance = Instantiate(room.prefab, new Vector3(posX, 0, posZ),
                                                           Quaternion.identity, roomsRoot);
-                    CollectBedVisualBounds(roomInstance);
+                    BedInteraction[] roomBeds = CollectBedVisualBounds(roomInstance);
+                    if (roomBeds.Length > 0) bedRooms.Add(roomBeds);
                     EnsureBarrelCollision(roomInstance);
+                    BarrelInteraction[] roomBarrels = CollectRoomBarrels(roomInstance);
+                    if (roomBarrels.Length > 0) barrelRooms.Add(roomBarrels);
                     foreach (MimicLaptop mimic in roomInstance.GetComponentsInChildren<MimicLaptop>(true))
                         mimic.SetNetworkId(nextMimicId++);
                     foreach (DoorInteraction door in roomInstance.GetComponentsInChildren<DoorInteraction>(true))
@@ -536,6 +551,9 @@ public class MapGenerator : MonoBehaviour
                         door.SetNetworkId(nextDoorId++);
                         spawnedDoors.Add(door);
                     }
+                    // 공용 의자 프리팹에 붙은 상호작용 컴포넌트를 방마다 수집한다.
+                    spawnedChairs.AddRange(roomInstance.GetComponentsInChildren<ChairInteraction>(true));
+                    spawnedCassettes.AddRange(roomInstance.GetComponentsInChildren<CassetteInteraction>(true));
 
                     placed = true;
                     centralRoomPlaced = true;
@@ -1039,8 +1057,26 @@ public class MapGenerator : MonoBehaviour
         }
     }
 
-    private void CollectBedVisualBounds(GameObject room)
+    private static BarrelInteraction[] CollectRoomBarrels(GameObject room)
     {
+        List<BarrelInteraction> barrels = new List<BarrelInteraction>();
+        foreach (Transform node in room.GetComponentsInChildren<Transform>(true))
+        {
+            if (node.name.IndexOf("barrel", System.StringComparison.OrdinalIgnoreCase) < 0 ||
+                (node.parent != null &&
+                 node.parent.name.IndexOf("barrel", System.StringComparison.OrdinalIgnoreCase) >= 0) ||
+                node.GetComponentInChildren<MeshFilter>(true) == null) continue;
+
+            BarrelInteraction interaction = node.GetComponent<BarrelInteraction>();
+            if (interaction == null) interaction = node.gameObject.AddComponent<BarrelInteraction>();
+            barrels.Add(interaction);
+        }
+        return barrels.ToArray();
+    }
+
+    private BedInteraction[] CollectBedVisualBounds(GameObject room)
+    {
+        List<BedInteraction> beds = new List<BedInteraction>();
         foreach (Transform child in room.GetComponentsInChildren<Transform>(true))
         {
             if (!child.name.StartsWith("Cama", System.StringComparison.OrdinalIgnoreCase)) continue;
@@ -1055,6 +1091,10 @@ public class MapGenerator : MonoBehaviour
             }
             if (!found) continue;
             bedVisualBounds.Add(visual);
+            BedInteraction interaction = child.GetComponent<BedInteraction>();
+            if (interaction == null) interaction = child.gameObject.AddComponent<BedInteraction>();
+            interaction.Configure(visual);
+            beds.Add(interaction);
             // The imported concave mattress collider leaves empty volume below
             // its surface. Bake a solid footprint so patrol paths avoid it too.
             float floorY = Mathf.Min(room.transform.position.y, visual.min.y);
@@ -1066,6 +1106,7 @@ public class MapGenerator : MonoBehaviour
             obstacle.size = new Vector3(visual.size.x,
                 Mathf.Max(0.2f, visual.max.y - floorY), visual.size.z);
         }
+        return beds.ToArray();
     }
 
     bool NeedsCorridorWall(int cx, int cz, int nx, int nz)
@@ -1212,7 +1253,7 @@ public class MapGenerator : MonoBehaviour
         return !Physics.CheckCapsule(bottom, top, radius, ~0, QueryTriggerInteraction.Ignore);
     }
 
-    bool SpawnEntities()
+    bool SpawnEntities(int generationSeed)
     {
         if (validSpawnPoints.Count < 4)
         {
@@ -1394,6 +1435,158 @@ public class MapGenerator : MonoBehaviour
                     spawnedPotions.Add(potion);
                 }
             }
+        }
+
+        // 서버에는 추가 아이템 ID가 등록되지 않으므로 현재는 오프라인에서만 생성한다.
+        NetworkClient currentNetwork = NetworkClient.Instance;
+        if (currentNetwork != null && currentNetwork.offlineMode && spawnedChairs.Count > 0)
+        {
+            // 부활 아이템은 제외하고, 단서 3개는 고정 퀘스트 아이템으로 유지한다.
+            List<GameObject> hiddenItemPrefabs = ordinaryItemPrefabs.FindAll(prefab =>
+            {
+                PotionItem item = prefab != null ? prefab.GetComponent<PotionItem>() : null;
+                return item != null && item.itemData != null &&
+                    item.itemData.type != ItemData.ItemType.Resurrection &&
+                    item.itemData.type != ItemData.ItemType.Clue;
+            });
+            if (hiddenItemPrefabs.Count > 0)
+            {
+                List<ChairInteraction> candidates = new List<ChairInteraction>(spawnedChairs);
+                // 별도 시드 난수로 섞어 기존 일반 아이템 드롭 순서를 바꾸지 않는다.
+                System.Random chairRandom = new System.Random(generationSeed ^ 0x4A17B);
+                for (int i = candidates.Count - 1; i > 0; i--)
+                {
+                    int swap = chairRandom.Next(i + 1);
+                    ChairInteraction other = candidates[i];
+                    candidates[i] = candidates[swap];
+                    candidates[swap] = other;
+                }
+                for (int i = hiddenItemPrefabs.Count - 1; i > 0; i--)
+                {
+                    int swap = chairRandom.Next(i + 1);
+                    GameObject other = hiddenItemPrefabs[i];
+                    hiddenItemPrefabs[i] = hiddenItemPrefabs[swap];
+                    hiddenItemPrefabs[swap] = other;
+                }
+                // 의자 약 3분의 1을 고르고 가능한 아이템 종류를 순환 배치한다.
+                int hiddenCount = (candidates.Count + 1) / 3;
+                for (int i = 0; i < hiddenCount; i++)
+                {
+                    ChairInteraction chair = candidates[i];
+                    GameObject itemObject = Instantiate(hiddenItemPrefabs[i % hiddenItemPrefabs.Count],
+                        chair.HiddenItemPosition,
+                        Quaternion.identity, itemsRoot);
+                    PotionItem pickup = itemObject.GetComponent<PotionItem>();
+                    if (pickup == null) { DisposeGeneratedObject(itemObject); continue; }
+                    // 일반 아이템 및 전원 퀘스트 ID와 겹치지 않도록 1000부터 부여한다.
+                    pickup.itemId = 1000 + i;
+                    chair.SetHiddenItem(itemObject);
+                    spawnedEntities.Add(itemObject);
+                    spawnedPotions.Add(pickup);
+                }
+            }
+            else Debug.LogWarning("[MapGenerator] No eligible item prefab for chair discoveries.");
+        }
+
+        // 카세트 보상도 서버 아이템 목록에 없으므로 오프라인에서만 만든다.
+        if (currentNetwork != null && currentNetwork.offlineMode && spawnedCassettes.Count > 0)
+        {
+            GameObject resurrectionPrefab = ordinaryItemPrefabs.Find(prefab =>
+            {
+                PotionItem item = prefab != null ? prefab.GetComponent<PotionItem>() : null;
+                return item != null && item.itemData != null &&
+                    item.itemData.type == ItemData.ItemType.Resurrection;
+            });
+            if (resurrectionPrefab != null)
+            {
+                for (int i = 0; i < spawnedCassettes.Count; i++)
+                {
+                    CassetteInteraction cassette = spawnedCassettes[i];
+                    GameObject reward = Instantiate(resurrectionPrefab, cassette.transform.position,
+                        Quaternion.identity, itemsRoot);
+                    PotionItem pickup = reward.GetComponent<PotionItem>();
+                    if (pickup == null) { DisposeGeneratedObject(reward); continue; }
+                    pickup.itemId = 2000 + i; // 일반 아이템과 의자 보상 ID를 피한다.
+                    cassette.SetReward(reward);
+                    spawnedEntities.Add(reward);
+                    spawnedPotions.Add(pickup);
+                }
+            }
+            else Debug.LogWarning("[MapGenerator] No resurrection prefab for cassette rewards.");
+        }
+
+        // 드럼통 세 개가 있는 방도 보상은 방마다 하나만 준다. 나머지 드럼통은 비어 있다.
+        if (currentNetwork != null && currentNetwork.offlineMode && barrelRooms.Count > 0)
+        {
+            List<GameObject> barrelItemPrefabs = ordinaryItemPrefabs.FindAll(prefab =>
+            {
+                PotionItem item = prefab != null ? prefab.GetComponent<PotionItem>() : null;
+                return item != null && item.itemData != null &&
+                    item.itemData.type != ItemData.ItemType.Resurrection &&
+                    item.itemData.type != ItemData.ItemType.Clue;
+            });
+            if (barrelItemPrefabs.Count > 0)
+            {
+                System.Random barrelRandom = new System.Random(generationSeed ^ 0x7B493);
+                for (int i = barrelItemPrefabs.Count - 1; i > 0; i--)
+                {
+                    int swap = barrelRandom.Next(i + 1);
+                    GameObject other = barrelItemPrefabs[i];
+                    barrelItemPrefabs[i] = barrelItemPrefabs[swap];
+                    barrelItemPrefabs[swap] = other;
+                }
+                for (int i = 0; i < barrelRooms.Count; i++)
+                {
+                    BarrelInteraction[] barrels = barrelRooms[i];
+                    BarrelInteraction selected = barrels[barrelRandom.Next(barrels.Length)];
+                    GameObject reward = Instantiate(barrelItemPrefabs[i % barrelItemPrefabs.Count],
+                        selected.transform.position, Quaternion.identity, itemsRoot);
+                    PotionItem pickup = reward.GetComponent<PotionItem>();
+                    if (pickup == null) { DisposeGeneratedObject(reward); continue; }
+                    pickup.itemId = 3000 + i; // 일반·의자·카세트 아이템 ID와 구분한다.
+                    selected.SetReward(reward);
+                    spawnedEntities.Add(reward);
+                    spawnedPotions.Add(pickup);
+                }
+            }
+            else Debug.LogWarning("[MapGenerator] No eligible item prefab for barrel rewards.");
+        }
+
+        // 드럼통과 동일하게 침대가 있는 방마다 침대 하나에만 일반 아이템을 숨긴다.
+        if (currentNetwork != null && currentNetwork.offlineMode && bedRooms.Count > 0)
+        {
+            List<GameObject> bedItemPrefabs = ordinaryItemPrefabs.FindAll(prefab =>
+            {
+                PotionItem item = prefab != null ? prefab.GetComponent<PotionItem>() : null;
+                return item != null && item.itemData != null &&
+                    item.itemData.type != ItemData.ItemType.Resurrection &&
+                    item.itemData.type != ItemData.ItemType.Clue;
+            });
+            if (bedItemPrefabs.Count > 0)
+            {
+                System.Random bedRandom = new System.Random(generationSeed ^ 0xBED49);
+                for (int i = bedItemPrefabs.Count - 1; i > 0; i--)
+                {
+                    int swap = bedRandom.Next(i + 1);
+                    GameObject other = bedItemPrefabs[i];
+                    bedItemPrefabs[i] = bedItemPrefabs[swap];
+                    bedItemPrefabs[swap] = other;
+                }
+                for (int i = 0; i < bedRooms.Count; i++)
+                {
+                    BedInteraction[] beds = bedRooms[i];
+                    BedInteraction selected = beds[bedRandom.Next(beds.Length)];
+                    GameObject reward = Instantiate(bedItemPrefabs[i % bedItemPrefabs.Count],
+                        selected.transform.position, Quaternion.identity, itemsRoot);
+                    PotionItem pickup = reward.GetComponent<PotionItem>();
+                    if (pickup == null) { DisposeGeneratedObject(reward); continue; }
+                    pickup.itemId = 4000 + i; // 다른 보상 아이템 ID와 구분한다.
+                    selected.SetReward(reward);
+                    spawnedEntities.Add(reward);
+                    spawnedPotions.Add(pickup);
+                }
+            }
+            else Debug.LogWarning("[MapGenerator] No eligible item prefab for bed rewards.");
         }
 
         if (NetworkClient.Instance != null)
