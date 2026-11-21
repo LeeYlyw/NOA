@@ -3,7 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-// 의자 상호작용은 현재 로컬에서만 처리한다. 서버 동기화는 아직 연결하지 않았다.
+// 온라인에서는 서버가 의자의 당김/복귀를 확정한다.
 [DisallowMultipleComponent]
 public class ChairInteraction : MonoBehaviour
 {
@@ -18,10 +18,13 @@ public class ChairInteraction : MonoBehaviour
     [Min(0.05f)] public float moveDuration = 0.35f;
     public Transform desk;
     public Vector3 fallbackPullDirection = Vector3.back;
+    public int NetworkId { get; set; }
+    public int RewardId => hiddenItem != null ? hiddenItem.GetComponent<PotionItem>()?.itemId ?? 0 : 0;
 
     private Vector3 homeLocalPosition;
     private Vector3 pulledLocalPosition;
     private bool pulled;
+    private bool revealPending;
     private Coroutine movement;
     private GameObject hiddenItem;
 
@@ -71,7 +74,19 @@ public class ChairInteraction : MonoBehaviour
             BedInteraction.BlocksOtherInteraction || ClosestChair() != this) return;
 
         lastUseFrame = Time.frameCount;
-        pulled = !pulled;
+        NetworkClient network = NetworkClient.Instance;
+        if (network != null && !network.offlineMode)
+        {
+            network.SendPropUse("Chair", NetworkId);
+            return;
+        }
+        ApplyServerState(!pulled, !pulled);
+    }
+
+    public void ApplyServerState(bool isPulled, bool revealed)
+    {
+        pulled = isPulled;
+        revealPending |= revealed;
         if (movement != null) StopCoroutine(movement);
         movement = StartCoroutine(MoveTo(pulled ? pulledLocalPosition : homeLocalPosition));
     }
@@ -90,11 +105,13 @@ public class ChairInteraction : MonoBehaviour
         transform.localPosition = target;
         movement = null;
         // 의자가 완전히 빠진 뒤 아이템을 공개한다. 다시 넣어도 숨기지 않는다.
-        if (pulled && hiddenItem != null)
-        {
+        if (revealPending) RevealHiddenItem();
+    }
+
+    private void RevealHiddenItem()
+    {
+        if (hiddenItem != null && !hiddenItem.GetComponent<PotionItem>().IsPicked)
             hiddenItem.SetActive(true);
-            hiddenItem = null;
-        }
     }
 
     public void SetHiddenItem(GameObject item)

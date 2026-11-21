@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
-// 카세트와 보상은 현재 오프라인에서만 처리한다. 서버 동기화는 아직 연결하지 않았다.
+// 온라인에서는 서버가 재생과 보상 공개 시점을 확정한다.
 [RequireComponent(typeof(AudioSource))]
 [DisallowMultipleComponent]
 public class CassetteInteraction : MonoBehaviour
@@ -16,6 +16,8 @@ public class CassetteInteraction : MonoBehaviour
     [Min(0.1f)] public float rewardAfterSeconds = 3f;
     [Min(0.3f)] public float rewardDistance = 0.9f;
     [Range(0f, 1f)] public float playbackVolume = 0.8f;
+    public int NetworkId { get; set; }
+    public int RewardId => reward != null ? reward.GetComponent<PotionItem>()?.itemId ?? 0 : 0;
 
     private AudioSource speaker;
     private GameObject reward;
@@ -54,7 +56,12 @@ public class CassetteInteraction : MonoBehaviour
     public void SetReward(GameObject item)
     {
         reward = item;
-        if (reward != null) reward.SetActive(false);
+        if (reward != null)
+        {
+            NetworkClient network = NetworkClient.Instance;
+            if (network != null && !network.offlineMode) PositionReward(false);
+            reward.SetActive(false);
+        }
     }
 
     private void Update()
@@ -63,11 +70,33 @@ public class CassetteInteraction : MonoBehaviour
             !ItemPickupInteraction.BlocksDoorInteraction && ClosestCassette() == this)
         {
             lastUseFrame = Time.frameCount;
-            playing = !playing;
+            NetworkClient network = NetworkClient.Instance;
+            if (network != null && !network.offlineMode)
+            {
+                network.SendPropUse("Cassette", NetworkId);
+                return;
+            }
+            ApplyServerState(!playing, false);
+        }
+
+        if (NetworkClient.Instance != null && !NetworkClient.Instance.offlineMode) return;
+        if (!playing || reward == null || !speaker.isPlaying) return;
+        playedSeconds += Time.deltaTime;
+        if (playedSeconds < rewardAfterSeconds) return;
+
+        // 끄지 않고 3초간 재생했을 때만 한 번 공개한다.
+        if (!reward.GetComponent<PotionItem>().IsPicked) reward.SetActive(true);
+    }
+
+    public void ApplyServerState(bool isPlaying, bool revealed)
+    {
+        if (playing != isPlaying)
+        {
+            playing = isPlaying;
             if (playing)
             {
-                // 모델 축 대신 조작한 플레이어 쪽을 앞면으로 잡는다.
-                PositionRewardTowardPlayer();
+                if (NetworkClient.Instance == null || NetworkClient.Instance.offlineMode)
+                    PositionReward(true);
                 if (speaker.clip != null) speaker.Play();
             }
             else
@@ -76,21 +105,16 @@ public class CassetteInteraction : MonoBehaviour
                 playedSeconds = 0f;
             }
         }
-
-        if (!playing || reward == null || !speaker.isPlaying) return;
-        playedSeconds += Time.deltaTime;
-        if (playedSeconds < rewardAfterSeconds) return;
-
-        // 끄지 않고 3초간 재생했을 때만 한 번 공개한다.
-        reward.SetActive(true);
-        reward = null;
+        if (revealed && reward != null && !reward.GetComponent<PotionItem>().IsPicked)
+            reward.SetActive(true);
     }
 
-    private void PositionRewardTowardPlayer()
+    private void PositionReward(bool towardPlayer)
     {
         if (reward == null) return;
-        Transform player = NetworkClient.Instance.localPlayerTransform;
-        Vector3 direction = player.position - transform.position;
+        Transform player = NetworkClient.Instance != null ? NetworkClient.Instance.localPlayerTransform : null;
+        Vector3 direction = towardPlayer && player != null
+            ? player.position - transform.position : transform.forward;
         direction.y = 0f;
         if (direction.sqrMagnitude < 0.01f) direction = transform.parent != null
             ? transform.parent.forward : Vector3.forward;
@@ -121,7 +145,8 @@ public class CassetteInteraction : MonoBehaviour
         closestThisFrame = null;
 
         NetworkClient network = NetworkClient.Instance;
-        if (network == null || !network.offlineMode || network.localPlayerTransform == null ||
+        if (network == null || network.localPlayerTransform == null ||
+            (!network.offlineMode && (!network.GameStarted || !network.IsConnected)) ||
             Cursor.lockState != CursorLockMode.Locked ||
             (ClueManager.instance != null && ClueManager.instance.IsEnding)) return null;
         Transform player = network.localPlayerTransform;

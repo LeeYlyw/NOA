@@ -62,7 +62,7 @@ public class MapGenerator : MonoBehaviour
     private readonly List<Bounds> bedVisualBounds = new List<Bounds>();
     private readonly List<GameObject> spawnedEntities = new List<GameObject>();
     private readonly List<DoorInteraction> spawnedDoors = new List<DoorInteraction>();
-    // 실제 배치된 방의 의자를 모아 오프라인 숨겨진 아이템 대상을 고른다.
+    // 실제 배치된 방의 상호작용 물체와 숨겨진 아이템을 같은 시드로 고른다.
     private readonly List<ChairInteraction> spawnedChairs = new List<ChairInteraction>();
     private readonly List<CassetteInteraction> spawnedCassettes = new List<CassetteInteraction>();
     // 각 방의 드럼통을 따로 보관해 방마다 보상 하나만 배치한다.
@@ -1437,9 +1437,20 @@ public class MapGenerator : MonoBehaviour
             }
         }
 
-        // 서버에는 추가 아이템 ID가 등록되지 않으므로 현재는 오프라인에서만 생성한다.
+        for (int i = 0; i < spawnedChairs.Count; i++) spawnedChairs[i].NetworkId = i + 1;
+        for (int i = 0; i < spawnedCassettes.Count; i++) spawnedCassettes[i].NetworkId = i + 1;
+        List<BarrelInteraction> allBarrels = new List<BarrelInteraction>();
+        foreach (BarrelInteraction[] roomBarrels in barrelRooms) allBarrels.AddRange(roomBarrels);
+        for (int i = 0; i < allBarrels.Count; i++) allBarrels[i].NetworkId = i + 1;
+        List<BedInteraction> allBeds = new List<BedInteraction>();
+        foreach (BedInteraction[] roomBeds in bedRooms) allBeds.AddRange(roomBeds);
+        for (int i = 0; i < allBeds.Count; i++) allBeds[i].NetworkId = i + 1;
+        if (NetworkClient.Instance != null)
+            NetworkClient.Instance.RegisterProps(spawnedChairs.ToArray(), spawnedCassettes.ToArray(),
+                allBarrels.ToArray(), allBeds.ToArray());
+
         NetworkClient currentNetwork = NetworkClient.Instance;
-        if (currentNetwork != null && currentNetwork.offlineMode && spawnedChairs.Count > 0)
+        if (currentNetwork != null && spawnedChairs.Count > 0)
         {
             // 부활 아이템은 제외하고, 단서 3개는 고정 퀘스트 아이템으로 유지한다.
             List<GameObject> hiddenItemPrefabs = ordinaryItemPrefabs.FindAll(prefab =>
@@ -1488,8 +1499,7 @@ public class MapGenerator : MonoBehaviour
             else Debug.LogWarning("[MapGenerator] No eligible item prefab for chair discoveries.");
         }
 
-        // 카세트 보상도 서버 아이템 목록에 없으므로 오프라인에서만 만든다.
-        if (currentNetwork != null && currentNetwork.offlineMode && spawnedCassettes.Count > 0)
+        if (currentNetwork != null && spawnedCassettes.Count > 0)
         {
             GameObject resurrectionPrefab = ordinaryItemPrefabs.Find(prefab =>
             {
@@ -1516,7 +1526,7 @@ public class MapGenerator : MonoBehaviour
         }
 
         // 드럼통 세 개가 있는 방도 보상은 방마다 하나만 준다. 나머지 드럼통은 비어 있다.
-        if (currentNetwork != null && currentNetwork.offlineMode && barrelRooms.Count > 0)
+        if (currentNetwork != null && barrelRooms.Count > 0)
         {
             List<GameObject> barrelItemPrefabs = ordinaryItemPrefabs.FindAll(prefab =>
             {
@@ -1553,7 +1563,7 @@ public class MapGenerator : MonoBehaviour
         }
 
         // 드럼통과 동일하게 침대가 있는 방마다 침대 하나에만 일반 아이템을 숨긴다.
-        if (currentNetwork != null && currentNetwork.offlineMode && bedRooms.Count > 0)
+        if (currentNetwork != null && bedRooms.Count > 0)
         {
             List<GameObject> bedItemPrefabs = ordinaryItemPrefabs.FindAll(prefab =>
             {

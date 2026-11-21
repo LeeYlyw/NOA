@@ -47,6 +47,10 @@ public class NetworkClient : MonoBehaviour
     [Header("Item Sync")]
     public PotionItem[] potionItems;
     private DoorInteraction[] networkDoors = Array.Empty<DoorInteraction>();
+    private ChairInteraction[] networkChairs = Array.Empty<ChairInteraction>();
+    private CassetteInteraction[] networkCassettes = Array.Empty<CassetteInteraction>();
+    private BarrelInteraction[] networkBarrels = Array.Empty<BarrelInteraction>();
+    private BedInteraction[] networkBeds = Array.Empty<BedInteraction>();
 
     private MonsterNetworkSetup[] monsterSetups;
     private TcpClient client;
@@ -452,6 +456,15 @@ public class NetworkClient : MonoBehaviour
                 SendMessageToServer(itemPacket, "Navigation item upload failed");
             }
 
+        foreach (ChairInteraction prop in networkChairs)
+            if (prop != null) SendNavigationProp("Chair", prop.NetworkId, prop.RewardId, prop.transform.position);
+        foreach (CassetteInteraction prop in networkCassettes)
+            if (prop != null) SendNavigationProp("Cassette", prop.NetworkId, prop.RewardId, prop.transform.position);
+        foreach (BarrelInteraction prop in networkBarrels)
+            if (prop != null) SendNavigationProp("Barrel", prop.NetworkId, prop.RewardId, prop.transform.position);
+        foreach (BedInteraction prop in networkBeds)
+            if (prop != null) SendNavigationProp("Bed", prop.NetworkId, prop.RewardId, prop.InteractionAnchor);
+
         if (PowerRestoration.Instance != null)
             for (int i = 0; i < 6; i++)
             {
@@ -492,6 +505,29 @@ public class NetworkClient : MonoBehaviour
     public void RegisterDoors(DoorInteraction[] doors)
     {
         networkDoors = doors ?? Array.Empty<DoorInteraction>();
+    }
+
+    public void RegisterProps(ChairInteraction[] chairs, CassetteInteraction[] cassettes,
+        BarrelInteraction[] barrels, BedInteraction[] beds)
+    {
+        networkChairs = chairs ?? Array.Empty<ChairInteraction>();
+        networkCassettes = cassettes ?? Array.Empty<CassetteInteraction>();
+        networkBarrels = barrels ?? Array.Empty<BarrelInteraction>();
+        networkBeds = beds ?? Array.Empty<BedInteraction>();
+    }
+
+    private void SendNavigationProp(string kind, int id, int rewardId, Vector3 anchor)
+    {
+        SendMessageToServer(string.Format(CultureInfo.InvariantCulture,
+            "C_NAV_PROP|{0}|{1}|{2}|{3}|{4:F2}|{5:F2}|{6:F2}\n",
+            playerId, kind, id, rewardId, anchor.x, anchor.y, anchor.z),
+            "Navigation prop upload failed");
+    }
+
+    public void SendPropUse(string kind, int id)
+    {
+        if (offlineMode || restoringSession || !isConnected || !GameStarted || id <= 0) return;
+        SendMessageToServer($"C_PROP_USE|{playerId}|{kind}|{id}\n", "Prop interaction failed");
     }
 
     public void SendDoorToggle(int doorId, int openingDirection)
@@ -825,6 +861,7 @@ public class NetworkClient : MonoBehaviour
             case "S_PLAYER_HP": ProcessPlayerHpPacket(parts); break;
             case "S_PLAYER_HEAL_RESULT": ProcessPlayerHealResultPacket(parts); break;
             case "S_ITEM_PICKUP": ProcessItemPickupPacket(parts); break;
+            case "S_PROP_STATE": ProcessPropStatePacket(parts); break;
             case "S_ITEM_USED": ProcessItemUsedPacket(parts); break;
             case "S_ITEM_USE_DENIED": ProcessItemUseDeniedPacket(parts); break;
             case "S_DOOR_STATE": ProcessDoorStatePacket(parts); break;
@@ -1070,6 +1107,34 @@ public class NetworkClient : MonoBehaviour
                     return;
                 }
             }
+        }
+    }
+
+    void ProcessPropStatePacket(string[] parts)
+    {
+        if (parts.Length != 5 || !int.TryParse(parts[2], out int id) ||
+            !int.TryParse(parts[3], out int active) || !int.TryParse(parts[4], out int revealed)) return;
+        if (parts[1] == "Chair")
+        {
+            foreach (ChairInteraction prop in networkChairs)
+                if (prop != null && prop.NetworkId == id)
+                    { prop.ApplyServerState(active != 0, revealed != 0); break; }
+        }
+        else if (parts[1] == "Cassette")
+        {
+            foreach (CassetteInteraction prop in networkCassettes)
+                if (prop != null && prop.NetworkId == id)
+                    { prop.ApplyServerState(active != 0, revealed != 0); break; }
+        }
+        else if (parts[1] == "Barrel" && active != 0)
+        {
+            foreach (BarrelInteraction prop in networkBarrels)
+                if (prop != null && prop.NetworkId == id) { prop.ApplyServerState(); break; }
+        }
+        else if (parts[1] == "Bed" && active != 0)
+        {
+            foreach (BedInteraction prop in networkBeds)
+                if (prop != null && prop.NetworkId == id) { prop.ApplyServerState(); break; }
         }
     }
 

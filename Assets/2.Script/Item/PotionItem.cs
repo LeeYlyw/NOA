@@ -5,6 +5,7 @@ public class PotionItem : MonoBehaviour
     [Header("Network")]
     public int itemId = 1;
     private bool isPicked = false;
+    public bool IsPicked => isPicked;
     private bool isRequestingPickup = false;
     private InventoryManager requestingInventory;
     private float nextPickupAttemptAt;

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// 드럼통 조사는 현재 오프라인에서만 처리한다. 한 드럼통은 한 번만 조사한다.
+// 온라인 조사는 서버 확정 상태를 따른다. 한 드럼통은 한 번만 조사한다.
 [DisallowMultipleComponent]
 public class BarrelInteraction : MonoBehaviour
 {
@@ -12,6 +12,8 @@ public class BarrelInteraction : MonoBehaviour
 
     [Min(0.5f)] public float interactionRange = 2.5f;
     [Min(0f)] public float rewardTopGap = 0.08f;
+    public int NetworkId { get; set; }
+    public int RewardId => reward != null ? reward.GetComponent<PotionItem>()?.itemId ?? 0 : 0;
 
     private GameObject reward;
     private float rewardBottomOffset;
@@ -42,6 +44,7 @@ public class BarrelInteraction : MonoBehaviour
             bottom = Mathf.Min(bottom, renderer.bounds.min.y);
         rewardBottomOffset = float.IsPositiveInfinity(bottom)
             ? 0f : reward.transform.position.y - bottom;
+        PositionRewardOnTop();
         reward.SetActive(false);
     }
 
@@ -52,13 +55,24 @@ public class BarrelInteraction : MonoBehaviour
             CassetteInteraction.BlocksOtherInteraction || ClosestBarrel() != this) return;
 
         lastUseFrame = Time.frameCount;
+        NetworkClient network = NetworkClient.Instance;
+        if (network != null && !network.offlineMode)
+        {
+            network.SendPropUse("Barrel", NetworkId);
+            return;
+        }
+        ApplyServerState();
+    }
+
+    public void ApplyServerState()
+    {
+        if (inspected) return;
         inspected = true;
         closestFrame = -1;
         if (reward != null)
         {
             PositionRewardOnTop();
-            reward.SetActive(true);
-            reward = null;
+            if (!reward.GetComponent<PotionItem>().IsPicked) reward.SetActive(true);
             feedback = "아이템 발견";
         }
         else feedback = "비어 있음";
@@ -88,7 +102,8 @@ public class BarrelInteraction : MonoBehaviour
             top + rewardTopGap + rewardBottomOffset, barrelBounds.center.z);
 
         // 아이템은 위에 보이되, 플레이어가 드럼통 옆에서 F 홀드로 주울 수 있게 한다.
-        SphereCollider reach = reward.AddComponent<SphereCollider>();
+        SphereCollider reach = reward.GetComponent<SphereCollider>();
+        if (reach == null) reach = reward.AddComponent<SphereCollider>();
         reach.isTrigger = true;
         Vector3 reachCenter = new Vector3(barrelBounds.center.x, top - 0.9f,
             barrelBounds.center.z);
@@ -120,7 +135,8 @@ public class BarrelInteraction : MonoBehaviour
         closestThisFrame = null;
 
         NetworkClient network = NetworkClient.Instance;
-        if (network == null || !network.offlineMode || network.localPlayerTransform == null ||
+        if (network == null || network.localPlayerTransform == null ||
+            (!network.offlineMode && (!network.GameStarted || !network.IsConnected)) ||
             Cursor.lockState != CursorLockMode.Locked ||
             (ClueManager.instance != null && ClueManager.instance.IsEnding)) return null;
         Transform player = network.localPlayerTransform;

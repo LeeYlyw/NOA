@@ -31,6 +31,21 @@ struct ItemSpawn
     Vec3 position;
 };
 
+struct PropSpawn
+{
+    std::string kind;
+    int id = 0;
+    int rewardId = 0;
+    Vec3 position;
+};
+
+struct PropState
+{
+    bool active = false;
+    bool revealed = false;
+    double startedAt = 0.0;
+};
+
 #include "ServerNavigation.h"
 
 struct NavigationUpload
@@ -44,6 +59,7 @@ struct NavigationUpload
     std::string mask;
     std::map<int, Vec3> doors;
     std::map<int, ItemSpawn> items;
+    std::map<std::string, PropSpawn> props;
     Vec3 pads[3];
     bool hasPad[3] = {};
     Vec3 monsterSpawns[3];
@@ -68,6 +84,8 @@ static bool savedPosition[MaxPlayers + 1] = {};
 static constexpr double ReconnectSeconds = 60.0;
 static NavigationUpload navigationUploads[MaxPlayers + 1];
 static std::map<int, ItemSpawn> trustedItemSpawns;
+static std::map<std::string, PropSpawn> trustedPropSpawns;
+static std::map<std::string, PropState> propStates;
 static int fuseOwner[3] = {};
 static bool breakerRepaired[3] = {};
 static bool powerQuestEnabled = false;
@@ -159,6 +177,8 @@ void ResetSession()
     navigation = ServerNavigation{};
     matchPlayerCount = 0;
     trustedItemSpawns.clear();
+    trustedPropSpawns.clear();
+    propStates.clear();
     std::fill(std::begin(fuseOwner), std::end(fuseOwner), 0);
     std::fill(std::begin(breakerRepaired), std::end(breakerRepaired), false);
     powerQuestEnabled = false;
@@ -1025,12 +1045,24 @@ void ProcessItemPickupPacket(
     };
 
     auto trusted = trustedItemSpawns.find(itemId);
+    bool hiddenRewardReady = true;
+    if (itemId >= 1000 && itemId < 5000)
+    {
+        hiddenRewardReady = false;
+        for (const auto& prop : trustedPropSpawns)
+            if (prop.second.rewardId == itemId && propStates[prop.first].revealed)
+            {
+                hiddenRewardReady = true;
+                break;
+            }
+    }
     if (parts[0] == "ITEM_PICKUP" && trusted != trustedItemSpawns.end())
         itemType = StringToItemType(trusted->second.type);
-    if (!navigation.ready || trusted == trustedItemSpawns.end() ||
+    if (!navigation.ready || !hiddenRewardReady || trusted == trustedItemSpawns.end() ||
         trusted->second.type != ItemTypeToString(itemType) ||
         !players[playerId].hasState || players[playerId].isDead ||
-        Distance2D(players[playerId].position, trusted->second.position) > 2.0f ||
+        Distance2D(players[playerId].position, trusted->second.position) >
+            (itemId >= 1000 ? 3.0f : 2.0f) ||
         std::fabs(players[playerId].position.y - trusted->second.position.y) > 2.5f ||
         (itemId == 3 && (!puzzleSolved || !PowerRestored())))
     {
@@ -1208,12 +1240,36 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
         return;
     }
 
+    if (parts[0] == "C_NAV_PROP")
+    {
+        PropSpawn prop;
+        if (parts.size() != 8 || !upload.begun || upload.complete ||
+            upload.props.size() >= 512 || !TryParseInt(parts[3], prop.id) ||
+            !TryParseInt(parts[4], prop.rewardId) || prop.id < 1 || prop.id > 512 ||
+            !TryParseFloat(parts[5], prop.position.x) ||
+            !TryParseFloat(parts[6], prop.position.y) ||
+            !TryParseFloat(parts[7], prop.position.z) ||
+            !std::isfinite(prop.position.x) || !std::isfinite(prop.position.y) ||
+            !std::isfinite(prop.position.z) ||
+            std::fabs(prop.position.x - upload.originX) > upload.width * upload.step ||
+            std::fabs(prop.position.z - upload.originZ) > upload.height * upload.step)
+            return;
+        prop.kind = parts[2];
+        int rewardBase = prop.kind == "Chair" ? 1000 : prop.kind == "Cassette" ? 2000 :
+            prop.kind == "Barrel" ? 3000 : prop.kind == "Bed" ? 4000 : 0;
+        if (rewardBase == 0 || (prop.rewardId != 0 &&
+            (prop.rewardId < rewardBase || prop.rewardId >= rewardBase + 1000))) return;
+        upload.props.emplace(prop.kind + ":" + std::to_string(prop.id), prop);
+        return;
+    }
+
     if (parts[0] == "C_NAV_ITEM")
     {
         int itemId = 0;
         ItemSpawn spawn;
         if (parts.size() != 7 || !upload.begun || upload.complete ||
-            !TryParseInt(parts[2], itemId) || itemId < 1 || itemId > 256 ||
+            !TryParseInt(parts[2], itemId) || itemId < 1 ||
+            !(itemId <= 256 || (itemId >= 1000 && itemId < 5000)) ||
             (itemId <= 3 && parts[3] != "Clue") ||
             (itemId > 3 && parts[3] == "Clue") ||
             (StringToItemType(parts[3]) == ItemType::Unknown &&
@@ -1246,7 +1302,8 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
         const NavigationUpload& other = navigationUploads[id];
         if (source.header != other.header || source.mask != other.mask ||
             source.doors.size() != other.doors.size() ||
-            source.items.size() != other.items.size()) layoutsMatch = false;
+            source.items.size() != other.items.size() ||
+            source.props.size() != other.props.size()) layoutsMatch = false;
         for (const auto& entry : source.doors)
         {
             auto found = other.doors.find(entry.first);
@@ -1272,6 +1329,16 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
                 std::fabs(entry.second.position.z - found->second.position.z) > 0.05f)
                 layoutsMatch = false;
         }
+        for (const auto& entry : source.props)
+        {
+            auto found = other.props.find(entry.first);
+            if (found == other.props.end() ||
+                entry.second.rewardId != found->second.rewardId ||
+                std::fabs(entry.second.position.x - found->second.position.x) > 0.05f ||
+                std::fabs(entry.second.position.y - found->second.position.y) > 0.05f ||
+                std::fabs(entry.second.position.z - found->second.position.z) > 0.05f)
+                layoutsMatch = false;
+        }
     }
     for (int clueId = 1; clueId <= 3; ++clueId)
     {
@@ -1279,6 +1346,17 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
         if (clue == source.items.end() || clue->second.type != "Clue")
             layoutsMatch = false;
     }
+    std::map<int, int> rewardLinks;
+    for (const auto& entry : source.props)
+        if (entry.second.rewardId != 0)
+        {
+            if (++rewardLinks[entry.second.rewardId] != 1 ||
+                source.items.count(entry.second.rewardId) == 0 ||
+                source.items.at(entry.second.rewardId).type == "Clue") layoutsMatch = false;
+        }
+    for (const auto& entry : source.items)
+        if (entry.first >= 1000 && entry.first < 5000 && rewardLinks[entry.first] != 1)
+            layoutsMatch = false;
     if (!layoutsMatch)
     {
         navigationFailed = true;
@@ -1288,6 +1366,9 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
     }
 
     trustedItemSpawns = source.items;
+    trustedPropSpawns = source.props;
+    propStates.clear();
+    for (const auto& entry : source.props) propStates.emplace(entry.first, PropState{});
     powerQuestEnabled = source.items.count(240) != 0;
     if (powerQuestEnabled)
         for (int id = 240; id <= 245; ++id)
@@ -1427,6 +1508,42 @@ void ProcessClientPacket(
     if (StartsWith(type, "C_NAV_"))
     {
         ProcessNavigationPacket(parts, senderPlayerId, clientSocket1, clientSocket2, monsters);
+        return;
+    }
+    if (type == "C_PROP_USE")
+    {
+        int playerId = 0, propId = 0;
+        if (parts.size() != 4 || !navigation.ready ||
+            !TryParseInt(parts[1], playerId) || playerId != senderPlayerId ||
+            !TryParseInt(parts[3], propId) || propId < 1 || propId > 512) return;
+        const std::string key = parts[2] + ":" + std::to_string(propId);
+        auto found = trustedPropSpawns.find(key);
+        if (found == trustedPropSpawns.end()) return;
+        const PlayerState& player = players[playerId];
+        if (!player.hasState || player.isDead || restoring[playerId] ||
+            Distance2D(player.position, found->second.position) >
+                (found->second.kind == "Chair" ? 4.5f : 3.5f) ||
+            std::fabs(player.position.y - found->second.position.y) > 3.5f) return;
+        PropState& state = propStates[key];
+        if (found->second.kind == "Barrel" || found->second.kind == "Bed")
+        {
+            if (state.active) return;
+            state.active = true;
+            state.revealed = found->second.rewardId != 0;
+        }
+        else if (found->second.kind == "Chair")
+        {
+            state.active = !state.active;
+            if (state.active && found->second.rewardId != 0) state.revealed = true;
+        }
+        else if (found->second.kind == "Cassette")
+        {
+            state.active = !state.active;
+            state.startedAt = state.active ? GetTimeSeconds() : 0.0;
+        }
+        BroadcastPacket(clientSocket1, clientSocket2,
+            "S_PROP_STATE|" + found->second.kind + "|" + std::to_string(propId) + "|" +
+            std::to_string(state.active) + "|" + std::to_string(state.revealed));
         return;
     }
     if (type == "C_REPAIR_CANCEL")
@@ -2304,6 +2421,13 @@ int main()
             SendPacket(socket, "S_CONNECTION|" + std::to_string(id) + "|" +
                 std::to_string(matchSockets[id]!=INVALID_SOCKET && (!restoring[id] || id==recipient)));
         }
+        for (const auto& entry : trustedPropSpawns) {
+            const PropState& state = propStates.at(entry.first);
+            if (state.active || state.revealed)
+                SendPacket(socket, "S_PROP_STATE|" + entry.second.kind + "|" +
+                    std::to_string(entry.second.id) + "|" +
+                    std::to_string(state.active) + "|" + std::to_string(state.revealed));
+        }
         for (const auto& entry : items) {
             const auto& item = entry.second;
             if (item.isPicked) SendPacket(socket, "S_SNAPSHOT_ITEM|" + std::to_string(item.itemId) + "|" +
@@ -2399,6 +2523,15 @@ int main()
         // Check the deadline before reading pickups, so a late third clue cannot win.
         if (matchResult == 0 && navigation.ready && matchStartedAt > 0.0)
         {
+            for (const auto& entry : trustedPropSpawns)
+            {
+                PropState& state = propStates[entry.first];
+                if (entry.second.kind != "Cassette" || !state.active || state.revealed ||
+                    entry.second.rewardId == 0 || GetTimeSeconds() - state.startedAt < 3.0) continue;
+                state.revealed = true;
+                BroadcastPacket(clientSocket1, clientSocket2,
+                    "S_PROP_STATE|Cassette|" + std::to_string(entry.second.id) + "|1|1");
+            }
             int secondsLeft = std::max(0, static_cast<int>(std::ceil(
                 MatchDurationSeconds - (GetTimeSeconds() - matchStartedAt))));
             if (secondsLeft != lastTimeLeftBroadcast)

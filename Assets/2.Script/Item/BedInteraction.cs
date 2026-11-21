@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// 침대 조사는 현재 오프라인 전용이다. 드럼통처럼 방마다 침대 하나만 보상을 가진다.
+// 온라인 조사는 서버 확정 상태를 따른다. 드럼통처럼 방마다 침대 하나만 보상을 가진다.
 [DisallowMultipleComponent]
 public class BedInteraction : MonoBehaviour
 {
@@ -12,6 +12,9 @@ public class BedInteraction : MonoBehaviour
 
     [Min(0.5f)] public float interactionRange = 2.5f;
     [Min(0f)] public float rewardTopGap = 0.08f;
+    public int NetworkId { get; set; }
+    public int RewardId => reward != null ? reward.GetComponent<PotionItem>()?.itemId ?? 0 : 0;
+    public Vector3 InteractionAnchor => hasVisualBounds ? visualBounds.center : transform.position;
 
     private Bounds visualBounds;
     private bool hasVisualBounds;
@@ -48,6 +51,7 @@ public class BedInteraction : MonoBehaviour
             bottom = Mathf.Min(bottom, renderer.bounds.min.y);
         rewardBottomOffset = float.IsPositiveInfinity(bottom)
             ? 0f : reward.transform.position.y - bottom;
+        PositionRewardOnMattress();
         reward.SetActive(false);
     }
 
@@ -59,13 +63,24 @@ public class BedInteraction : MonoBehaviour
             BarrelInteraction.BlocksOtherInteraction || ClosestBed() != this) return;
 
         lastUseFrame = Time.frameCount;
+        NetworkClient network = NetworkClient.Instance;
+        if (network != null && !network.offlineMode)
+        {
+            network.SendPropUse("Bed", NetworkId);
+            return;
+        }
+        ApplyServerState();
+    }
+
+    public void ApplyServerState()
+    {
+        if (inspected) return;
         inspected = true;
         closestFrame = -1;
         if (reward != null)
         {
             PositionRewardOnMattress();
-            reward.SetActive(true);
-            reward = null;
+            if (!reward.GetComponent<PotionItem>().IsPicked) reward.SetActive(true);
             feedback = "아이템 발견";
         }
         else feedback = "비어 있음";
@@ -94,7 +109,8 @@ public class BedInteraction : MonoBehaviour
             surfaceY + rewardTopGap + rewardBottomOffset, center.z);
 
         // 아이템은 매트리스 위에 보이고, 플레이어는 침대 옆에서 F 홀드로 획득한다.
-        SphereCollider reach = reward.AddComponent<SphereCollider>();
+        SphereCollider reach = reward.GetComponent<SphereCollider>();
+        if (reach == null) reach = reward.AddComponent<SphereCollider>();
         reach.isTrigger = true;
         Vector3 reachCenter = new Vector3(center.x, surfaceY - 0.3f, center.z);
         reach.center = reward.transform.InverseTransformPoint(reachCenter);
@@ -126,7 +142,8 @@ public class BedInteraction : MonoBehaviour
         closestThisFrame = null;
 
         NetworkClient network = NetworkClient.Instance;
-        if (network == null || !network.offlineMode || network.localPlayerTransform == null ||
+        if (network == null || network.localPlayerTransform == null ||
+            (!network.offlineMode && (!network.GameStarted || !network.IsConnected)) ||
             Cursor.lockState != CursorLockMode.Locked ||
             (ClueManager.instance != null && ClueManager.instance.IsEnding)) return null;
         Transform player = network.localPlayerTransform;
