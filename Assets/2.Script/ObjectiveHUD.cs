@@ -20,6 +20,7 @@ public class ObjectiveHUD : MonoBehaviour
     Text teammateStatus;
     Text roleHint;
     Text timer;
+    int displayedSeconds = -1;
     Font font;
     NavMeshPath roomPath;
     float nextRoomRouteUpdate;
@@ -93,9 +94,15 @@ public class ObjectiveHUD : MonoBehaviour
 
         int secondsLeft = network.offlineMode ? manager.OfflineSecondsLeft :
             network.SecondsLeft < 0 ? 600 : network.DisplaySecondsLeft;
-        timer.text = "남은 시간  " + (secondsLeft / 60).ToString("00") + ":" +
-            (secondsLeft % 60).ToString("00");
-        timer.color = secondsLeft <= 60 ? new Color(1f, 0.45f, 0.38f) : Color.white;
+        if (secondsLeft != displayedSeconds)
+        {
+            displayedSeconds = secondsLeft;
+            timer.text = "남은 시간  " + (secondsLeft / 60).ToString("00") + ":" +
+                (secondsLeft % 60).ToString("00");
+            timer.color = secondsLeft <= 60 ? new Color(1f, 0.45f, 0.38f) : Color.white;
+            timer.SetAllDirty();
+            Canvas.ForceUpdateCanvases();
+        }
 
         CoopShapePuzzle lockPuzzle = CoopShapePuzzle.Instance;
         int count = Mathf.Clamp(manager.clueCount, 0, 3);
