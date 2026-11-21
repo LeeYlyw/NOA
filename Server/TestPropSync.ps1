@@ -101,6 +101,15 @@ try {
     $null = Wait-Packet $peers[0] '^S_ITEM_PICKUP_DENIED\|4000$'
     Send-Packet $peers[0] 'C_PROP_USE|1|Barrel|1'
     foreach ($peer in $peers) { $null = Wait-Packet $peer '^S_PROP_STATE\|Barrel\|1\|1\|1$' }
+    Send-Packet $peers[1] 'MOVE|2|1|0|1|0|0|0|0|1|0'
+    Send-Packet $peers[0] 'C_ITEM_PICKUP|1|3000|Heal'
+    Send-Packet $peers[1] 'C_ITEM_PICKUP|2|3000|Heal'
+    $firstPickup = Wait-Packet $peers[0] '^S_ITEM_PICKUP\|3000\|[12]\|Heal\|'
+    $secondPickup = Wait-Packet $peers[1] '^S_ITEM_PICKUP\|3000\|[12]\|Heal\|'
+    if ($firstPickup -ne $secondPickup) { throw 'Pickup ownership differs between peers' }
+    $winner = [int]$firstPickup.Split('|')[2]
+    $loserIndex = if ($winner -eq 1) { 1 } else { 0 }
+    $null = Wait-Packet $peers[$loserIndex] '^S_ITEM_PICKUP_DENIED\|3000$'
     Send-Packet $peers[0] 'C_PROP_USE|1|Bed|1'
     foreach ($peer in $peers) { $null = Wait-Packet $peer '^S_PROP_STATE\|Bed\|1\|1\|1$' }
     Send-Packet $peers[0] 'C_ITEM_PICKUP|1|4000|Heal'

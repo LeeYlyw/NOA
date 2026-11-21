@@ -23,6 +23,7 @@ public class CassetteInteraction : MonoBehaviour
     private GameObject reward;
     private float playedSeconds;
     private bool playing;
+    private bool rewardRevealed;
 
     private void Awake()
     {
@@ -56,6 +57,7 @@ public class CassetteInteraction : MonoBehaviour
     public void SetReward(GameObject item)
     {
         reward = item;
+        rewardRevealed = false;
         if (reward != null)
         {
             NetworkClient network = NetworkClient.Instance;
@@ -80,16 +82,18 @@ public class CassetteInteraction : MonoBehaviour
         }
 
         if (NetworkClient.Instance != null && !NetworkClient.Instance.offlineMode) return;
-        if (!playing || reward == null || !speaker.isPlaying) return;
+        if (!playing || reward == null || rewardRevealed || !speaker.isPlaying) return;
         playedSeconds += Time.deltaTime;
         if (playedSeconds < rewardAfterSeconds) return;
 
         // 끄지 않고 3초간 재생했을 때만 한 번 공개한다.
+        rewardRevealed = true;
         if (!reward.GetComponent<PotionItem>().IsPicked) reward.SetActive(true);
     }
 
     public void ApplyServerState(bool isPlaying, bool revealed)
     {
+        rewardRevealed |= revealed;
         if (playing != isPlaying)
         {
             playing = isPlaying;
@@ -111,7 +115,7 @@ public class CassetteInteraction : MonoBehaviour
 
     private void PositionReward(bool towardPlayer)
     {
-        if (reward == null) return;
+        if (reward == null || rewardRevealed) return;
         Transform player = NetworkClient.Instance != null ? NetworkClient.Instance.localPlayerTransform : null;
         Vector3 direction = towardPlayer && player != null
             ? player.position - transform.position : transform.forward;
