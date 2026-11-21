@@ -15,7 +15,7 @@ public static class InteractionPrompt
         Matrix4x4 matrix = GUI.matrix;
         Color color = GUI.color;
         // E power actions can coexist with an F interaction; reserve a second row.
-        float row = key == "E" || (key.Length == 0 && PowerRestoration.Instance != null && PowerRestoration.Instance.UsesInteraction) ? 132 : 78;
+        float row = key == "E" || (key.Length == 0 && PowerRestoration.Instance != null && PowerRestoration.Instance.UsesInteraction) ? 146 : 78;
         GUI.matrix = Matrix4x4.TRS(new Vector3(Screen.width / 2f, Screen.height / 2f + row * scale, 0),
             Quaternion.identity, new Vector3(scale, scale, 1));
         GUI.color = new Color(0.025f, 0.045f, 0.065f, 0.9f);

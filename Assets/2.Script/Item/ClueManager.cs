@@ -529,7 +529,7 @@ public class ClueManager : MonoBehaviour
             resultButtonStyle = new GUIStyle(GUI.skin.button) { font = evidenceFont };
         }
         if (!isEnding && Time.unscaledTime < cluePickupNoticeUntil && !string.IsNullOrEmpty(cluePickupNotice))
-            GUI.Box(new Rect((Screen.width - 480f) / 2f, 28f, 480f, 54f), cluePickupNotice, resultBoxStyle);
+            GUI.Box(new Rect((Screen.width - 480f) / 2f, 102f, 480f, 54f), cluePickupNotice, resultBoxStyle);
         if (!isEnding || (victoryCanvas != null && victoryCanvas.enabled)) return;
         NetworkClient network = NetworkClient.Instance;
         Rect panel = new Rect((Screen.width - 460f) / 2f, Screen.height - 225f, 460f, 210f);

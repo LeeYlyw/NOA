@@ -864,7 +864,7 @@ public class NetworkClient : MonoBehaviour
                 font = Font.CreateDynamicFontFromOSFont("Malgun Gothic", 16),
                 fontSize = 16, wordWrap = true
             };
-        GUI.Box(new Rect(20, 70, Mathf.Min(480, Screen.width - 40), 56), ConnectionStatus, connectionNoticeStyle);
+        GUI.Box(new Rect(20, 164, Mathf.Min(480, Screen.width - 40), 56), ConnectionStatus, connectionNoticeStyle);
     }
 
     System.Collections.IEnumerator RequestSnapshot()
