@@ -65,7 +65,7 @@ public class DoorInteraction : MonoBehaviour
     private void Update()
     {
         // Item pickup and chair movement take priority over the door on the F key.
-        if (!isNear || !Input.GetKeyDown(KeyCode.F) || ItemPickupInteraction.BlocksDoorInteraction || CassetteInteraction.BlocksOtherInteraction || BarrelInteraction.BlocksOtherInteraction || BedInteraction.BlocksOtherInteraction || ChairInteraction.BlocksDoorInteraction)
+        if (!isNear || !Input.GetKeyDown(KeyCode.F) || ItemPickupInteraction.BlocksDoorInteraction || CassetteInteraction.BlocksOtherInteraction || BarrelInteraction.BlocksOtherInteraction || BedInteraction.BlocksOtherInteraction || ChairInteraction.BlocksDoorInteraction || CabinetInteraction.BlocksOtherInteraction)
             return;
 
         int direction = 1;
@@ -137,7 +137,7 @@ public class DoorInteraction : MonoBehaviour
     {
         if (!isNear || ItemPickupInteraction.BlocksDoorInteraction ||
             CassetteInteraction.BlocksOtherInteraction || BarrelInteraction.BlocksOtherInteraction ||
-            BedInteraction.BlocksOtherInteraction || ChairInteraction.BlocksDoorInteraction) return;
+            BedInteraction.BlocksOtherInteraction || ChairInteraction.BlocksDoorInteraction || CabinetInteraction.BlocksOtherInteraction) return;
         InteractionPrompt.Draw("F", isOpen ? "\uBB38 \uB2EB\uAE30" : "\uBB38 \uC5F4\uAE30");
     }
     private void OnTriggerEnter(Collider other)

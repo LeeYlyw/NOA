@@ -69,7 +69,8 @@ public class CassetteInteraction : MonoBehaviour
     private void Update()
     {
         if (Input.GetKeyDown(KeyCode.F) && lastUseFrame != Time.frameCount &&
-            !ItemPickupInteraction.BlocksDoorInteraction && ClosestCassette() == this)
+            !ItemPickupInteraction.BlocksDoorInteraction &&
+            !CabinetInteraction.BlocksOtherInteraction && ClosestCassette() == this)
         {
             lastUseFrame = Time.frameCount;
             NetworkClient network = NetworkClient.Instance;
@@ -135,7 +136,8 @@ public class CassetteInteraction : MonoBehaviour
 
     private void OnGUI()
     {
-        if (ClosestCassette() != this || ItemPickupInteraction.BlocksDoorInteraction) return;
+        if (ClosestCassette() != this || ItemPickupInteraction.BlocksDoorInteraction ||
+            CabinetInteraction.BlocksOtherInteraction) return;
         InteractionPrompt.Draw(playing ? "F  카세트 끄기" : "F  카세트 켜기");
     }
 

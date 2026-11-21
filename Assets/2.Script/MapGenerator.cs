@@ -68,6 +68,8 @@ public class MapGenerator : MonoBehaviour
     // 각 방의 드럼통을 따로 보관해 방마다 보상 하나만 배치한다.
     private readonly List<BarrelInteraction[]> barrelRooms = new List<BarrelInteraction[]>();
     private readonly List<BedInteraction[]> bedRooms = new List<BedInteraction[]>();
+    // 방별 캐비닛을 묶어 두고, 보상은 각 방에서 하나에만 넣는다.
+    private readonly List<CabinetInteraction[]> cabinetRooms = new List<CabinetInteraction[]>();
     private Transform roomsRoot;
     private Transform wallsRoot;
     private Transform gameplayRoot;
@@ -138,6 +140,8 @@ public class MapGenerator : MonoBehaviour
             spawnedCassettes.Clear();
             barrelRooms.Clear();
             bedRooms.Clear();
+            // 맵 생성에 실패해 재시도할 때 이전 방의 캐비닛 참조가 남지 않게 한다.
+            cabinetRooms.Clear();
             hasPuzzleRoom = false;
 
             if (!PlaceRooms()) { roomFailures++; continue; }
@@ -544,6 +548,9 @@ public class MapGenerator : MonoBehaviour
                     EnsureBarrelCollision(roomInstance);
                     BarrelInteraction[] roomBarrels = CollectRoomBarrels(roomInstance);
                     if (roomBarrels.Length > 0) barrelRooms.Add(roomBarrels);
+                    // 실제로 배치된 방의 캐비닛만 모아 아이템 배치 대상으로 사용한다.
+                    CabinetInteraction[] roomCabinets = roomInstance.GetComponentsInChildren<CabinetInteraction>(true);
+                    if (roomCabinets.Length > 0) cabinetRooms.Add(roomCabinets);
                     foreach (MimicLaptop mimic in roomInstance.GetComponentsInChildren<MimicLaptop>(true))
                         mimic.SetNetworkId(nextMimicId++);
                     foreach (DoorInteraction door in roomInstance.GetComponentsInChildren<DoorInteraction>(true))
@@ -1074,6 +1081,7 @@ public class MapGenerator : MonoBehaviour
         return barrels.ToArray();
     }
 
+    // 생성된 방에서 침대의 실제 외형 범위를 찾고 상호작용과 몬스터 길찾기 영역을 설정한다.
     private BedInteraction[] CollectBedVisualBounds(GameObject room)
     {
         List<BedInteraction> beds = new List<BedInteraction>();
@@ -1090,21 +1098,25 @@ public class MapGenerator : MonoBehaviour
                 else visual.Encapsulate(renderer.bounds);
             }
             if (!found) continue;
+            // 메시 외형 범위는 몬스터 스폰 위치가 침대와 겹치는지 검사할 때도 사용한다.
             bedVisualBounds.Add(visual);
             BedInteraction interaction = child.GetComponent<BedInteraction>();
             if (interaction == null) interaction = child.gameObject.AddComponent<BedInteraction>();
             interaction.Configure(visual);
             beds.Add(interaction);
-            // The imported concave mattress collider leaves empty volume below
-            // its surface. Bake a solid footprint so patrol paths avoid it too.
+            // 침대 위에 보이지 않는 BoxCollider를 씌우면 플레이어가 매트리스로 점프할 수 없다.
+            // 충돌은 침대 원본 콜라이더에 맡기고, 이 영역만 NavMesh에서 걸을 수 없게 만든다.
             float floorY = Mathf.Min(room.transform.position.y, visual.min.y);
+            // 침대 외형의 바닥부터 윗면까지 덮는 길찾기 전용 영역이다. 물리 충돌은 없다.
             GameObject footprint = new GameObject("Runtime Bed Footprint");
             footprint.transform.SetParent(room.transform);
             footprint.transform.position = new Vector3(
                 visual.center.x, (floorY + visual.max.y) * 0.5f, visual.center.z);
-            BoxCollider obstacle = footprint.AddComponent<BoxCollider>();
+            NavMeshModifierVolume obstacle = footprint.AddComponent<NavMeshModifierVolume>();
+            obstacle.center = Vector3.zero;
             obstacle.size = new Vector3(visual.size.x,
                 Mathf.Max(0.2f, visual.max.y - floorY), visual.size.z);
+            obstacle.area = NavMesh.GetAreaFromName("Not Walkable");
         }
         return beds.ToArray();
     }
@@ -1597,6 +1609,48 @@ public class MapGenerator : MonoBehaviour
                 }
             }
             else Debug.LogWarning("[MapGenerator] No eligible item prefab for bed rewards.");
+        }
+
+        // 서버에 캐비닛 보상 ID가 아직 등록되지 않아 오프라인에서만 생성한다.
+        if (currentNetwork != null && currentNetwork.offlineMode && cabinetRooms.Count > 0)
+        {
+            // 부활 아이템과 진행에 필요한 단서는 캐비닛의 랜덤 보상에서 제외한다.
+            List<GameObject> cabinetItems = ordinaryItemPrefabs.FindAll(prefab =>
+            {
+                PotionItem item = prefab != null ? prefab.GetComponent<PotionItem>() : null;
+                return item != null && item.itemData != null &&
+                    item.itemData.type != ItemData.ItemType.Resurrection &&
+                    item.itemData.type != ItemData.ItemType.Clue;
+            });
+            if (cabinetItems.Count > 0)
+            {
+                // 별도 시드를 사용해 기존 필드 아이템의 랜덤 배치 순서를 바꾸지 않는다.
+                System.Random cabinetRandom = new System.Random(generationSeed ^ 0x5CAB17);
+                for (int i = cabinetItems.Count - 1; i > 0; i--)
+                {
+                    int swap = cabinetRandom.Next(i + 1);
+                    GameObject other = cabinetItems[i];
+                    cabinetItems[i] = cabinetItems[swap];
+                    cabinetItems[swap] = other;
+                }
+                for (int i = 0; i < cabinetRooms.Count; i++)
+                {
+                    // 캐비닛이 여러 개여도 이 방에서는 하나만 보상을 갖는다.
+                    CabinetInteraction[] cabinets = cabinetRooms[i];
+                    CabinetInteraction selected = cabinets[cabinetRandom.Next(cabinets.Length)];
+                    GameObject reward = Instantiate(cabinetItems[i % cabinetItems.Count],
+                        selected.RewardPosition, Quaternion.identity, itemsRoot);
+                    PotionItem pickup = reward.GetComponent<PotionItem>();
+                    if (pickup == null) { DisposeGeneratedObject(reward); continue; }
+                    // 다른 아이템과 겹치지 않는 ID를 붙이고 닫힌 캐비닛 안에 숨긴다.
+                    pickup.itemId = 5000 + i;
+                    selected.SetReward(reward);
+                    // 맵 재생성과 아이템 획득 처리를 위해 일반 아이템 목록에도 보관한다.
+                    spawnedEntities.Add(reward);
+                    spawnedPotions.Add(pickup);
+                }
+            }
+            else Debug.LogWarning("[MapGenerator] No eligible item prefab for cabinet rewards.");
         }
 
         if (NetworkClient.Instance != null)

@@ -52,7 +52,8 @@ public class BarrelInteraction : MonoBehaviour
     {
         if (!Input.GetKeyDown(KeyCode.F) || lastUseFrame == Time.frameCount ||
             ItemPickupInteraction.BlocksDoorInteraction ||
-            CassetteInteraction.BlocksOtherInteraction || ClosestBarrel() != this) return;
+            CassetteInteraction.BlocksOtherInteraction ||
+            CabinetInteraction.BlocksOtherInteraction || ClosestBarrel() != this) return;
 
         lastUseFrame = Time.frameCount;
         NetworkClient network = NetworkClient.Instance;
@@ -116,7 +117,8 @@ public class BarrelInteraction : MonoBehaviour
     private void OnGUI()
     {
         if (ItemPickupInteraction.BlocksDoorInteraction ||
-            CassetteInteraction.BlocksOtherInteraction) return;
+            CassetteInteraction.BlocksOtherInteraction ||
+            CabinetInteraction.BlocksOtherInteraction) return;
         if (ClosestBarrel() == this)
             InteractionPrompt.Draw("F  드럼통 조사");
         else if (Time.time < feedbackUntil)

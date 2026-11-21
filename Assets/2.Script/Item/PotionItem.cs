@@ -1,10 +1,11 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 public class PotionItem : MonoBehaviour
 {
     [Header("Network")]
     public int itemId = 1;
     private bool isPicked = false;
+    // 캐비닛을 다시 열 때 이미 획득한 아이템이 나타나지 않도록 상태만 공개한다.
     public bool IsPicked => isPicked;
     private bool isRequestingPickup = false;
     private InventoryManager requestingInventory;
