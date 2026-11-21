@@ -7,7 +7,11 @@ public class InventoryUI : MonoBehaviour
     private bool activeInventory;
     private InventoryManager inventory;
     private Text capacity;
+    private Text remainingTime;
     private Text[] slotNames;
+    private RectTransform card;
+    private int lastScreenWidth;
+    private int lastScreenHeight;
     private Font font;
     private readonly Color ink = new Color(0.035f, 0.065f, 0.075f, 0.97f);
     private readonly Color mint = new Color(0.36f, 0.87f, 0.76f);
@@ -37,8 +41,14 @@ public class InventoryUI : MonoBehaviour
             inventoryPanel.SetActive(activeInventory);
             Cursor.lockState = activeInventory ? CursorLockMode.None : CursorLockMode.Locked;
             Cursor.visible = activeInventory;
+            if (activeInventory) RefreshLabels();
         }
-        if (activeInventory) RefreshLabels();
+        if (activeInventory)
+        {
+            UpdateCardScale();
+            RefreshLabels();
+            RefreshRemainingTime(network);
+        }
     }
 
     void BuildPresentation()
@@ -51,8 +61,8 @@ public class InventoryUI : MonoBehaviour
         if (shade != null) { shade.color = new Color(0.01f, 0.025f, 0.035f, 0.78f); shade.raycastTarget = true; }
         font = Font.CreateDynamicFontFromOSFont(new[] { "Malgun Gothic", "Apple SD Gothic Neo", "Arial" }, 20);
 
-        RectTransform card = Rect("Inventory dossier", panel, new Vector2(780, 610), Vector2.zero);
-        card.localScale = Vector3.one * Mathf.Min(1f, Screen.width / 900f, Screen.height / 700f);
+        card = Rect("Inventory dossier", panel, new Vector2(780, 610), Vector2.zero);
+        UpdateCardScale();
         Image cardImage = card.gameObject.AddComponent<Image>();
         cardImage.color = ink;
         cardImage.raycastTarget = false;
@@ -61,6 +71,8 @@ public class InventoryUI : MonoBehaviour
         Label(card, "소지품", new Vector2(0, 205), new Vector2(690, 64), 42, Color.white, TextAnchor.MiddleLeft);
         capacity = Label(card, "", new Vector2(285, 205), new Vector2(120, 48), 20, mint, TextAnchor.MiddleRight);
         Bar(card, new Vector2(0, 160), new Vector2(690, 2), new Color(0.2f, 0.36f, 0.37f));
+        remainingTime = Label(card, "남은 시간  --:--", new Vector2(235, 258), new Vector2(220, 36), 19,
+            Color.white, TextAnchor.MiddleRight);
         Label(card, "아이템을 클릭해 사용하세요", new Vector2(0, -205), new Vector2(690, 32), 19,
             new Color(0.68f, 0.79f, 0.8f), TextAnchor.MiddleLeft);
         Label(card, "TAB  닫기", new Vector2(0, -260), new Vector2(690, 32), 17, mint, TextAnchor.MiddleRight);
@@ -97,6 +109,25 @@ public class InventoryUI : MonoBehaviour
                 new Color(0.68f, 0.79f, 0.8f), TextAnchor.MiddleCenter);
         }
         RefreshLabels();
+    }
+
+    void UpdateCardScale()
+    {
+        if (card == null || (lastScreenWidth == Screen.width && lastScreenHeight == Screen.height)) return;
+        lastScreenWidth = Screen.width;
+        lastScreenHeight = Screen.height;
+        card.localScale = Vector3.one * Mathf.Min(1f, Screen.width / 900f, Screen.height / 700f);
+    }
+
+    void RefreshRemainingTime(NetworkClient network)
+    {
+        if (remainingTime == null || network == null) return;
+        ClueManager manager = ClueManager.instance;
+        int secondsLeft = network.offlineMode ? (manager != null ? manager.OfflineSecondsLeft : 600) :
+            network.SecondsLeft < 0 ? 600 : network.DisplaySecondsLeft;
+        remainingTime.text = "남은 시간  " + (secondsLeft / 60).ToString("00") + ":" +
+            (secondsLeft % 60).ToString("00");
+        remainingTime.color = secondsLeft <= 60 ? new Color(1f, 0.45f, 0.38f) : Color.white;
     }
 
     void RefreshLabels()
