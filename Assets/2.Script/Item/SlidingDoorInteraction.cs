@@ -9,6 +9,7 @@ public class SlidingDoorInteraction : MonoBehaviour
     [Min(1f)] public float interactionRange = 3f;
     [Min(0.05f)] public float slideDuration = 0.65f;
     [Min(0.1f)] public float slideDistance = 2.5f;
+    [Range(0f, 1f)] public float openingVolume = 0.9f;
     public Transform leftLeaf;
     public Transform rightLeaf;
     public Transform frame;
@@ -18,6 +19,8 @@ public class SlidingDoorInteraction : MonoBehaviour
     private Vector3 slideAxis;
     private Vector3 interactionPoint;
     private Coroutine motion;
+    private AudioSource openingAudio;
+    private AudioClip openingClip;
     private bool isOpen;
     private static int lastUseFrame = -1;
 
@@ -57,6 +60,18 @@ public class SlidingDoorInteraction : MonoBehaviour
         if (slideAxis.sqrMagnitude < 0.01f) slideAxis = frame.right;
         slideAxis.Normalize();
         interactionPoint = (leftBounds.center + rightBounds.center) * 0.5f;
+        // 두 문짝의 중앙에 3D 소리의 발음점을 둔다.
+        transform.position = interactionPoint;
+        openingClip = Resources.Load<AudioClip>("Audio/EscapeDoor_HeavySlide");
+        if (openingClip == null)
+            Debug.LogWarning("[SlidingDoor] Opening sound is missing from Resources/Audio.", this);
+        openingAudio = gameObject.AddComponent<AudioSource>();
+        openingAudio.playOnAwake = false;
+        openingAudio.spatialBlend = 1f;
+        openingAudio.rolloffMode = AudioRolloffMode.Logarithmic;
+        openingAudio.minDistance = 3f;
+        openingAudio.maxDistance = 18f;
+        openingAudio.dopplerLevel = 0f;
         EnsureSolidCollider(leftLeaf, leftBounds);
         EnsureSolidCollider(rightLeaf, rightBounds);
     }
@@ -93,7 +108,8 @@ public class SlidingDoorInteraction : MonoBehaviour
     private bool CanUse()
     {
         NetworkClient network = NetworkClient.Instance;
-        if (network == null || network.localPlayerTransform == null ||
+        // 이 탈출문은 오프라인 시험 전용이다. 온라인 승리 판정과 문 상태는 건드리지 않는다.
+        if (network == null || !network.offlineMode || network.localPlayerTransform == null ||
             (ClueManager.instance != null && ClueManager.instance.IsEnding)) return false;
         PlayerController player = network.localPlayerTransform.GetComponent<PlayerController>();
         if (player == null || player.IsDeadState) return false;
@@ -104,14 +120,24 @@ public class SlidingDoorInteraction : MonoBehaviour
 
     private void Update()
     {
-        if (!CanUse() || !Input.GetKeyDown(KeyCode.F) || lastUseFrame == Time.frameCount ||
+        // 단서를 모두 모으기 전에는 F를 눌러도 문이 움직이지 않는다.
+        if (!CanUse() || isOpen || !HasAllClues() || !Input.GetKeyDown(KeyCode.F) ||
+            lastUseFrame == Time.frameCount ||
             ItemPickupInteraction.BlocksDoorInteraction || CassetteInteraction.BlocksOtherInteraction ||
             BarrelInteraction.BlocksOtherInteraction || BedInteraction.BlocksOtherInteraction ||
             ChairInteraction.BlocksDoorInteraction || CabinetInteraction.BlocksOtherInteraction) return;
         lastUseFrame = Time.frameCount;
-        isOpen = !isOpen;
+        isOpen = true;
+        // 열림이 확정된 순간에만 묵직한 미닫이문 소리를 한 번 재생한다.
+        if (openingClip != null) openingAudio.PlayOneShot(openingClip, openingVolume);
         if (motion != null) StopCoroutine(motion);
         motion = StartCoroutine(Slide());
+    }
+
+    private static bool HasAllClues()
+    {
+        ClueManager clues = ClueManager.instance;
+        return clues != null && clues.needClueCount > 0 && clues.clueCount >= clues.needClueCount;
     }
 
     private IEnumerator Slide()
@@ -131,12 +157,17 @@ public class SlidingDoorInteraction : MonoBehaviour
         leftLeaf.position = leftTarget;
         rightLeaf.position = rightTarget;
         motion = null;
+        // 문이 실제로 다 열린 뒤 오프라인 엔딩을 보여 준다.
+        if (isOpen && ClueManager.instance != null)
+            ClueManager.instance.ShowEnding();
     }
 
     private void OnGUI()
     {
-        if (CanUse() && !ItemPickupInteraction.BlocksDoorInteraction)
-            InteractionPrompt.Draw("F", isOpen ? "미닫이문 닫기" : "미닫이문 열기");
+        if (!CanUse() || isOpen || ItemPickupInteraction.BlocksDoorInteraction) return;
+        // 부족한 동안에는 F 배지 없이 안내만 표시한다.
+        if (HasAllClues()) InteractionPrompt.Draw("F", "문 열기");
+        else InteractionPrompt.Draw("", "단서가 부족합니다");
     }
 
     public static bool BlocksOtherInteraction => lastUseFrame == Time.frameCount;
