@@ -1522,7 +1522,7 @@ void ProcessClientPacket(
         const PlayerState& player = players[playerId];
         if (!player.hasState || player.isDead || restoring[playerId] ||
             Distance2D(player.position, found->second.position) >
-                (found->second.kind == "Chair" ? 4.5f : 3.5f) ||
+                (found->second.kind == "Chair" ? 4.8f : 3.5f) ||
             std::fabs(player.position.y - found->second.position.y) > 3.5f) return;
         PropState& state = propStates[key];
         if (found->second.kind == "Barrel" || found->second.kind == "Bed")
