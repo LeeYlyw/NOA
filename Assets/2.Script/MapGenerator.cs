@@ -1612,7 +1612,10 @@ public class MapGenerator : MonoBehaviour
         }
 
         // 서버에 캐비닛 보상 ID가 아직 등록되지 않아 오프라인에서만 생성한다.
-        if (currentNetwork != null && currentNetwork.offlineMode && cabinetRooms.Count > 0)
+        int cabinetId = 0;
+        foreach (CabinetInteraction[] roomCabinets in cabinetRooms)
+            foreach (CabinetInteraction cabinet in roomCabinets) cabinet.NetworkId = ++cabinetId;
+        if (currentNetwork != null && cabinetRooms.Count > 0)
         {
             // 부활 아이템과 진행에 필요한 단서는 캐비닛의 랜덤 보상에서 제외한다.
             List<GameObject> cabinetItems = ordinaryItemPrefabs.FindAll(prefab =>

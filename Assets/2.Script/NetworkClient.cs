@@ -475,6 +475,9 @@ public class NetworkClient : MonoBehaviour
                     "Power quest upload failed");
             }
 
+        foreach (CabinetInteraction cabinet in FindObjectsOfType<CabinetInteraction>())
+            SendNavigationProp("Cabinet", cabinet.NetworkId, cabinet.RewardId, cabinet.transform.position);
+
         const int chunkSize = 1000;
         for (int offset = 0, sequence = 0; offset < edgeMask.Length; offset += chunkSize, sequence++)
             SendMessageToServer("C_NAV_CHUNK|" + playerId + "|" + sequence + "|" +
@@ -1130,6 +1133,11 @@ public class NetworkClient : MonoBehaviour
         {
             foreach (BarrelInteraction prop in networkBarrels)
                 if (prop != null && prop.NetworkId == id) { prop.ApplyServerState(); break; }
+        }
+        else if (parts[1] == "Cabinet")
+        {
+            foreach (CabinetInteraction prop in FindObjectsOfType<CabinetInteraction>())
+                if (prop.NetworkId == id) { prop.ApplyServerState(active != 0); break; }
         }
         else if (parts[1] == "Bed" && active != 0)
         {

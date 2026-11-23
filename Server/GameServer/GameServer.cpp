@@ -1046,7 +1046,7 @@ void ProcessItemPickupPacket(
 
     auto trusted = trustedItemSpawns.find(itemId);
     bool hiddenRewardReady = true;
-    if (itemId >= 1000 && itemId < 5000)
+    if (itemId >= 1000 && itemId < 6000)
     {
         hiddenRewardReady = false;
         for (const auto& prop : trustedPropSpawns)
@@ -1256,7 +1256,7 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
             return;
         prop.kind = parts[2];
         int rewardBase = prop.kind == "Chair" ? 1000 : prop.kind == "Cassette" ? 2000 :
-            prop.kind == "Barrel" ? 3000 : prop.kind == "Bed" ? 4000 : 0;
+            prop.kind == "Barrel" ? 3000 : prop.kind == "Bed" ? 4000 : prop.kind == "Cabinet" ? 5000 : 0;
         if (rewardBase == 0 || (prop.rewardId != 0 &&
             (prop.rewardId < rewardBase || prop.rewardId >= rewardBase + 1000))) return;
         upload.props.emplace(prop.kind + ":" + std::to_string(prop.id), prop);
@@ -1269,7 +1269,7 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
         ItemSpawn spawn;
         if (parts.size() != 7 || !upload.begun || upload.complete ||
             !TryParseInt(parts[2], itemId) || itemId < 1 ||
-            !(itemId <= 256 || (itemId >= 1000 && itemId < 5000)) ||
+            !(itemId <= 256 || (itemId >= 1000 && itemId < 6000)) ||
             (itemId <= 3 && parts[3] != "Clue") ||
             (itemId > 3 && parts[3] == "Clue") ||
             (StringToItemType(parts[3]) == ItemType::Unknown &&
@@ -1355,7 +1355,7 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
                 source.items.at(entry.second.rewardId).type == "Clue") layoutsMatch = false;
         }
     for (const auto& entry : source.items)
-        if (entry.first >= 1000 && entry.first < 5000 && rewardLinks[entry.first] != 1)
+        if (entry.first >= 1000 && entry.first < 6000 && rewardLinks[entry.first] != 1)
             layoutsMatch = false;
     if (!layoutsMatch)
     {
@@ -1531,10 +1531,11 @@ void ProcessClientPacket(
             state.active = true;
             state.revealed = found->second.rewardId != 0;
         }
-        else if (found->second.kind == "Chair")
+        else if (found->second.kind == "Chair" || found->second.kind == "Cabinet")
         {
             state.active = !state.active;
             if (state.active && found->second.rewardId != 0) state.revealed = true;
+            if (found->second.kind == "Cabinet") state.revealed = state.active && found->second.rewardId != 0;
         }
         else if (found->second.kind == "Cassette")
         {

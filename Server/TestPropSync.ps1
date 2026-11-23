@@ -63,13 +63,14 @@ try {
         Send-Packet $peer "C_NAV_PAD|$id|1|1|0|1"
         Send-Packet $peer "C_NAV_PAD|$id|2|3|0|1"
         for ($item = 1; $item -le 3; $item++) { Send-Packet $peer "C_NAV_ITEM|$id|$item|Clue|1|0.85|1" }
-        foreach ($reward in @(1000, 2000, 3000, 4000)) {
+        foreach ($reward in @(1000, 2000, 3000, 4000, 5000)) {
             Send-Packet $peer "C_NAV_ITEM|$id|$reward|Heal|1|0|1"
         }
         Send-Packet $peer "C_NAV_PROP|$id|Chair|1|1000|1|0|1"
         Send-Packet $peer "C_NAV_PROP|$id|Cassette|1|2000|1|0|1"
         Send-Packet $peer "C_NAV_PROP|$id|Barrel|1|3000|1|0|1"
         Send-Packet $peer "C_NAV_PROP|$id|Bed|1|4000|1|0|1"
+        Send-Packet $peer "C_NAV_PROP|$id|Cabinet|1|5000|1|0|1"
         Send-Packet $peer "C_NAV_CHUNK|$id|0|$mask"
         Send-Packet $peer "C_NAV_END|$id"
     }
@@ -77,6 +78,14 @@ try {
     Send-Packet $peers[0] 'MOVE|1|1|0|1|0|0|0|0|1|0'
     Start-Sleep -Milliseconds 200
 
+    Send-Packet $peers[0] 'C_PROP_USE|1|Cabinet|1'
+    foreach ($peer in $peers) { $null = Wait-Packet $peer '^S_PROP_STATE\|Cabinet\|1\|1\|1$' }
+    Send-Packet $peers[0] 'C_PROP_USE|1|Cabinet|1'
+    foreach ($peer in $peers) { $null = Wait-Packet $peer '^S_PROP_STATE\|Cabinet\|1\|0\|0$' }
+    Send-Packet $peers[0] 'C_ITEM_PICKUP|1|5000|Heal'
+    $null = Wait-Packet $peers[0] '^S_ITEM_PICKUP_DENIED\|5000$'
+    Send-Packet $peers[0] 'C_PROP_USE|1|Cabinet|1'
+    foreach ($peer in $peers) { $null = Wait-Packet $peer '^S_PROP_STATE\|Cabinet\|1\|1\|1$' }
     Send-Packet $peers[0] 'C_ITEM_PICKUP|1|1000|Heal'
     $null = Wait-Packet $peers[0] '^S_ITEM_PICKUP_DENIED\|1000$'
     Send-Packet $peers[0] 'C_PROP_USE|1|Chair|1'
@@ -127,6 +136,7 @@ try {
     foreach ($pattern in @(
         '^S_PROP_STATE\|Barrel\|1\|1\|1$',
         '^S_PROP_STATE\|Bed\|1\|1\|1$',
+        '^S_PROP_STATE\|Cabinet\|1\|1\|1$',
         '^S_PROP_STATE\|Cassette\|1\|1\|1$',
         '^S_PROP_STATE\|Chair\|1\|0\|1$',
         '^S_SNAPSHOT_ITEM\|1000\|1\|Heal$',

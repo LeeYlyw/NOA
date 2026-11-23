@@ -17,6 +17,8 @@ public class CabinetInteraction : MonoBehaviour
     public Transform leftHinge;
     public Transform rightHinge;
     public Transform rewardPoint;
+    public int NetworkId { get; set; }
+    public int RewardId => rewardItem != null ? rewardItem.itemId : 0;
 
     private GameObject reward;
     private PotionItem rewardItem;
@@ -67,7 +69,17 @@ public class CabinetInteraction : MonoBehaviour
             ItemPickupInteraction.BlocksDoorInteraction || ClosestCabinet() != this) return;
 
         lastUseFrame = Time.frameCount;
-        isOpen = !isOpen;
+        if (NetworkClient.Instance != null && !NetworkClient.Instance.offlineMode)
+        {
+            NetworkClient.Instance.SendPropUse("Cabinet", NetworkId);
+            return;
+        }
+        ApplyServerState(!isOpen);
+    }
+
+    public void ApplyServerState(bool opening)
+    {
+        isOpen = opening;
         closestFrame = -1;
         if (doorMotion != null) StopCoroutine(doorMotion);
         if (!isOpen && reward != null && (rewardItem == null || !rewardItem.IsPicked))
@@ -123,7 +135,8 @@ public class CabinetInteraction : MonoBehaviour
         closestFrame = Time.frameCount;
         closestThisFrame = null;
         NetworkClient network = NetworkClient.Instance;
-        if (network == null || !network.offlineMode || network.localPlayerTransform == null ||
+        if (network == null || network.localPlayerTransform == null ||
+            (!network.offlineMode && (!network.GameStarted || !network.IsConnected)) ||
             Cursor.lockState != CursorLockMode.Locked ||
             (ClueManager.instance != null && ClueManager.instance.IsEnding)) return null;
         Transform player = network.localPlayerTransform;
