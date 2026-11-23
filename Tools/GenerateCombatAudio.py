@@ -11,13 +11,13 @@ RATE = 48000
 OUTPUT = Path(__file__).resolve().parents[1] / "Assets/Resources/Audio/Combat"
 
 
-def write_wave(name, samples, directory=OUTPUT):
+def write_wave(name, samples):
     peak = max(abs(value) for value in samples)
     pcm = b"".join(
         struct.pack("<h", round(max(-1.0, min(1.0, value * 0.84 / peak)) * 32767))
         for value in samples
     )
-    with wave.open(str(directory / name), "wb") as output:
+    with wave.open(str(OUTPUT / name), "wb") as output:
         output.setnchannels(1)
         output.setsampwidth(2)
         output.setframerate(RATE)
@@ -63,43 +63,8 @@ def player_hit():
     return samples
 
 
-def player_pain(variant):
-    """A breathy, pitched nonverbal grunt with two vowel formants."""
-    rng = random.Random(4700 + variant)
-    duration = 0.43 if variant == 1 else 0.5
-    start_pitch = 173 if variant == 1 else 155
-    formant_one = 690 if variant == 1 else 580
-    formant_two = 1230 if variant == 1 else 1040
-    phase = 0.0
-    breath = 0.0
-    samples = []
-    for index in range(round(RATE * duration)):
-        t = index / RATE
-        active = max(0, t - 0.045)
-        progress = min(1, active / (duration - 0.045))
-        pitch = start_pitch * (1 - 0.34 * progress) * (1 + 0.014 * math.sin(2 * math.pi * 8.5 * t))
-        phase += 2 * math.pi * pitch / RATE
-        voiced = 0.0
-        for harmonic in range(1, 23):
-            frequency = harmonic * pitch
-            vowel = (1.35 * math.exp(-((frequency - formant_one) / 280) ** 2)
-                     + 0.8 * math.exp(-((frequency - formant_two) / 360) ** 2)
-                     + 0.2 * math.exp(-((frequency - 2450) / 520) ** 2))
-            voiced += math.sin(phase * harmonic) * vowel / harmonic**0.72
-        noise = rng.random() * 2 - 1
-        breath = 0.81 * breath + 0.19 * noise
-        envelope = min(1, active / 0.045) * (1 - progress) ** 1.6
-        inhale = breath * 0.22 * math.exp(-((t - 0.035) / 0.027) ** 2)
-        samples.append(math.tanh(voiced * 0.68) * envelope + inhale)
-    return samples
-
-
 if __name__ == "__main__":
     OUTPUT.mkdir(parents=True, exist_ok=True)
     write_wave("MonsterAttack.wav", monster_attack())
     write_wave("PlayerHit.wav", player_hit())
-    pain_output = OUTPUT / "Pain"
-    pain_output.mkdir(parents=True, exist_ok=True)
-    write_wave("PlayerPain_01.wav", player_pain(1), pain_output)
-    write_wave("PlayerPain_02.wav", player_pain(2), pain_output)
     print(f"Created combat audio in {OUTPUT}")
