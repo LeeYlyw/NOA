@@ -52,8 +52,8 @@ public static class ObjectiveHUDSmoke
                 puzzle.SetProgress(new[] { "S_PUZZLE_PROGRESS", "2", "3" });
                 refresh(); expect("동료와 도형"); expect("1 / 3");
                 puzzle.SetSolved(); refresh(); expect("남은 단서"); expect("해제 완료");
-                manager.SetClueCount(3, 3); refresh(); expect("임무 완료를 확인");
-                if (manager.IsEnding) throw new Exception("HUD completed game before server confirmation");
+                manager.SetClueCount(2, 3); manager.AddClue(); refresh(); expect("탈출문으로 가서");
+                if (manager.IsEnding) throw new Exception("Offline clues ended the game before the exit door opened");
                 manager.ShowEnding(); refresh(); expect("임무 완료");
                 Time.timeScale = 1f;
                 Text first = UnityEngine.Object.FindFirstObjectByType<Text>();

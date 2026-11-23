@@ -215,8 +215,7 @@ public class ClueManager : MonoBehaviour
 
         RefreshClueUI();
 
-        if (clueCount >= needClueCount)
-            ShowEnding();
+        // 오프라인 승리는 세 번째 단서를 얻는 순간이 아니라 탈출문이 열린 뒤 확정한다.
     }
 
     public void ShowEnding()
