@@ -63,6 +63,8 @@ public class CassetteInteraction : MonoBehaviour
             NetworkClient network = NetworkClient.Instance;
             if (network != null && !network.offlineMode) PositionReward(false);
             reward.SetActive(false);
+            if (network != null && !network.offlineMode)
+                Debug.Log($"[Cassette] Reward {RewardId} prepared at {reward.transform.position} (cassette {NetworkId}).");
         }
     }
 
@@ -94,6 +96,8 @@ public class CassetteInteraction : MonoBehaviour
 
     public void ApplyServerState(bool isPlaying, bool revealed)
     {
+        if (revealed && !rewardRevealed)
+            Debug.Log($"[Cassette] Server revealed cassette {NetworkId} (reward {RewardId}).");
         rewardRevealed |= revealed;
         if (playing != isPlaying)
         {
@@ -111,7 +115,12 @@ public class CassetteInteraction : MonoBehaviour
             }
         }
         if (revealed && reward != null && !reward.GetComponent<PotionItem>().IsPicked)
+        {
             reward.SetActive(true);
+            Debug.Log($"[Cassette] Reward {RewardId} revealed at {reward.transform.position} (cassette {NetworkId}).");
+        }
+        else if (revealed && reward == null)
+            Debug.LogError($"[Cassette] Server revealed cassette {NetworkId}, but no reward was bound.");
     }
 
     public void RestorePlayback(float elapsed)
@@ -124,8 +133,11 @@ public class CassetteInteraction : MonoBehaviour
     {
         if (reward == null || rewardRevealed) return;
         Transform player = NetworkClient.Instance != null ? NetworkClient.Instance.localPlayerTransform : null;
-        Vector3 direction = towardPlayer && player != null
-            ? player.position - transform.position : transform.forward;
+        // The imported recorder is rotated on its side. Its forward axis can point
+        // outside the room, so online rewards use the room's shared center instead.
+        Vector3 direction = transform.parent != null
+            ? transform.parent.position - transform.position : transform.forward;
+        if (towardPlayer && player != null) direction = player.position - transform.position;
         direction.y = 0f;
         if (direction.sqrMagnitude < 0.01f) direction = transform.parent != null
             ? transform.parent.forward : Vector3.forward;
