@@ -595,7 +595,10 @@ public class NetworkClient : MonoBehaviour
             if (item != null && item.itemId == itemId)
             {
                 if (!item.gameObject.activeInHierarchy) return;
+                bool wasPicked = item.IsPicked;
                 item.ApplyServerPickup(1);
+                // Offline pickup is confirmed immediately; do not replay for an already picked item.
+                if (!wasPicked && item.IsPicked) GamePresentation.Ensure().PlayPickupSound();
                 if (item.itemData != null && item.itemData.type == ItemData.ItemType.Clue && ClueManager.instance != null)
                 {
                     ClueManager.instance.RecordClue(itemId);
@@ -1114,7 +1117,12 @@ public class NetworkClient : MonoBehaviour
             {
                 if (item != null && item.itemId == itemId)
                 {
+                    bool wasPicked = item.IsPicked;
                     item.ApplyServerPickup(pickedPlayerId);
+                    // Snapshot restoration and teammates' pickups must not trigger local feedback.
+                    if (!wasPicked && item.IsPicked && parts[0] == "S_ITEM_PICKUP" &&
+                        pickedPlayerId == playerId)
+                        GamePresentation.Ensure().PlayPickupSound();
                     return;
                 }
             }

@@ -123,6 +123,12 @@ public class GamePresentation : MonoBehaviour
         if (!string.IsNullOrEmpty(sound)) speaker.PlayOneShot(Tone(sound));
     }
 
+    // Play only after the local player's pickup has actually been applied.
+    public void PlayPickupSound()
+    {
+        speaker.PlayOneShot(Tone("pickup"));
+    }
+
     void Update()
     {
         ClueManager manager = ClueManager.instance;
@@ -148,7 +154,8 @@ public class GamePresentation : MonoBehaviour
     {
         if (clips.TryGetValue(kind, out AudioClip cached)) return cached;
         const int rate = 22050;
-        float duration = kind == "solved" ? 1.05f : kind == "alert" ? 0.65f : 0.3f;
+        float duration = kind == "solved" ? 1.05f : kind == "alert" ? 0.65f :
+            kind == "pickup" ? 0.22f : 0.3f;
         float[] samples = new float[(int)(rate * duration)];
         uint noiseState = 1027;
         float filteredNoise = 0;
@@ -167,6 +174,13 @@ public class GamePresentation : MonoBehaviour
             else if (kind == "attack") wave = filteredNoise * 2f + wave * 0.2f;
             else if (kind == "alert" || kind == "search")
                 wave = (wave + Mathf.Sin(t * frequency * 3.03f * Mathf.PI)) * 0.3f + filteredNoise;
+            else if (kind == "pickup")
+            {
+                // A soft click followed by two rising notes for a quick acquisition cue.
+                float note = p < 0.48f ? 659.25f : 880f;
+                wave = Mathf.Sin(t * note * Mathf.PI * 2) * 0.7f +
+                    filteredNoise * Mathf.Exp(-t * 90f) * 0.35f;
+            }
             samples[i] = wave * envelope * 0.55f;
         }
         AudioClip clip = AudioClip.Create("Feedback " + kind, samples.Length, 1, rate, false);
