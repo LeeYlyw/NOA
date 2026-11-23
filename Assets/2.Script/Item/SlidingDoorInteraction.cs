@@ -22,6 +22,7 @@ public class SlidingDoorInteraction : MonoBehaviour
     private AudioSource openingAudio;
     private AudioClip openingClip;
     private bool isOpen;
+    public Vector3 NetworkAnchor => interactionPoint;
     private static int lastUseFrame = -1;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -108,8 +109,9 @@ public class SlidingDoorInteraction : MonoBehaviour
     private bool CanUse()
     {
         NetworkClient network = NetworkClient.Instance;
-        // 이 탈출문은 오프라인 시험 전용이다. 온라인 승리 판정과 문 상태는 건드리지 않는다.
-        if (network == null || !network.offlineMode || network.localPlayerTransform == null ||
+        // 온라인 개방과 승리는 서버가 확정한다.
+        if (network == null || network.localPlayerTransform == null ||
+            (!network.offlineMode && (!network.IsConnected || !network.GameStarted)) ||
             (ClueManager.instance != null && ClueManager.instance.IsEnding)) return false;
         PlayerController player = network.localPlayerTransform.GetComponent<PlayerController>();
         if (player == null || player.IsDeadState) return false;
@@ -120,13 +122,24 @@ public class SlidingDoorInteraction : MonoBehaviour
 
     private void Update()
     {
-        // 단서를 모두 모으기 전에는 F를 눌러도 문이 움직이지 않는다.
+        // 단서·전원·협동 잠금 조건을 모두 충족해야 개방을 요청한다.
         if (!CanUse() || isOpen || !HasAllClues() || !Input.GetKeyDown(KeyCode.F) ||
             lastUseFrame == Time.frameCount ||
             ItemPickupInteraction.BlocksDoorInteraction || CassetteInteraction.BlocksOtherInteraction ||
             BarrelInteraction.BlocksOtherInteraction || BedInteraction.BlocksOtherInteraction ||
             ChairInteraction.BlocksDoorInteraction || CabinetInteraction.BlocksOtherInteraction) return;
         lastUseFrame = Time.frameCount;
+        if (!NetworkClient.Instance.offlineMode)
+        {
+            NetworkClient.Instance.SendPropUse("ExitDoor", 1);
+            return;
+        }
+        ApplyServerOpen();
+    }
+
+    public void ApplyServerOpen()
+    {
+        if (isOpen) return;
         isOpen = true;
         // 열림이 확정된 순간에만 묵직한 미닫이문 소리를 한 번 재생한다.
         if (openingClip != null) openingAudio.PlayOneShot(openingClip, openingVolume);
@@ -137,7 +150,9 @@ public class SlidingDoorInteraction : MonoBehaviour
     private static bool HasAllClues()
     {
         ClueManager clues = ClueManager.instance;
-        return clues != null && clues.needClueCount > 0 && clues.clueCount >= clues.needClueCount;
+        return clues != null && clues.needClueCount > 0 && clues.clueCount >= clues.needClueCount &&
+            (CoopShapePuzzle.Instance == null || CoopShapePuzzle.Instance.IsSolved) &&
+            (PowerRestoration.Instance == null || PowerRestoration.Instance.IsComplete);
     }
 
     private IEnumerator Slide()
@@ -158,7 +173,8 @@ public class SlidingDoorInteraction : MonoBehaviour
         rightLeaf.position = rightTarget;
         motion = null;
         // 문이 실제로 다 열린 뒤 오프라인 엔딩을 보여 준다.
-        if (isOpen && ClueManager.instance != null)
+        if (isOpen && ClueManager.instance != null && NetworkClient.Instance != null &&
+            NetworkClient.Instance.offlineMode)
             ClueManager.instance.ShowEnding();
     }
 
@@ -167,7 +183,16 @@ public class SlidingDoorInteraction : MonoBehaviour
         if (!CanUse() || isOpen || ItemPickupInteraction.BlocksDoorInteraction) return;
         // 부족한 동안에는 F 배지 없이 안내만 표시한다.
         if (HasAllClues()) InteractionPrompt.Draw("F", "문 열기");
-        else InteractionPrompt.Draw("", "단서가 부족합니다");
+        else
+        {
+            ClueManager clues = ClueManager.instance;
+            string missing = clues == null || clues.clueCount < clues.needClueCount ? "단서 수집 필요" : "";
+            if (PowerRestoration.Instance != null && !PowerRestoration.Instance.IsComplete)
+                missing += (missing.Length > 0 ? " · " : "") + "전원 복구 필요";
+            if (CoopShapePuzzle.Instance != null && !CoopShapePuzzle.Instance.IsSolved)
+                missing += (missing.Length > 0 ? " · " : "") + "협동 잠금 해제 필요";
+            InteractionPrompt.Draw("", missing);
+        }
     }
 
     public static bool BlocksOtherInteraction => lastUseFrame == Time.frameCount;

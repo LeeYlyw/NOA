@@ -1,4 +1,5 @@
 # Run after BuildServer.ps1. Validates two complete matches on one server process.
+param([switch]$WithExitDoor)
 $ErrorActionPreference = 'Stop'
 if (Get-NetTCPConnection -LocalPort 7777 -State Listen -ErrorAction SilentlyContinue) { throw 'Port 7777 is occupied; existing server preserved.' }
 function Send-Packet($peer, $line) {
@@ -54,6 +55,7 @@ try {
             Send-Packet $peer "C_NAV_BEGIN|$id|$seed|5|5|0|0|2|4|4|1|0|0|4|0|0|4"
             Send-Packet $peer "C_NAV_PAD|$id|1|1|0|1"
             Send-Packet $peer "C_NAV_PAD|$id|2|3|0|1"
+            if ($WithExitDoor) { Send-Packet $peer "C_NAV_PROP|$id|ExitDoor|1|0|1|0|1" }
             for($item=1;$item -le 3;$item++){Send-Packet $peer "C_NAV_ITEM|$id|$item|Clue|1|0.85|1"}
             Send-Packet $peer "C_NAV_CHUNK|$id|0|$mask"
             Send-Packet $peer "C_NAV_END|$id"
@@ -83,6 +85,11 @@ try {
         if ($gateCount -ne $expectedGateCount) { throw 'Puzzle completion did not open the server gate once per match' }
         Send-Packet $peers[0] 'MOVE|1|1|0|1|0|0|0|0|1|0'
         for($item=1;$item -le 3;$item++){Send-Packet $peers[0] "C_ITEM_PICKUP|1|$item|Clue"}
+        if ($WithExitDoor) {
+            foreach($peer in $peers){$null=Wait-Packet $peer '^S_CLUE_COUNT\|3\|3$'}
+            Send-Packet $peers[0] 'C_PROP_USE|1|ExitDoor|1'
+            foreach($peer in $peers){$null=Wait-Packet $peer '^S_PROP_STATE\|ExitDoor\|1\|1\|0$'}
+        }
         foreach($peer in $peers){$null=Wait-Packet $peer '^S_GAME_CLEAR$'}
         for($id=1;$id -le $count;$id++){Send-Packet $peers[$id-1] "C_RESTART|$id"}
         foreach($peer in $peers){$null=Wait-Packet $peer '^S_RESTART$'; $peer.Client.Close()}

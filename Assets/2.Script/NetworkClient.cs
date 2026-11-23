@@ -479,6 +479,8 @@ public class NetworkClient : MonoBehaviour
             SendNavigationProp("Cabinet", cabinet.NetworkId, cabinet.RewardId, cabinet.transform.position);
 
         const int chunkSize = 1000;
+        SlidingDoorInteraction exitDoor = FindObjectOfType<SlidingDoorInteraction>();
+        if (exitDoor != null) SendNavigationProp("ExitDoor", 1, 0, exitDoor.NetworkAnchor);
         for (int offset = 0, sequence = 0; offset < edgeMask.Length; offset += chunkSize, sequence++)
             SendMessageToServer("C_NAV_CHUNK|" + playerId + "|" + sequence + "|" +
                                 edgeMask.Substring(offset, Mathf.Min(chunkSize, edgeMask.Length - offset)) +
@@ -1133,6 +1135,11 @@ public class NetworkClient : MonoBehaviour
         {
             foreach (BarrelInteraction prop in networkBarrels)
                 if (prop != null && prop.NetworkId == id) { prop.ApplyServerState(); break; }
+        }
+        else if (parts[1] == "ExitDoor" && active != 0)
+        {
+            SlidingDoorInteraction door = FindObjectOfType<SlidingDoorInteraction>();
+            if (door != null) door.ApplyServerOpen();
         }
         else if (parts[1] == "Cabinet")
         {

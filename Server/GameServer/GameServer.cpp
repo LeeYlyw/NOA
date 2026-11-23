@@ -1131,7 +1131,8 @@ void ProcessItemPickupPacket(
         clueOss << "S_CLUE_COUNT|" << clueCount << "|" << needClueCount;
         BroadcastPacket(clientSocket1, clientSocket2, clueOss.str());
 
-        if (clueCount >= needClueCount && matchResult == 0)
+        if (clueCount >= needClueCount && matchResult == 0 &&
+            trustedPropSpawns.count("ExitDoor:1") == 0)
         {
             matchResult = 1;
             BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_CLEAR");
@@ -1257,7 +1258,7 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
         prop.kind = parts[2];
         int rewardBase = prop.kind == "Chair" ? 1000 : prop.kind == "Cassette" ? 2000 :
             prop.kind == "Barrel" ? 3000 : prop.kind == "Bed" ? 4000 : prop.kind == "Cabinet" ? 5000 : 0;
-        if (rewardBase == 0 || (prop.rewardId != 0 &&
+        if ((rewardBase == 0 && !(prop.kind == "ExitDoor" && prop.id == 1 && prop.rewardId == 0)) || (prop.rewardId != 0 &&
             (prop.rewardId < rewardBase || prop.rewardId >= rewardBase + 1000))) return;
         upload.props.emplace(prop.kind + ":" + std::to_string(prop.id), prop);
         return;
@@ -1536,6 +1537,12 @@ void ProcessClientPacket(
             state.active = !state.active;
             if (state.active && found->second.rewardId != 0) state.revealed = true;
             if (found->second.kind == "Cabinet") state.revealed = state.active && found->second.rewardId != 0;
+        }
+        else if (found->second.kind == "ExitDoor")
+        {
+            if (clueCount < needClueCount || !puzzleSolved || !PowerRestored() || state.active) return;
+            state.active = true;
+            state.startedAt = GetTimeSeconds();
         }
         else if (found->second.kind == "Cassette")
         {
@@ -2527,6 +2534,13 @@ int main()
             for (const auto& entry : trustedPropSpawns)
             {
                 PropState& state = propStates[entry.first];
+                if (entry.second.kind == "ExitDoor" && state.active &&
+                    GetTimeSeconds() - state.startedAt >= 0.65)
+                {
+                    matchResult = 1;
+                    BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_CLEAR");
+                    break;
+                }
                 if (entry.second.kind != "Cassette" || !state.active || state.revealed ||
                     entry.second.rewardId == 0 || GetTimeSeconds() - state.startedAt < 3.0) continue;
                 state.revealed = true;

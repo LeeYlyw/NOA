@@ -138,7 +138,7 @@ public class ObjectiveHUD : MonoBehaviour
         else if (count >= 3)
         {
             objective.text = "모든 단서 확보";
-            instruction.text = network.offlineMode ? "탈출문으로 가서 문을 여세요." :
+            instruction.text = network.offlineMode || FindObjectOfType<SlidingDoorInteraction>() != null ? "탈출문으로 가서 문을 여세요." :
                 "임무 완료를 확인하고 있습니다.";
         }
         else if (solved && !powered)
