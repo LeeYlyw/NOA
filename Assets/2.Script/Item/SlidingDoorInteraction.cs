@@ -137,10 +137,17 @@ public class SlidingDoorInteraction : MonoBehaviour
         ApplyServerOpen();
     }
 
-    public void ApplyServerOpen()
+    public void ApplyServerOpen(bool restoring = false)
     {
         if (isOpen) return;
         isOpen = true;
+        if (restoring)
+        {
+            leftLeaf.position = leftClosed - slideAxis * slideDistance;
+            rightLeaf.position = rightClosed + slideAxis * slideDistance;
+            return;
+        }
+        if (NetworkClient.Instance != null && !NetworkClient.Instance.offlineMode) slideDuration = 0.65f;
         // 열림이 확정된 순간에만 묵직한 미닫이문 소리를 한 번 재생한다.
         if (openingClip != null) openingAudio.PlayOneShot(openingClip, openingVolume);
         if (motion != null) StopCoroutine(motion);

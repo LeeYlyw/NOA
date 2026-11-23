@@ -78,6 +78,12 @@ try {
     Send-Packet $peers[0] 'MOVE|1|1|0|1|0|0|0|0|1|0'
     Start-Sleep -Milliseconds 200
 
+    Send-Packet $peers[0] 'MOVE|1|8|0|8|0|0|0|0|1|0'
+    Send-Packet $peers[0] 'C_PROP_USE|1|Chair|1|1'
+    $null = Wait-Packet $peers[0] '^S_PROP_DENIED\|RANGE$'
+    $null = Wait-Packet $peers[0] '^S_PROP_STATE\|Chair\|1\|0\|0$'
+    Send-Packet $peers[0] 'MOVE|1|1|0|1|0|0|0|0|1|0'
+
     Send-Packet $peers[0] 'C_PROP_USE|1|Cabinet|1'
     foreach ($peer in $peers) { $null = Wait-Packet $peer '^S_PROP_STATE\|Cabinet\|1\|1\|1$' }
     Send-Packet $peers[0] 'C_PROP_USE|1|Cabinet|1'
@@ -89,6 +95,8 @@ try {
     Send-Packet $peers[0] 'C_ITEM_PICKUP|1|1000|Heal'
     $null = Wait-Packet $peers[0] '^S_ITEM_PICKUP_DENIED\|1000$'
     Send-Packet $peers[0] 'C_PROP_USE|1|Chair|1'
+    foreach ($peer in $peers) { $null = Wait-Packet $peer '^S_PROP_STATE\|Chair\|1\|1\|1$' }
+    Send-Packet $peers[0] 'C_PROP_USE|1|Chair|1|1'
     foreach ($peer in $peers) { $null = Wait-Packet $peer '^S_PROP_STATE\|Chair\|1\|1\|1$' }
     Send-Packet $peers[0] 'C_ITEM_PICKUP|1|1000|Heal'
     foreach ($peer in $peers) { $null = Wait-Packet $peer '^S_ITEM_PICKUP\|1000\|1\|Heal\|' }
@@ -141,7 +149,10 @@ try {
         '^S_PROP_STATE\|Chair\|1\|0\|1$',
         '^S_SNAPSHOT_ITEM\|1000\|1\|Heal$',
         '^S_SNAPSHOT_ITEM\|4000\|1\|Heal$'
-    )) { $null = Wait-Packet $peers[1] $pattern }
+    )) {
+        if ($pattern.StartsWith('^S_PROP_STATE')) { $pattern = $pattern.TrimEnd('$') + '\|[0-9.]+$' }
+        $null = Wait-Packet $peers[1] $pattern
+    }
     $null = Wait-Packet $peers[1] '^S_SNAPSHOT_END$'
     Send-Packet $peers[1] 'C_RESUME_ACK'
     $null = Wait-Packet $peers[1] '^S_RESUME_COMPLETE$'

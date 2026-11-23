@@ -76,7 +76,7 @@ public class CassetteInteraction : MonoBehaviour
             NetworkClient network = NetworkClient.Instance;
             if (network != null && !network.offlineMode)
             {
-                network.SendPropUse("Cassette", NetworkId);
+                network.SendPropUse("Cassette", NetworkId, !playing);
                 return;
             }
             ApplyServerState(!playing, false);
@@ -112,6 +112,12 @@ public class CassetteInteraction : MonoBehaviour
         }
         if (revealed && reward != null && !reward.GetComponent<PotionItem>().IsPicked)
             reward.SetActive(true);
+    }
+
+    public void RestorePlayback(float elapsed)
+    {
+        if (playing && speaker != null && speaker.clip != null && speaker.clip.length > 0f)
+            speaker.time = Mathf.Repeat(elapsed, speaker.clip.length);
     }
 
     private void PositionReward(bool towardPlayer)

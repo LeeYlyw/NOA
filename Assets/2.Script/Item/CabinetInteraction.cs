@@ -71,7 +71,7 @@ public class CabinetInteraction : MonoBehaviour
         lastUseFrame = Time.frameCount;
         if (NetworkClient.Instance != null && !NetworkClient.Instance.offlineMode)
         {
-            NetworkClient.Instance.SendPropUse("Cabinet", NetworkId);
+            NetworkClient.Instance.SendPropUse("Cabinet", NetworkId, !isOpen);
             return;
         }
         ApplyServerState(!isOpen);

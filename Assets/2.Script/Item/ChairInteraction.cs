@@ -78,7 +78,7 @@ public class ChairInteraction : MonoBehaviour
         NetworkClient network = NetworkClient.Instance;
         if (network != null && !network.offlineMode)
         {
-            network.SendPropUse("Chair", NetworkId);
+            network.SendPropUse("Chair", NetworkId, !pulled);
             return;
         }
         ApplyServerState(!pulled, !pulled);

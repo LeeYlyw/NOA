@@ -529,10 +529,10 @@ public class NetworkClient : MonoBehaviour
             "Navigation prop upload failed");
     }
 
-    public void SendPropUse(string kind, int id)
+    public void SendPropUse(string kind, int id, bool opening = true)
     {
         if (offlineMode || restoringSession || !isConnected || !GameStarted || id <= 0) return;
-        SendMessageToServer($"C_PROP_USE|{playerId}|{kind}|{id}\n", "Prop interaction failed");
+        SendMessageToServer($"C_PROP_USE|{playerId}|{kind}|{id}|{(opening ? 1 : 0)}\n", "Prop interaction failed");
     }
 
     public void SendDoorToggle(int doorId, int openingDirection)
@@ -867,6 +867,12 @@ public class NetworkClient : MonoBehaviour
             case "S_PLAYER_HEAL_RESULT": ProcessPlayerHealResultPacket(parts); break;
             case "S_ITEM_PICKUP": ProcessItemPickupPacket(parts); break;
             case "S_PROP_STATE": ProcessPropStatePacket(parts); break;
+            case "S_PROP_DENIED":
+                ConnectionStatus = parts.Length > 1 && parts[1] == "CONDITIONS"
+                    ? "단서·전원 복구·협동 잠금 조건을 확인하세요."
+                    : "조작할 수 없습니다. 가까이 다가가 다시 시도하세요.";
+                connectionNoticeUntil = Time.unscaledTime + 3f;
+                break;
             case "S_ITEM_USED": ProcessItemUsedPacket(parts); break;
             case "S_ITEM_USE_DENIED": ProcessItemUseDeniedPacket(parts); break;
             case "S_DOOR_STATE": ProcessDoorStatePacket(parts); break;
@@ -1117,7 +1123,7 @@ public class NetworkClient : MonoBehaviour
 
     void ProcessPropStatePacket(string[] parts)
     {
-        if (parts.Length != 5 || !int.TryParse(parts[2], out int id) ||
+        if ((parts.Length != 5 && parts.Length != 6) || !int.TryParse(parts[2], out int id) ||
             !int.TryParse(parts[3], out int active) || !int.TryParse(parts[4], out int revealed)) return;
         if (parts[1] == "Chair")
         {
@@ -1129,7 +1135,13 @@ public class NetworkClient : MonoBehaviour
         {
             foreach (CassetteInteraction prop in networkCassettes)
                 if (prop != null && prop.NetworkId == id)
-                    { prop.ApplyServerState(active != 0, revealed != 0); break; }
+                    {
+                        prop.ApplyServerState(active != 0, revealed != 0);
+                        if (receivingSnapshot && parts.Length == 6 && float.TryParse(parts[5],
+                            NumberStyles.Float, CultureInfo.InvariantCulture, out float elapsed))
+                            prop.RestorePlayback(elapsed);
+                        break;
+                    }
         }
         else if (parts[1] == "Barrel" && active != 0)
         {
@@ -1139,7 +1151,7 @@ public class NetworkClient : MonoBehaviour
         else if (parts[1] == "ExitDoor" && active != 0)
         {
             SlidingDoorInteraction door = FindObjectOfType<SlidingDoorInteraction>();
-            if (door != null) door.ApplyServerOpen();
+            if (door != null) door.ApplyServerOpen(receivingSnapshot);
         }
         else if (parts[1] == "Cabinet")
         {

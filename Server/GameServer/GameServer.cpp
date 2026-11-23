@@ -1514,17 +1514,27 @@ void ProcessClientPacket(
     if (type == "C_PROP_USE")
     {
         int playerId = 0, propId = 0;
-        if (parts.size() != 4 || !navigation.ready ||
+        if ((parts.size() != 4 && parts.size() != 5) || !navigation.ready ||
             !TryParseInt(parts[1], playerId) || playerId != senderPlayerId ||
             !TryParseInt(parts[3], propId) || propId < 1 || propId > 512) return;
         const std::string key = parts[2] + ":" + std::to_string(propId);
         auto found = trustedPropSpawns.find(key);
         if (found == trustedPropSpawns.end()) return;
         const PlayerState& player = players[playerId];
+        int requested = -1;
+        if (parts.size() == 5 && (!TryParseInt(parts[4], requested) || requested < 0 || requested > 1)) return;
         if (!player.hasState || player.isDead || restoring[playerId] ||
             Distance2D(player.position, found->second.position) >
                 (found->second.kind == "Chair" ? 4.8f : 3.5f) ||
-            std::fabs(player.position.y - found->second.position.y) > 3.5f) return;
+            std::fabs(player.position.y - found->second.position.y) > 3.5f)
+        {
+            SendPacket(matchSockets[playerId], "S_PROP_DENIED|RANGE");
+            const PropState& latest = propStates.at(key);
+            SendPacket(matchSockets[playerId], "S_PROP_STATE|" + found->second.kind + "|" +
+                std::to_string(propId) + "|" + std::to_string(latest.active) + "|" +
+                std::to_string(latest.revealed));
+            return;
+        }
         PropState& state = propStates[key];
         if (found->second.kind == "Barrel" || found->second.kind == "Bed")
         {
@@ -1534,20 +1544,27 @@ void ProcessClientPacket(
         }
         else if (found->second.kind == "Chair" || found->second.kind == "Cabinet")
         {
-            state.active = !state.active;
+            state.active = requested < 0 ? !state.active : requested != 0;
             if (state.active && found->second.rewardId != 0) state.revealed = true;
             if (found->second.kind == "Cabinet") state.revealed = state.active && found->second.rewardId != 0;
         }
         else if (found->second.kind == "ExitDoor")
         {
-            if (clueCount < needClueCount || !puzzleSolved || !PowerRestored() || state.active) return;
+            if (clueCount < needClueCount || !puzzleSolved || !PowerRestored())
+            {
+                SendPacket(matchSockets[playerId], "S_PROP_DENIED|CONDITIONS");
+                return;
+            }
+            if (state.active) return;
             state.active = true;
             state.startedAt = GetTimeSeconds();
         }
         else if (found->second.kind == "Cassette")
         {
-            state.active = !state.active;
-            state.startedAt = state.active ? GetTimeSeconds() : 0.0;
+            bool nextActive = requested < 0 ? !state.active : requested != 0;
+            if (nextActive != state.active)
+                state.startedAt = nextActive ? GetTimeSeconds() : 0.0;
+            state.active = nextActive;
         }
         BroadcastPacket(clientSocket1, clientSocket2,
             "S_PROP_STATE|" + found->second.kind + "|" + std::to_string(propId) + "|" +
@@ -2434,7 +2451,8 @@ int main()
             if (state.active || state.revealed)
                 SendPacket(socket, "S_PROP_STATE|" + entry.second.kind + "|" +
                     std::to_string(entry.second.id) + "|" +
-                    std::to_string(state.active) + "|" + std::to_string(state.revealed));
+                    std::to_string(state.active) + "|" + std::to_string(state.revealed) + "|" +
+                    std::to_string(state.active ? std::max(0.0, GetTimeSeconds() - state.startedAt) : 0.0));
         }
         for (const auto& entry : items) {
             const auto& item = entry.second;
@@ -2537,8 +2555,10 @@ int main()
                 if (entry.second.kind == "ExitDoor" && state.active &&
                     GetTimeSeconds() - state.startedAt >= 0.65)
                 {
-                    matchResult = 1;
-                    BroadcastPacket(clientSocket1, clientSocket2, "S_GAME_CLEAR");
+                    bool inTime = state.startedAt + 0.65 < matchStartedAt + MatchDurationSeconds;
+                    matchResult = inTime ? 1 : 2;
+                    if (!inTime) matchEndReason = "TIME";
+                    BroadcastPacket(clientSocket1, clientSocket2, inTime ? "S_GAME_CLEAR" : "S_GAME_OVER|TIME");
                     break;
                 }
                 if (entry.second.kind != "Cassette" || !state.active || state.revealed ||
