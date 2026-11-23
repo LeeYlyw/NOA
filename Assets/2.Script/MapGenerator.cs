@@ -207,6 +207,10 @@ public class MapGenerator : MonoBehaviour
             ReportGenerationFailure("Required map entities could not be spawned");
             return;
         }
+        // Every spawned role uses the same movement sound, including remote players.
+        foreach (PlayerController player in playersRoot.GetComponentsInChildren<PlayerController>(true))
+            if (player.GetComponent<PlayerFootsteps>() == null)
+                player.gameObject.AddComponent<PlayerFootsteps>();
         SendServerNavigationMap(selectedSeed, navigationMask);
     }
 
