@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "Tools/SourceAudio/Grunts_aphexx_347337_hq.mp3"
 OUTPUT = ROOT / "Assets/Resources/Audio/Combat/Pain"
 RATE = 48000
-SEGMENTS = ((0.60, 1.24), (2.20, 2.83))
+SEGMENTS = ((0.64, 0.94), (2.22, 2.52))
 
 
 def extract(samples, start, end):
@@ -33,10 +33,11 @@ def extract(samples, start, end):
         filtered.append(current)
 
     peak = max(abs(value) for value in filtered)
-    fade = round(0.012 * RATE)
+    fade_in = round(0.008 * RATE)
+    fade_out = round(0.04 * RATE)
     pcm = bytearray()
     for index, value in enumerate(filtered):
-        envelope = min(1.0, index / fade, (len(filtered) - index - 1) / fade)
+        envelope = min(1.0, index / fade_in, (len(filtered) - index - 1) / fade_out)
         sample = max(-1.0, min(1.0, value * 0.82 / peak * envelope))
         pcm.extend(struct.pack("<h", round(sample * 32767)))
     return pcm
