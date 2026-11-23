@@ -7,6 +7,8 @@ public class PlayerController : MonoBehaviour
     private PlayerNoiseEmitter noiseEmitter;
     private AudioSource hitSpeaker;
     private static AudioClip hitClip;
+    private static AudioClip[] painClips;
+    private int nextPainClip;
 
     [Header("Network")]
     public bool isLocalPlayer = true;
@@ -64,6 +66,7 @@ public class PlayerController : MonoBehaviour
         if (animator == null) animator = GetComponentInChildren<Animator>();
         noiseEmitter = GetComponent<PlayerNoiseEmitter>();
         if (hitClip == null) hitClip = Resources.Load<AudioClip>("Audio/Combat/PlayerHit");
+        if (painClips == null) painClips = Resources.LoadAll<AudioClip>("Audio/Combat/Pain");
         hitSpeaker = gameObject.AddComponent<AudioSource>();
         hitSpeaker.playOnAwake = false;
         hitSpeaker.rolloffMode = AudioRolloffMode.Logarithmic;
@@ -270,11 +273,16 @@ public class PlayerController : MonoBehaviour
         if (currentHp < previousHealth && isLocalPlayer)
             GamePresentation.Ensure().FlashDamage();
 
-        if (currentHp < previousHealth && hitClip != null)
+        if (currentHp < previousHealth)
         {
             // Local damage is clear in the mix; teammates' hits remain positional.
             hitSpeaker.spatialBlend = isLocalPlayer ? 0f : 1f;
-            hitSpeaker.PlayOneShot(hitClip, isLocalPlayer ? 0.65f : 0.8f);
+            if (hitClip != null)
+                hitSpeaker.PlayOneShot(hitClip, isLocalPlayer ? 0.65f : 0.8f);
+            // Alternate short nonverbal grunts so repeated hits sound less identical.
+            if (painClips != null && painClips.Length > 0)
+                hitSpeaker.PlayOneShot(painClips[nextPainClip++ % painClips.Length],
+                    isLocalPlayer ? 0.48f : 0.62f);
         }
 
         if (currentHp <= 0)
