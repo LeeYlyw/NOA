@@ -5,6 +5,8 @@ using UnityEngine.UI;
 public class PlayerController : MonoBehaviour
 {
     private PlayerNoiseEmitter noiseEmitter;
+    private AudioSource hitSpeaker;
+    private static AudioClip hitClip;
 
     [Header("Network")]
     public bool isLocalPlayer = true;
@@ -61,6 +63,13 @@ public class PlayerController : MonoBehaviour
         animator = GetComponent<Animator>();
         if (animator == null) animator = GetComponentInChildren<Animator>();
         noiseEmitter = GetComponent<PlayerNoiseEmitter>();
+        if (hitClip == null) hitClip = Resources.Load<AudioClip>("Audio/Combat/PlayerHit");
+        hitSpeaker = gameObject.AddComponent<AudioSource>();
+        hitSpeaker.playOnAwake = false;
+        hitSpeaker.rolloffMode = AudioRolloffMode.Logarithmic;
+        hitSpeaker.minDistance = 2f;
+        hitSpeaker.maxDistance = 14f;
+        hitSpeaker.dopplerLevel = 0f;
 
         currentHp = maxHealth;
         currentStamina = maxStamina;
@@ -260,6 +269,13 @@ public class PlayerController : MonoBehaviour
 
         if (currentHp < previousHealth && isLocalPlayer)
             GamePresentation.Ensure().FlashDamage();
+
+        if (currentHp < previousHealth && hitClip != null)
+        {
+            // Local damage is clear in the mix; teammates' hits remain positional.
+            hitSpeaker.spatialBlend = isLocalPlayer ? 0f : 1f;
+            hitSpeaker.PlayOneShot(hitClip, isLocalPlayer ? 0.65f : 0.8f);
+        }
 
         if (currentHp <= 0)
         {

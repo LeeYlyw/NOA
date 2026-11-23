@@ -25,6 +25,8 @@ public class MonsterPresentation : MonoBehaviour
         vision = GetComponent<MonsterChase>();
         sound = GetComponent<SoundMonsterAI>();
         mimic = GetComponent<MimicLaptop>();
+        if (attackClip == null)
+            attackClip = Resources.Load<AudioClip>("Audio/Combat/MonsterAttack");
         voice = gameObject.AddComponent<AudioSource>();
         voice.playOnAwake = false;
         voice.spatialBlend = 1;
