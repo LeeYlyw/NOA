@@ -39,7 +39,6 @@ public class MapGenerator : MonoBehaviour
 
     [Header("스폰 설정")]
     public float minMonsterDistance = 30f;
-    public int itemSpawnCount = 20;
 
     [Header("Spawn Clearance")]
     [Min(0.1f)] public float spawnRadius = 0.45f;
@@ -155,8 +154,7 @@ public class MapGenerator : MonoBehaviour
             SpawnPrefabsSafely();
             Physics.SyncTransforms();
             if (!RepairBlockedEmptyOpenings()) { openingFailures++; continue; }
-            if (!CollectReachableSpawnPoints() ||
-            validSpawnPoints.Count < 12 + RequiredSupplySpawnCount())
+            if (!CollectReachableSpawnPoints() || validSpawnPoints.Count < 12)
             { spawnFailures++; continue; }
             RebuildNavMesh();
             if (!ValidateNavMeshConnectivity() || !ValidatePuzzleRoomAccess()) { navigationFailures++; continue; }
@@ -219,20 +217,6 @@ public class MapGenerator : MonoBehaviour
         gameplayRoot = null;
         NetworkClient network = NetworkClient.Instance;
         if (network != null) network.ReportMapPreparationFailure(reason);
-    }
-
-    int RequiredSupplySpawnCount()
-    {
-        bool hasHeal = false, hasRevive = false;
-        if (itemPrefabs != null)
-            foreach (GameObject prefab in itemPrefabs)
-            {
-                PotionItem pickup = prefab != null ? prefab.GetComponent<PotionItem>() : null;
-                if (pickup == null || pickup.itemData == null) continue;
-                hasHeal |= pickup.itemData.type == ItemData.ItemType.Heal;
-                hasRevive |= pickup.itemData.type == ItemData.ItemType.Resurrection;
-            }
-        return (hasHeal ? 2 : 0) + (hasRevive ? 1 : 0);
     }
 
     // Send the actual baked walkable geometry, rather than asking the C++ server to
@@ -1405,49 +1389,7 @@ public class MapGenerator : MonoBehaviour
         for (int i = 0; i < 6; i++)
             power.CreateObject(i, GetRandomSpawnPoint(removePoint: true));
 
-        if (ordinaryItemPrefabs.Count > 0)
-        {
-            // Keep a recoverable run possible even when the remaining drops are random.
-            List<GameObject> guaranteedItems = new List<GameObject>();
-            GameObject healPrefab = ordinaryItemPrefabs.Find(prefab =>
-            {
-                PotionItem item = prefab.GetComponent<PotionItem>();
-                return item != null && item.itemData != null && item.itemData.type == ItemData.ItemType.Heal;
-            });
-            GameObject revivePrefab = ordinaryItemPrefabs.Find(prefab =>
-            {
-                PotionItem item = prefab.GetComponent<PotionItem>();
-                return item != null && item.itemData != null && item.itemData.type == ItemData.ItemType.Resurrection;
-            });
-            if (healPrefab != null) { guaranteedItems.Add(healPrefab); guaranteedItems.Add(healPrefab); }
-            else Debug.LogWarning("[MapGenerator] No heal prefab configured for guaranteed supplies.");
-            if (revivePrefab != null) guaranteedItems.Add(revivePrefab);
-            else Debug.LogWarning("[MapGenerator] No resurrection prefab configured for guaranteed supplies.");
-
-            for (int i = 0; i < Mathf.Max(itemSpawnCount, guaranteedItems.Count); i++)
-            {
-                if (validSpawnPoints.Count == 0)
-                {
-                    Debug.LogWarning($"[MapGenerator] Only {i} of {itemSpawnCount} items could be placed safely.");
-                    break;
-                }
-
-                Vector3 itemPos = GetRandomSpawnPoint(removePoint: true);
-                GameObject randomItemPrefab = i < guaranteedItems.Count
-                    ? guaranteedItems[i]
-                    : ordinaryItemPrefabs[Random.Range(0, ordinaryItemPrefabs.Count)];
-                GameObject itemObj = Instantiate(randomItemPrefab, itemPos, Quaternion.identity, itemsRoot);
-                spawnedEntities.Add(itemObj);
-
-                PotionItem potion = itemObj.GetComponent<PotionItem>();
-                if (potion != null)
-                {
-                    // ★ [추가된 핵심 코드] 복제된 아이템에 1번부터 순차적으로 고유 식별자 부여
-                    potion.itemId = i + 4;
-                    spawnedPotions.Add(potion);
-                }
-            }
-        }
+        // 일반 아이템은 아래의 가구 조사 보상으로만 배치한다.
 
         for (int i = 0; i < spawnedChairs.Count; i++) spawnedChairs[i].NetworkId = i + 1;
         for (int i = 0; i < spawnedCassettes.Count; i++) spawnedCassettes[i].NetworkId = i + 1;
@@ -1491,12 +1433,16 @@ public class MapGenerator : MonoBehaviour
                     hiddenItemPrefabs[i] = hiddenItemPrefabs[swap];
                     hiddenItemPrefabs[swap] = other;
                 }
-                // 의자 약 3분의 1을 고르고 가능한 아이템 종류를 순환 배치한다.
+                GameObject healReward = hiddenItemPrefabs.Find(prefab =>
+                    prefab.GetComponent<PotionItem>().itemData.type == ItemData.ItemType.Heal);
+                // 의자 약 3분의 1을 고른다. 복도 보급품 대신 첫 두 보상은 회복 아이템으로 보장한다.
                 int hiddenCount = (candidates.Count + 1) / 3;
                 for (int i = 0; i < hiddenCount; i++)
                 {
                     ChairInteraction chair = candidates[i];
-                    GameObject itemObject = Instantiate(hiddenItemPrefabs[i % hiddenItemPrefabs.Count],
+                    GameObject selectedPrefab = i < 2 && healReward != null
+                        ? healReward : hiddenItemPrefabs[i % hiddenItemPrefabs.Count];
+                    GameObject itemObject = Instantiate(selectedPrefab,
                         chair.HiddenItemPosition,
                         Quaternion.identity, itemsRoot);
                     PotionItem pickup = itemObject.GetComponent<PotionItem>();

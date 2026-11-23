@@ -2679,7 +2679,6 @@ MonoBehaviour:
   - {fileID: 4997124759126839756, guid: 0d0f98d09b446d546962a09dd108b3e9, type: 3}
   - {fileID: 708434949352904805, guid: 5a4d3fba75269b44e9ca53fa94516388, type: 3}
   minMonsterDistance: 30
-  itemSpawnCount: 40
   spawnRadius: 0.45
   spawnHeight: 1.8
   maxGenerationAttempts: 12
