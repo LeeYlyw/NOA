@@ -12,6 +12,9 @@ public class InventoryUI : MonoBehaviour
     private int lastScreenWidth;
     private int lastScreenHeight;
     private Font font;
+    private AudioSource toggleSpeaker;
+    private AudioClip openClip;
+    private AudioClip closeClip;
     private readonly Color ink = new Color(0.035f, 0.065f, 0.075f, 0.97f);
     private readonly Color mint = new Color(0.36f, 0.87f, 0.76f);
 
@@ -19,6 +22,12 @@ public class InventoryUI : MonoBehaviour
     {
         inventory = GetComponent<InventoryManager>();
         if (inventoryPanel == null) return;
+        openClip = Resources.Load<AudioClip>("Audio/UI/InventoryOpen");
+        closeClip = Resources.Load<AudioClip>("Audio/UI/InventoryClose");
+        toggleSpeaker = gameObject.AddComponent<AudioSource>();
+        toggleSpeaker.playOnAwake = false;
+        toggleSpeaker.spatialBlend = 0f;
+        toggleSpeaker.volume = 0.45f;
         BuildPresentation();
         inventoryPanel.SetActive(false);
     }
@@ -38,6 +47,8 @@ public class InventoryUI : MonoBehaviour
         {
             activeInventory = !activeInventory;
             inventoryPanel.SetActive(activeInventory);
+            AudioClip clip = activeInventory ? openClip : closeClip;
+            if (clip != null) toggleSpeaker.PlayOneShot(clip);
             Cursor.lockState = activeInventory ? CursorLockMode.None : CursorLockMode.Locked;
             Cursor.visible = activeInventory;
             if (activeInventory) RefreshLabels();
