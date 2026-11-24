@@ -14,6 +14,7 @@ public class GamePresentation : MonoBehaviour
     const float DamageFadeSeconds = 0.65f;
     Text caption;
     AudioSource speaker;
+    AudioClip itemUseClip;
     Font font;
     float noticeUntil;
     int lastClues;
@@ -32,6 +33,7 @@ public class GamePresentation : MonoBehaviour
         speaker = gameObject.AddComponent<AudioSource>();
         speaker.playOnAwake = false;
         speaker.volume = 0.22f;
+        itemUseClip = Resources.Load<AudioClip>("Audio/UI/ItemUse");
         GameObject ui = new GameObject("Event notice", typeof(Canvas), typeof(CanvasScaler), typeof(CanvasGroup));
         ui.transform.SetParent(transform, false);
         ui.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
@@ -127,6 +129,11 @@ public class GamePresentation : MonoBehaviour
     public void PlayPickupSound()
     {
         speaker.PlayOneShot(Tone("pickup"));
+    }
+
+    public void PlayItemUseSound()
+    {
+        if (itemUseClip != null) speaker.PlayOneShot(itemUseClip, 1.4f);
     }
 
     void Update()

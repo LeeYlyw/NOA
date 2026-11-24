@@ -35,7 +35,13 @@ public class Slot : MonoBehaviour
         }
     }
 
-    public void ConfirmUse() { ClearSlot(); }
+    public void ConfirmUse()
+    {
+        if (item == null) return;
+        // Called only after local use or an accepted server result.
+        GamePresentation.Ensure().PlayItemUseSound();
+        ClearSlot();
+    }
     public void CancelUse() { pendingUse = false; }
 
     public void OnClickSlot()
@@ -106,7 +112,7 @@ public class Slot : MonoBehaviour
         if (network.offlineMode)
         {
             ApplyOfflineUse(local, teammate, controller, destination);
-            ClearSlot();
+            ConfirmUse();
             return;
         }
         if (ItemId <= 0 || !network.SendItemUseRequest(ItemId, item.type, targetId, destination))
