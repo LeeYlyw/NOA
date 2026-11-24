@@ -15,7 +15,9 @@ public class PowerRestoration : MonoBehaviour
     bool waitingForRepair;
     string repairFeedback = "";
     float feedbackUntil;
-    bool showOfflineGuide = true;
+    bool showSearchGuide;
+    PotionItem[] clueItems;
+    float nextClueScanAt;
     public bool BlocksJump => repairObject >= 0 || inputFrame == Time.frameCount;
     public bool UsesInteraction
     {
@@ -127,7 +129,7 @@ public class PowerRestoration : MonoBehaviour
     {
         NetworkClient network = NetworkClient.Instance;
         if (network == null || network.localPlayerTransform == null || !network.GameStarted) return;
-        if (network.offlineMode && Input.GetKeyDown(KeyCode.F6)) showOfflineGuide = !showOfflineGuide;
+        if (Input.GetKeyDown(KeyCode.F6)) showSearchGuide = !showSearchGuide;
         if (ClueManager.instance != null && ClueManager.instance.IsEnding)
         {
             if (repairObject >= 0) CancelRepair(network);
@@ -224,7 +226,9 @@ public class PowerRestoration : MonoBehaviour
         PlayerController player = network.localPlayerTransform.GetComponent<PlayerController>();
         if (player == null || player.IsDeadState) return;
         if (repairObject >= 0) { DrawRepair(); return; }
-        if (network.offlineMode) DrawOfflineGuide(network);
+        if (Cursor.lockState == CursorLockMode.Locked &&
+            (network.offlineMode || (network.IsConnected && !network.IsRestoringSession)))
+            DrawSearchGuide(network);
         if (Time.unscaledTime < feedbackUntil)
             InteractionPrompt.Draw("", repairFeedback);
         int nearby = FindNearbyObject(network.localPlayerTransform.position);
@@ -237,15 +241,11 @@ public class PowerRestoration : MonoBehaviour
         }
     }
 
-    void DrawOfflineGuide(NetworkClient network)
+    void DrawSearchGuide(NetworkClient network)
     {
+        if (!showSearchGuide) return;
         float panelWidth = Mathf.Min(340, Screen.width - 24);
         var guideStyle = new GUIStyle(label) { fontSize = 16, wordWrap = true };
-        if (!showOfflineGuide)
-        {
-            GUI.Label(new Rect(12, Screen.height - 34, panelWidth, 30), "F6: 테스트용 위치 안내 켜기", guideStyle);
-            return;
-        }
         Camera view = network.localPlayerTransform.GetComponentInChildren<Camera>();
         if (view == null) view = Camera.main;
         if (view == null) return;
@@ -259,11 +259,14 @@ public class PowerRestoration : MonoBehaviour
             if (i < 3 && distance < fuseDistance) { nearestFuse = i; fuseDistance = distance; }
             if (i >= 3 && distance < breakerDistance) { nearestBreaker = i; breakerDistance = distance; }
         }
-        float top = Screen.height - 122;
-        GUI.Box(new Rect(12, top, panelWidth, 110), GUIContent.none);
-        GUI.Label(new Rect(22, top + 6, panelWidth - 20, 26), "오프라인 위치 안내 · F6 숨기기", guideStyle);
+        float panelHeight = network.offlineMode ? 110f : 138f;
+        float top = Screen.height - panelHeight - 12f;
+        GUI.Box(new Rect(12, top, panelWidth, panelHeight), GUIContent.none);
+        GUI.Label(new Rect(22, top + 6, panelWidth - 20, 26), "수색 안내 · F6 숨기기", guideStyle);
         GUI.Label(new Rect(22, top + 34, panelWidth - 20, 26), GuideText(nearestFuse, view, position, "남은 퓨즈 없음"), guideStyle);
         GUI.Label(new Rect(22, top + 62, panelWidth - 20, 26), GuideText(nearestBreaker, view, position, "차단기 복구 완료"), guideStyle);
+        if (!network.offlineMode)
+            GUI.Label(new Rect(22, top + 90, panelWidth - 20, 38), ClueGuideText(view, position), guideStyle);
         int target = HeldFuses(network.playerId) > 0 ? nearestBreaker : nearestFuse;
         if (target < 0) return;
         Vector3 screen = view.WorldToScreenPoint(Position(target) + Vector3.up * 0.8f);
@@ -288,6 +291,34 @@ public class PowerRestoration : MonoBehaviour
             Vector3.ProjectOnPlane(direction, Vector3.up), Vector3.up);
         string side = Mathf.Abs(angle) > 135 ? "뒤쪽" : Mathf.Abs(angle) < 30 ? "정면" : angle > 0 ? "오른쪽" : "왼쪽";
         return $"{(index < 3 ? "퓨즈" : "차단기")} {index % 3 + 1} · {side} · 직선 {direction.magnitude:0}m";
+    }
+
+    string ClueGuideText(Camera view, Vector3 position)
+    {
+        if (clueItems == null || Time.unscaledTime >= nextClueScanAt)
+        {
+            clueItems = FindObjectsOfType<PotionItem>(true);
+            nextClueScanAt = Time.unscaledTime + 1f;
+        }
+        PotionItem nearest = null;
+        float distance = float.PositiveInfinity;
+        foreach (PotionItem item in clueItems)
+        {
+            if (item == null || item.itemId < 1 || item.itemId > 3 ||
+                item.IsPicked || !item.gameObject.activeInHierarchy) continue;
+            float candidate = Vector3.Distance(position, item.transform.position);
+            if (candidate >= distance) continue;
+            nearest = item;
+            distance = candidate;
+        }
+        if (nearest == null) return "단서 · 잠긴 방 또는 수집 완료 확인";
+        Vector3 direction = Vector3.ProjectOnPlane(nearest.transform.position - position, Vector3.up);
+        float angle = Vector3.SignedAngle(Vector3.ProjectOnPlane(view.transform.forward, Vector3.up),
+            direction, Vector3.up);
+        string side = Mathf.Abs(angle) > 135f ? "뒤쪽" : Mathf.Abs(angle) < 30f ? "정면" :
+            angle > 0f ? "오른쪽" : "왼쪽";
+        int approximateDistance = Mathf.Max(5, Mathf.RoundToInt(distance / 5f) * 5);
+        return $"단서 · {side} · 약 {approximateDistance}m";
     }
 
     void DrawRepair()
