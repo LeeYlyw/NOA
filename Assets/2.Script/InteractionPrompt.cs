@@ -18,13 +18,19 @@ public static class InteractionPrompt
         float row = key == "E" || (key.Length == 0 && PowerRestoration.Instance != null && PowerRestoration.Instance.UsesInteraction) ? 146 : 78;
         GUI.matrix = Matrix4x4.TRS(new Vector3(Screen.width / 2f, Screen.height / 2f + row * scale, 0),
             Quaternion.identity, new Vector3(scale, scale, 1));
-        GUI.color = new Color(0.025f, 0.045f, 0.065f, 0.9f);
-        GUI.DrawTexture(new Rect(-170, 0, 340, 46), Texture2D.whiteTexture);
-        GUI.color = new Color(0.32f, 0.88f, 0.81f);
-        GUI.DrawTexture(new Rect(-170, 0, 2, 46), Texture2D.whiteTexture);
-        GUI.color = Color.white;
-        var style = new GUIStyle(GUI.skin.label) { fontSize = 17, alignment = TextAnchor.MiddleLeft };
+        float messageWidth = string.IsNullOrEmpty(key) ? 300f : 270f;
+        var style = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 17, alignment = TextAnchor.MiddleLeft, wordWrap = true
+        };
         style.normal.textColor = Color.white;
+        // Leave vertical room when a long condition message wraps onto another line.
+        float panelHeight = Mathf.Max(46f, style.CalcHeight(new GUIContent(message), messageWidth) + 16f);
+        GUI.color = new Color(0.025f, 0.045f, 0.065f, 0.9f);
+        GUI.DrawTexture(new Rect(-170, 0, 340, panelHeight), Texture2D.whiteTexture);
+        GUI.color = new Color(0.32f, 0.88f, 0.81f);
+        GUI.DrawTexture(new Rect(-170, 0, 2, panelHeight), Texture2D.whiteTexture);
+        GUI.color = Color.white;
         if (!string.IsNullOrEmpty(key))
         {
             GUI.color = new Color(0.14f, 0.22f, 0.25f);
@@ -34,11 +40,11 @@ public static class InteractionPrompt
             GUI.Label(new Rect(-157, 7, 32, 32), key, keyStyle);
         }
         GUI.Label(new Rect(string.IsNullOrEmpty(key) ? -150 : -113, 3,
-            string.IsNullOrEmpty(key) ? 300 : 270, 40), message, style);
+            messageWidth, panelHeight - 6f), message, style);
         if (progress >= 0f)
         {
             GUI.color = new Color(0.32f, 0.88f, 0.81f);
-            GUI.DrawTexture(new Rect(-170, 44, 340 * Mathf.Clamp01(progress), 2), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(-170, panelHeight - 2f, 340 * Mathf.Clamp01(progress), 2), Texture2D.whiteTexture);
         }
         GUI.color = color;
         GUI.matrix = matrix;
