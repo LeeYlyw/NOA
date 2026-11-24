@@ -27,11 +27,23 @@ public class ChairInteraction : MonoBehaviour
     private bool revealPending;
     private Coroutine movement;
     private GameObject hiddenItem;
+    private AudioSource movementAudio;
+    private AudioClip pullClip;
+    private AudioClip pushClip;
 
     private void Awake()
     {
         // 배치된 원래 위치를 저장해 두 번째 F 입력 때 정확히 돌아오게 한다.
         homeLocalPosition = transform.localPosition;
+        pullClip = Resources.Load<AudioClip>("Audio/Props/ChairPull");
+        pushClip = Resources.Load<AudioClip>("Audio/Props/ChairPush");
+        movementAudio = gameObject.AddComponent<AudioSource>();
+        movementAudio.playOnAwake = false;
+        movementAudio.spatialBlend = 1f;
+        movementAudio.rolloffMode = AudioRolloffMode.Logarithmic;
+        movementAudio.minDistance = 2f;
+        movementAudio.maxDistance = 14f;
+        movementAudio.dopplerLevel = 0f;
     }
 
     private void Start()
@@ -84,8 +96,14 @@ public class ChairInteraction : MonoBehaviour
         ApplyServerState(!pulled, !pulled);
     }
 
-    public void ApplyServerState(bool isPulled, bool revealed)
+    public void ApplyServerState(bool isPulled, bool revealed, bool restoring = false)
     {
+        // Play only when the confirmed position changes, never for a snapshot or duplicate state.
+        if (pulled != isPulled && !restoring)
+        {
+            AudioClip clip = isPulled ? pullClip : pushClip;
+            if (clip != null) movementAudio.PlayOneShot(clip, 0.48f);
+        }
         pulled = isPulled;
         revealPending |= revealed;
         if (movement != null) StopCoroutine(movement);

@@ -1137,7 +1137,7 @@ public class NetworkClient : MonoBehaviour
         {
             foreach (ChairInteraction prop in networkChairs)
                 if (prop != null && prop.NetworkId == id)
-                    { prop.ApplyServerState(active != 0, revealed != 0); break; }
+                    { prop.ApplyServerState(active != 0, revealed != 0, receivingSnapshot); break; }
         }
         else if (parts[1] == "Cassette")
         {
