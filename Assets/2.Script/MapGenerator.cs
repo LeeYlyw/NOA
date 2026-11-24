@@ -40,6 +40,9 @@ public class MapGenerator : MonoBehaviour
     [Header("스폰 설정")]
     public float minMonsterDistance = 30f;
 
+    [Header("Map ambience")]
+    [Range(0f, 1f)] public float ambienceVolume = 0.2f;
+
     [Header("Spawn Clearance")]
     [Min(0.1f)] public float spawnRadius = 0.45f;
     [Min(0.5f)] public float spawnHeight = 1.8f;
@@ -79,6 +82,7 @@ public class MapGenerator : MonoBehaviour
     private Transform itemsRoot;
     private Vector3 puzzleRoomCenter;
     private bool hasPuzzleRoom;
+    private AudioSource mapAmbience;
 
     void Start()
     {
@@ -89,9 +93,18 @@ public class MapGenerator : MonoBehaviour
         }
     }
 
+    void Update()
+    {
+        // The result screen pauses gameplay time, but audio would otherwise keep looping.
+        if (mapAmbience != null && mapAmbience.isPlaying &&
+            ClueManager.instance != null && ClueManager.instance.IsEnding)
+            mapAmbience.Stop();
+    }
+
     [ContextMenu("Generate Map")]
     public void GenerateMap(int seed)
     {
+        if (mapAmbience != null) mapAmbience.Stop();
         if (mapSize < 5 || tileSize <= 0f || roomsToSpawn == null || roomsToSpawn.Count == 0)
         {
             Debug.LogError("[MapGenerator] Map size, tile size, and room prefabs must be configured.");
@@ -210,6 +223,29 @@ public class MapGenerator : MonoBehaviour
             if (player.GetComponent<PlayerFootsteps>() == null)
                 player.gameObject.AddComponent<PlayerFootsteps>();
         SendServerNavigationMap(selectedSeed, navigationMask);
+        StartMapAmbience();
+    }
+
+    void StartMapAmbience()
+    {
+        if (mapAmbience == null)
+        {
+            GameObject ambienceObject = new GameObject("Map ambience");
+            ambienceObject.transform.SetParent(transform, false);
+            mapAmbience = ambienceObject.AddComponent<AudioSource>();
+            mapAmbience.playOnAwake = false;
+            mapAmbience.loop = true;
+            mapAmbience.spatialBlend = 0f; // The same background is heard across the whole map.
+            mapAmbience.clip = Resources.Load<AudioClip>(
+                "Audio/universfield-horror-background-atmosphere-06-199279");
+        }
+        if (mapAmbience.clip == null)
+        {
+            Debug.LogWarning("[MapGenerator] Map ambience clip is missing from Resources/Audio.", this);
+            return;
+        }
+        mapAmbience.volume = ambienceVolume;
+        mapAmbience.Play();
     }
 
     void ReportGenerationFailure(string reason)
