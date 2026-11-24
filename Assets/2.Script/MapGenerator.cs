@@ -182,7 +182,7 @@ public class MapGenerator : MonoBehaviour
                 if (IsMonsterSpawnClear(point, monster2Prefab)) clearMonster2Points++;
                 if (monster3Prefab != null && IsMonsterSpawnClear(point, monster3Prefab)) clearMonster3Points++;
             }
-            int requiredMonsterPoints = monster3Prefab != null ? 3 : 2;
+            int requiredMonsterPoints = monster3Prefab != null ? 6 : 2;
             if (clearMonster1Points < requiredMonsterPoints || clearMonster2Points < requiredMonsterPoints ||
                 (monster3Prefab != null && clearMonster3Points < requiredMonsterPoints))
             {
@@ -268,7 +268,7 @@ public class MapGenerator : MonoBehaviour
         if (network == null || network.offlineMode || !network.IsConnected ||
             !network.HasAssignedPlayerId) return;
 
-        int monsterCount = monster3Prefab != null ? 3 : 2;
+        int monsterCount = monster3Prefab != null ? 6 : 2;
         Vector3[] monsterPositions = new Vector3[monsterCount];
         bool[] foundMonster = new bool[monsterCount];
         foreach (GameObject entity in spawnedEntities)
@@ -279,9 +279,11 @@ public class MapGenerator : MonoBehaviour
             monsterPositions[setup.monsterId - 1] = entity.transform.position;
             foundMonster[setup.monsterId - 1] = true;
         }
-        if (!foundMonster[0] || !foundMonster[1] || (monsterCount == 3 && !foundMonster[2]))
+        bool missingMonster = false;
+        for (int i = 0; i < foundMonster.Length; i++) missingMonster |= !foundMonster[i];
+        if (missingMonster)
         {
-            Debug.LogError("[MapGenerator] Cannot send navigation map without both monster spawns.");
+            Debug.LogError("[MapGenerator] Cannot send navigation map without all monster spawns.");
             ReportGenerationFailure("Monster spawn missing from navigation map");
             return;
         }
@@ -299,8 +301,7 @@ public class MapGenerator : MonoBehaviour
         Vector3 gate = puzzleRoomCenter + Vector3.back * (tileSize * 0.5f);
         network.SendNavigationMap(seed, width, height, origin, origin, step,
                                   gate.x, gate.z, tileSize * 0.5f - 0.2f,
-                                  monsterPositions[0], monsterPositions[1], edgeMask, spawnedDoors.ToArray(),
-                                  monsterCount == 3 ? monsterPositions[2] : (Vector3?)null);
+                                  monsterPositions, edgeMask, spawnedDoors.ToArray());
     }
 
     string BuildServerNavigationMask()
@@ -1385,6 +1386,27 @@ public class MapGenerator : MonoBehaviour
             spawnedEntities.Add(monster3);
             monsterList.Add(monster3);
             LogMonsterVisualOffset(monster3);
+            occupiedPositions.Add(monster3Hit.position);
+            GameObject[] additionalPrefabs = { monsterPrefab, monster2Prefab, monster3Prefab };
+            for (int i = 0; i < additionalPrefabs.Length; i++)
+            {
+                int monsterId = i + 4;
+                Vector3 spawn = GetFarthestSpawnPointForPrefab(additionalPrefabs[i], occupiedPositions.ToArray());
+                if (float.IsInfinity(spawn.x) ||
+                    !NavMesh.SamplePosition(spawn, out NavMeshHit hit, 2f, NavMesh.AllAreas) ||
+                    Vector2.Distance(new Vector2(spawn.x, spawn.z),
+                        new Vector2(hit.position.x, hit.position.z)) > 0.5f) return false;
+                GameObject additional = Instantiate(additionalPrefabs[i], hit.position,
+                    Quaternion.identity, monstersRoot);
+                MonsterNetworkSetup setup = additional.GetComponent<MonsterNetworkSetup>();
+                if (setup == null) { DisposeGeneratedObject(additional); return false; }
+                setup.monsterId = monsterId;
+                additional.name = "Monster" + monsterId;
+                spawnedEntities.Add(additional);
+                monsterList.Add(additional);
+                occupiedPositions.Add(hit.position);
+                LogMonsterVisualOffset(additional);
+            }
         }
         GameObject[] spawnedMonsters = monsterList.ToArray();
 

@@ -28,7 +28,7 @@ public class RemoteMonster : MonoBehaviour
         animator = GetComponent<Animator>();
         if (animator == null) animator = GetComponentInChildren<Animator>();
         MonsterNetworkSetup setup = GetComponent<MonsterNetworkSetup>();
-        isSoundMonster = setup != null && setup.monsterId == 2;
+        isSoundMonster = setup != null && (setup.monsterId == 2 || setup.monsterId == 5);
 
         targetPosition = transform.position;
         targetRotation = transform.rotation;

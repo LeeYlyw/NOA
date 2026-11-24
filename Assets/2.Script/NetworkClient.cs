@@ -404,24 +404,22 @@ public class NetworkClient : MonoBehaviour
 
     public void SendNavigationMap(int seed, int width, int height, float originX,
                                   float originZ, float step, float gateX, float gateZ,
-                                  float gateHalfWidth, Vector3 monster1, Vector3 monster2,
-                                  string edgeMask, DoorInteraction[] doors, Vector3? monster3 = null)
+                                  float gateHalfWidth, Vector3[] monsterPositions,
+                                  string edgeMask, DoorInteraction[] doors)
     {
         if (offlineMode || !isConnected || !HasAssignedPlayerId ||
-            string.IsNullOrEmpty(edgeMask) || edgeMask.Length != width * height) return;
+            string.IsNullOrEmpty(edgeMask) || edgeMask.Length != width * height ||
+            monsterPositions == null || (monsterPositions.Length != 2 && monsterPositions.Length != 6)) return;
 
-        string header = string.Format(CultureInfo.InvariantCulture,
-            "C_NAV_BEGIN|{0}|{1}|{2}|{3}|{4:F2}|{5:F2}|{6:F2}|{7:F2}|{8:F2}|{9:F2}|{10:F2}|{11:F2}|{12:F2}|{13:F2}|{14:F2}|{15:F2}\n",
+        StringBuilder header = new StringBuilder(string.Format(CultureInfo.InvariantCulture,
+            "C_NAV_BEGIN|{0}|{1}|{2}|{3}|{4:F2}|{5:F2}|{6:F2}|{7:F2}|{8:F2}|{9:F2}",
             playerId, seed, width, height, originX, originZ, step, gateX, gateZ,
-            gateHalfWidth, monster1.x, monster1.y, monster1.z,
-            monster2.x, monster2.y, monster2.z);
-        if (monster3.HasValue)
-        {
-            Vector3 third = monster3.Value;
-            header = header.TrimEnd('\n') + string.Format(CultureInfo.InvariantCulture,
-                "|{0:F2}|{1:F2}|{2:F2}\n", third.x, third.y, third.z);
-        }
-        SendMessageToServer(header, "Navigation map header failed");
+            gateHalfWidth));
+        foreach (Vector3 position in monsterPositions)
+            header.AppendFormat(CultureInfo.InvariantCulture, "|{0:F2}|{1:F2}|{2:F2}",
+                position.x, position.y, position.z);
+        header.Append('\n');
+        SendMessageToServer(header.ToString(), "Navigation map header failed");
 
         if (doors != null)
             foreach (DoorInteraction door in doors)

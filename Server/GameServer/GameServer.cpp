@@ -62,7 +62,7 @@ struct NavigationUpload
     std::map<std::string, PropSpawn> props;
     Vec3 pads[3];
     bool hasPad[3] = {};
-    Vec3 monsterSpawns[3];
+    Vec3 monsterSpawns[6];
     int monsterCount = 2;
     float originX = 0.0f, originZ = 0.0f, step = 2.0f;
     float gateX = 0.0f, gateZ = 0.0f, gateHalfWidth = 0.0f;
@@ -1156,7 +1156,7 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
 
     if (parts[0] == "C_NAV_BEGIN")
     {
-        if (parts.size() != 17 && parts.size() != 20) return;
+        if (parts.size() != 17 && parts.size() != 20 && parts.size() != 29) return;
         int seed = 0, width = 0, height = 0;
         NavigationUpload candidate;
         if (!TryParseInt(parts[2], seed) || !TryParseInt(parts[3], width) ||
@@ -1171,7 +1171,7 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
             candidate.step < 0.5f || candidate.step > 4.0f ||
             candidate.gateHalfWidth < 0.0f || candidate.gateHalfWidth > 50.0f)
             return;
-        candidate.monsterCount = parts.size() == 20 ? 3 : 2;
+        candidate.monsterCount = static_cast<int>((parts.size() - 11) / 3);
         for (int i = 0; i < candidate.monsterCount; ++i)
         {
             int offset = 11 + i * 3;
@@ -1430,6 +1430,7 @@ void ProcessNavigationPacket(const std::vector<std::string>& parts, int senderPl
         monsters[i].spawnPosition = source.monsterSpawns[i];
         monsters[i].targetPosition = source.monsterSpawns[i];
         monsters[i].lastKnownPosition = source.monsterSpawns[i];
+        monsters[i].lastHeardPosition = source.monsterSpawns[i];
         monsters[i].state = MonsterAIState::Idle;
         monsters[i].stateUntil = GetTimeSeconds() + 1.5;
         monsters[i].path.clear();
@@ -2172,6 +2173,12 @@ void InitializeMonsters(MonsterState monsters[])
     monsters[1].damage = 10;
     monsters[2] = monsters[0];
     monsters[2].monsterId = 3;
+    monsters[3] = monsters[0];
+    monsters[3].monsterId = 4;
+    monsters[4] = monsters[1];
+    monsters[4].monsterId = 5;
+    monsters[5] = monsters[2];
+    monsters[5].monsterId = 6;
 }
 
 void UpdateMonsters(
@@ -2384,7 +2391,7 @@ int main()
         players[i].hp = players[i].maxHp = matchRoles[i]==3 ? 80 : 100;
     }
 
-    MonsterState monsters[3];
+    MonsterState monsters[6];
     InitializeMonsters(monsters);
 
     std::map<int, ItemState> items;

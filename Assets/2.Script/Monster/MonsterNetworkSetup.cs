@@ -16,7 +16,8 @@ public class MonsterNetworkSetup : MonoBehaviour
 
     void Awake()
     {
-        if (monsterId == 3 && GetComponent<MonsterCloak>() == null) gameObject.AddComponent<MonsterCloak>();
+        if ((monsterId == 3 || monsterId == 6) && GetComponent<MonsterCloak>() == null)
+            gameObject.AddComponent<MonsterCloak>();
         if (GetComponent<MonsterPresentation>() == null) gameObject.AddComponent<MonsterPresentation>();
         EnsureBodyCollider();
     }
@@ -93,6 +94,8 @@ public class MonsterNetworkSetup : MonoBehaviour
 
     public void SetupMonster(bool isAuthority)
     {
+        if ((monsterId == 3 || monsterId == 6) && GetComponent<MonsterCloak>() == null)
+            gameObject.AddComponent<MonsterCloak>();
         isConfigured = true;
         // [수정] 매개변수를 무시하던 버그 수정
         if (isAuthority)
