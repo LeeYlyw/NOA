@@ -1672,6 +1672,22 @@ public class MapGenerator : MonoBehaviour
         return true;
     }
 
+    public MonsterNetworkSetup SpawnServerMonster(int monsterId, Vector3 position)
+    {
+        if (monsterId < 7 || monsterId > 12 || monstersRoot == null) return null;
+        int kind = (monsterId - 1) % 3;
+        GameObject prefab = kind == 0 ? monsterPrefab : kind == 1 ? monster2Prefab : monster3Prefab;
+        if (prefab == null) return null;
+        GameObject monster = Instantiate(prefab, position, Quaternion.identity, monstersRoot);
+        MonsterNetworkSetup setup = monster.GetComponent<MonsterNetworkSetup>();
+        if (setup == null) { DisposeGeneratedObject(monster); return null; }
+        setup.monsterId = monsterId;
+        monster.name = "Monster" + monsterId;
+        spawnedEntities.Add(monster);
+        setup.SetupMonster(false);
+        return setup;
+    }
+
     GameObject PlayerPrefabForRole(PlayerRole role, GameObject fallback)
     {
         // The serialized player3 prefab uses runner.fbx; player4 uses medic.fbx.

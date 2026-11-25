@@ -19,7 +19,7 @@ public class MonsterNetworkSetup : MonoBehaviour
     void Awake()
     {
         monsterAnimator = GetComponentInChildren<Animator>();
-        if ((monsterId == 3 || monsterId == 6) && GetComponent<MonsterCloak>() == null)
+        if (monsterId % 3 == 0 && GetComponent<MonsterCloak>() == null)
             gameObject.AddComponent<MonsterCloak>();
         if (GetComponent<MonsterPresentation>() == null) gameObject.AddComponent<MonsterPresentation>();
         EnsureBodyCollider();
@@ -27,7 +27,7 @@ public class MonsterNetworkSetup : MonoBehaviour
 
     void LateUpdate()
     {
-        if ((monsterId != 3 && monsterId != 6) || monsterAnimator == null ||
+        if (monsterId % 3 != 0 || monsterAnimator == null ||
             !monsterAnimator.isActiveAndEnabled || monsterAnimator.IsInTransition(0)) return;
         AnimatorStateInfo state = monsterAnimator.GetCurrentAnimatorStateInfo(0);
         if (state.fullPathHash == RunState && !state.loop && state.normalizedTime >= 1f)
@@ -106,7 +106,7 @@ public class MonsterNetworkSetup : MonoBehaviour
 
     public void SetupMonster(bool isAuthority)
     {
-        if ((monsterId == 3 || monsterId == 6) && GetComponent<MonsterCloak>() == null)
+        if (monsterId % 3 == 0 && GetComponent<MonsterCloak>() == null)
             gameObject.AddComponent<MonsterCloak>();
         isConfigured = true;
         // [수정] 매개변수를 무시하던 버그 수정

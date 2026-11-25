@@ -1327,6 +1327,19 @@ public class NetworkClient : MonoBehaviour
                 return;
             }
         }
+        if (monsterId < 7 || monsterId > 12) return;
+        MapGenerator generator = FindObjectOfType<MapGenerator>();
+        MonsterNetworkSetup spawned = generator != null ? generator.SpawnServerMonster(monsterId, pos) : null;
+        if (spawned == null) return;
+        Array.Resize(ref monsterSetups, monsterSetups.Length + 1);
+        monsterSetups[monsterSetups.Length - 1] = spawned;
+        RemoteMonster remote = spawned.GetComponent<RemoteMonster>();
+        if (remote != null)
+        {
+            remote.PresentationState = aiState;
+            remote.SetState(pos, rot);
+            remote.SetAnimationState(speed, isWalk, isAttack, attackSequence);
+        }
     }
 
     private void OnApplicationQuit()

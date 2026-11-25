@@ -2179,6 +2179,59 @@ void InitializeMonsters(MonsterState monsters[])
     monsters[4].monsterId = 5;
     monsters[5] = monsters[2];
     monsters[5].monsterId = 6;
+    for (int i = 6; i < 12; ++i)
+    {
+        monsters[i] = monsters[i % 3];
+        monsters[i].monsterId = i + 1;
+    }
+}
+
+bool SpawnReinforcement(MonsterState monsters[], PlayerState players[], double now)
+{
+    if (activeMonsterCount >= 12) return false;
+    int start = -1;
+    for (int id = 1; id <= matchPlayerCount; ++id)
+        if (matchSockets[id] != INVALID_SOCKET && players[id].hasState && !players[id].isDead)
+        { start = navigation.ClosestCell(players[id].position); if (start >= 0) break; }
+    if (start < 0) return false;
+
+    std::vector<bool> visited(navigation.edges.size(), false);
+    std::vector<int> queue{start};
+    visited[start] = true;
+    int best = -1;
+    float bestDistance = 0.0f;
+    for (size_t cursor = 0; cursor < queue.size(); ++cursor)
+    {
+        int cell = queue[cursor], x = cell % navigation.width, z = cell / navigation.width;
+        const int neighbors[] = { navigation.Index(x + 1, z), navigation.Index(x - 1, z),
+                                  navigation.Index(x, z + 1), navigation.Index(x, z - 1) };
+        for (int next : neighbors)
+            if (next >= 0 && !visited[next] && navigation.CanStep(cell, next))
+            { visited[next] = true; queue.push_back(next); }
+        Vec3 point = navigation.Center(cell);
+        float nearest = std::numeric_limits<float>::infinity();
+        bool safe = true;
+        for (int id = 1; id <= matchPlayerCount; ++id)
+        {
+            if (matchSockets[id] == INVALID_SOCKET || !players[id].hasState || players[id].isDead) continue;
+            float distance = Distance2D(point, players[id].position);
+            nearest = std::min(nearest, distance);
+            if (distance < 25.0f || (distance < 40.0f && navigation.HasLineOfSight(point, players[id].position)))
+            { safe = false; break; }
+        }
+        if (!safe || nearest <= bestDistance) continue;
+        for (int i = 0; i < activeMonsterCount; ++i)
+            if (Distance2D(point, monsters[i].position) < 4.0f) { safe = false; break; }
+        if (safe) { best = cell; bestDistance = nearest; }
+    }
+    if (best < 0) return false;
+    MonsterState& monster = monsters[activeMonsterCount++];
+    monster.position = navigation.Center(best);
+    monster.position.y = monsters[0].spawnPosition.y;
+    monster.spawnPosition = monster.targetPosition = monster.lastKnownPosition = monster.lastHeardPosition = monster.position;
+    monster.state = MonsterAIState::Idle;
+    monster.stateUntil = now + 1.5;
+    return true;
 }
 
 void UpdateMonsters(
@@ -2391,7 +2444,7 @@ int main()
         players[i].hp = players[i].maxHp = matchRoles[i]==3 ? 80 : 100;
     }
 
-    MonsterState monsters[6];
+    MonsterState monsters[12];
     InitializeMonsters(monsters);
 
     std::map<int, ItemState> items;
@@ -2406,6 +2459,7 @@ int main()
     int lastTimeLeftBroadcast = 600;
     double lastMonsterBroadcastTime = GetTimeSeconds();
     double navigationDeadline = GetTimeSeconds() + 30.0;
+    double nextReinforcementAttempt = 0.0;
     bool navigationTimeoutReported = false;
 
     struct ResumeConnection { SOCKET socket; std::string buffer; double deadline; };
@@ -2675,6 +2729,10 @@ int main()
         if (!anyRetained || restartRequested) break;
 
         double now = GetTimeSeconds();
+        if (matchResult == 0 && navigation.ready && activeMonsterCount >= 6 && activeMonsterCount < 12 &&
+            now >= nextReinforcementAttempt &&
+            now - matchStartedAt >= (activeMonsterCount < 9 ? 180.0 : 360.0))
+            if (!SpawnReinforcement(monsters, players, now)) nextReinforcementAttempt = now + 2.0;
         if (gateOpeningTime > 0.0 && now >= gateOpeningTime)
         {
             navigation.gateOpen = true;
