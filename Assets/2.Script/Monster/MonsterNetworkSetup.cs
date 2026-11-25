@@ -13,13 +13,25 @@ public class MonsterNetworkSetup : MonoBehaviour
 
     public bool IsAuthority { get; private set; }
     private bool isConfigured;
+    private Animator monsterAnimator;
+    private static readonly int RunState = Animator.StringToHash("Base Layer.MonsterRun");
 
     void Awake()
     {
+        monsterAnimator = GetComponentInChildren<Animator>();
         if ((monsterId == 3 || monsterId == 6) && GetComponent<MonsterCloak>() == null)
             gameObject.AddComponent<MonsterCloak>();
         if (GetComponent<MonsterPresentation>() == null) gameObject.AddComponent<MonsterPresentation>();
         EnsureBodyCollider();
+    }
+
+    void LateUpdate()
+    {
+        if ((monsterId != 3 && monsterId != 6) || monsterAnimator == null ||
+            !monsterAnimator.isActiveAndEnabled || monsterAnimator.IsInTransition(0)) return;
+        AnimatorStateInfo state = monsterAnimator.GetCurrentAnimatorStateInfo(0);
+        if (state.fullPathHash == RunState && !state.loop && state.normalizedTime >= 1f)
+            monsterAnimator.Play(RunState, 0, state.normalizedTime % 1f);
     }
 
     private void EnsureBodyCollider()
