@@ -275,7 +275,8 @@ public class PlayerController : MonoBehaviour
         if (currentHp < previousHealth && isLocalPlayer)
         {
             Vector2 direction = Vector2.zero;
-            Camera view = Camera.main;
+            Camera view = GetComponentInChildren<Camera>();
+            if (view == null || !view.isActiveAndEnabled) view = Camera.main;
             if (source.HasValue && view != null)
             {
                 Vector3 delta = source.Value - transform.position;
@@ -284,8 +285,6 @@ public class PlayerController : MonoBehaviour
             }
             GamePresentation.Ensure().FlashDamage(direction, (previousHealth - currentHp) / (float)Mathf.Max(1, maxHealth));
         }
-        else if (currentHp < previousHealth)
-            ShowImpactDust();
 
         if (currentHp < previousHealth)
         {
@@ -318,33 +317,6 @@ public class PlayerController : MonoBehaviour
     {
         yield return new WaitForSecondsRealtime(0.065f);
         if (clip != null) hitSpeaker.PlayOneShot(clip, volume);
-    }
-
-    void ShowImpactDust()
-    {
-        var burst = new GameObject("Impact flecks").AddComponent<ParticleSystem>();
-        burst.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-        burst.transform.position = controller != null && controller.enabled ? controller.bounds.center : transform.position + Vector3.up;
-        var main = burst.main;
-        main.loop = false;
-        main.startLifetime = new ParticleSystem.MinMaxCurve(0.12f, 0.28f);
-        main.startSpeed = new ParticleSystem.MinMaxCurve(0.9f, 2.1f);
-        main.startSize = new ParticleSystem.MinMaxCurve(0.014f, 0.04f);
-        main.startColor = new Color(0.52f, 0.32f, 0.27f, 0.8f);
-        main.gravityModifier = 0.42f;
-        var shape = burst.shape;
-        shape.shapeType = ParticleSystemShapeType.Sphere;
-        shape.radius = 0.22f;
-        var emission = burst.emission;
-        emission.enabled = false;
-        var renderer = burst.GetComponent<ParticleSystemRenderer>();
-        renderer.sharedMaterial = Graphic.defaultGraphicMaterial;
-        renderer.renderMode = ParticleSystemRenderMode.Stretch;
-        renderer.lengthScale = 1.4f;
-        renderer.velocityScale = 0.025f;
-        burst.Play();
-        burst.Emit(18);
-        Destroy(burst.gameObject, 0.4f);
     }
 
     public void HealToFull()

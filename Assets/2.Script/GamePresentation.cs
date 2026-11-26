@@ -12,7 +12,9 @@ public class GamePresentation : MonoBehaviour
     float damageUntil;
     Texture2D damageVignette;
     RawImage damageImage;
-    Vector2 hitOffset;
+    Texture2D sideWound, verticalWound;
+    RawImage spatter, reflectedSpatter;
+    CanvasGroup onset;
     float hitStrength;
     const float DamageFadeSeconds = 0.65f;
     Text caption;
@@ -87,24 +89,32 @@ public class GamePresentation : MonoBehaviour
     void CreateDamageVignette(Transform parent)
     {
         const int resolution = 256;
-        damageVignette = new Texture2D(resolution, resolution, TextureFormat.RGBA32, false);
-        damageVignette.name = "Soft damage vignette";
-        damageVignette.wrapMode = TextureWrapMode.Clamp;
-        damageVignette.filterMode = FilterMode.Bilinear;
-        Color32[] pixels = new Color32[resolution * resolution];
+        var neutral = new Color32[resolution * resolution];
+        var side = new Color32[neutral.Length];
+        var vertical = new Color32[neutral.Length];
         for (int y = 0; y < resolution; y++)
         for (int x = 0; x < resolution; x++)
         {
-            float u = 2f * x / (resolution - 1) - 1f;
-            float v = 2f * y / (resolution - 1) - 1f;
-            float cloud = Mathf.PerlinNoise(u * 3f + 6f, v * 3f + 6f);
-            float grain = Mathf.PerlinNoise(u * 11f + 12f, v * 11f + 12f);
-            float radius = Mathf.Max(Mathf.Abs(u), Mathf.Abs(v)) + (cloud - 0.5f) * 0.30f + (grain - 0.5f) * 0.10f;
-            float edge = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.74f, 1.10f, radius));
-            pixels[y * resolution + x] = new Color(0.19f + cloud * 0.32f, 0.016f, 0.035f, edge * 0.88f);
+            float u = (float)x / (resolution - 1);
+            float v = (float)y / (resolution - 1);
+            float cloud = Mathf.PerlinNoise(u * 9f + 3f, v * 7f + 4f);
+            float grain = Mathf.PerlinNoise(u * 48f + 2f, v * 32f);
+            float edge = Mathf.Max(Mathf.Abs(2f * u - 1f), Mathf.Abs(2f * v - 1f));
+            Color tint = new Color(0.33f + 0.27f * grain, 0.022f, 0.034f);
+            tint.a = Mathf.SmoothStep(0f, 0.55f, Mathf.InverseLerp(0.78f, 1.08f, edge + (cloud - 0.5f) * 0.13f));
+            neutral[y * resolution + x] = tint;
+
+            // A narrow impact on one edge, tapering towards the corners.
+            float taper = Mathf.Clamp01(1f - Mathf.Abs(v - 0.52f) * 1.85f);
+            float depth = taper * (0.042f + 0.11f * cloud + 0.022f * grain);
+            float penetration = Mathf.Clamp01(1f - u / Mathf.Max(depth, 0.001f));
+            tint.a = penetration * taper * (0.42f + 0.50f * grain);
+            side[y * resolution + x] = tint;
+            vertical[x * resolution + y] = tint;
         }
-        damageVignette.SetPixels32(pixels);
-        damageVignette.Apply(false, true);
+        damageVignette = MakeHitTexture(resolution, neutral);
+        sideWound = MakeHitTexture(resolution, side);
+        verticalWound = MakeHitTexture(resolution, vertical);
         RectTransform rect = new GameObject("Soft damage edges", typeof(RectTransform), typeof(RawImage)).GetComponent<RectTransform>();
         rect.SetParent(parent, false);
         rect.anchorMin = Vector2.zero;
@@ -114,14 +124,64 @@ public class GamePresentation : MonoBehaviour
         damageImage = image;
         image.texture = damageVignette;
         image.raycastTarget = false;
+        onset = image.gameObject.AddComponent<CanvasGroup>();
+        spatter = new GameObject("Impact spatter", typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
+        spatter.transform.SetParent(parent, false);
+        spatter.raycastTarget = false;
+        spatter.texture = Resources.Load<Texture2D>("ImpactSpatter");
+        reflectedSpatter = Instantiate(spatter, parent);
+        reflectedSpatter.name = "Diffuse impact spatter";
     }
 
+    static Texture2D MakeHitTexture(int resolution, Color32[] pixels)
+    {
+        var texture = new Texture2D(resolution, resolution, TextureFormat.RGBA32, false);
+        texture.wrapMode = TextureWrapMode.Clamp;
+        texture.filterMode = FilterMode.Bilinear;
+        texture.SetPixels32(pixels);
+        texture.Apply(false, true);
+        return texture;
+    }
     public void FlashDamage(Vector2 direction = default, float severity = 0.1f)
     {
         damageUntil = Time.unscaledTime + DamageFadeSeconds;
-        hitOffset = direction.normalized * 0.12f;
+        bool horizontal = Mathf.Abs(direction.x) >= Mathf.Abs(direction.y);
+        damageImage.texture = direction.sqrMagnitude < 0.0001f ? damageVignette : horizontal ? sideWound : verticalWound;
+        bool flipX = horizontal && direction.x > 0f;
+        bool flipY = !horizontal && direction.y > 0f;
+        damageImage.uvRect = new Rect(flipX ? 1f : 0f, flipY ? 1f : 0f, flipX ? -1f : 1f, flipY ? -1f : 1f);
         hitStrength = Mathf.Lerp(0.68f, 1f, Mathf.Clamp01(severity * 3f));
-        damageImage.uvRect = new Rect(hitOffset, Vector2.one);
+        onset.alpha = 1f;
+        // The initial pressure mark clears first. Individual wet flecks linger at the contact edge.
+        bool diffuse = direction.sqrMagnitude < 0.0001f;
+        spatter.enabled = spatter.texture != null;
+        reflectedSpatter.enabled = spatter.enabled && diffuse;
+        if (spatter.enabled)
+        {
+            Vector2 outward = diffuse ? new Vector2(-1f, -0.7f) : direction.normalized;
+            outward /= Mathf.Max(Mathf.Abs(outward.x), Mathf.Abs(outward.y));
+            RectTransform area = (RectTransform)spatter.transform.parent;
+            RectTransform decal = spatter.rectTransform;
+            float width = Mathf.Min(area.rect.width * 0.38f, area.rect.height * 0.58f);
+            decal.sizeDelta = new Vector2(width, width * spatter.texture.height / spatter.texture.width);
+            decal.anchorMin = decal.anchorMax = Vector2.one * 0.5f + outward * 0.49f;
+            decal.pivot = new Vector2(0.12f, 0.30f);
+            decal.anchoredPosition = Vector2.zero;
+            decal.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(-outward.y, -outward.x) * Mathf.Rad2Deg);
+            decal.localScale = Vector3.one;
+            spatter.color = new Color(1f, 1f, 1f, diffuse ? 0.60f : 1f);
+            if (diffuse)
+            {
+                RectTransform mirror = reflectedSpatter.rectTransform;
+                mirror.anchorMin = mirror.anchorMax = new Vector2(1f - decal.anchorMin.x, decal.anchorMin.y);
+                mirror.pivot = decal.pivot;
+                mirror.anchoredPosition = Vector2.zero;
+                mirror.sizeDelta = decal.sizeDelta;
+                mirror.localRotation = Quaternion.Euler(0f, 0f, -decal.localEulerAngles.z);
+                mirror.localScale = new Vector3(-1f, 1f, 1f);
+                reflectedSpatter.color = spatter.color;
+            }
+        }
         damageGroup.alpha = hitStrength;
     }
 
@@ -164,8 +224,11 @@ public class GamePresentation : MonoBehaviour
         float remainingDamage = Mathf.Clamp01((damageUntil - Time.unscaledTime) / DamageFadeSeconds);
         if (damageGroup.alpha > 0f)
         {
-            damageImage.uvRect = new Rect(hitOffset * Mathf.Lerp(0.65f, 1f, remainingDamage), Vector2.one);
-            damageGroup.alpha = ended ? 0f : hitStrength * Mathf.SmoothStep(0f, 1f, remainingDamage);
+            float age = 1f - remainingDamage;
+            onset.alpha = Mathf.Exp(-6f * age);
+            if (spatter.enabled)
+                spatter.rectTransform.localScale = Vector3.one * (1f + 0.045f * (1f - Mathf.Exp(-12f * age)));
+            damageGroup.alpha = ended ? 0f : hitStrength * Mathf.SmoothStep(0f, 1f, Mathf.Min(1f, remainingDamage * 1.35f));
         }
     }
 
@@ -212,6 +275,8 @@ public class GamePresentation : MonoBehaviour
     void OnDestroy()
     {
         if (damageVignette != null) Destroy(damageVignette);
+        if (sideWound != null) Destroy(sideWound);
+        if (verticalWound != null) Destroy(verticalWound);
         if (Instance == this) Instance = null;
         foreach (AudioClip clip in clips.Values) if (clip != null) Destroy(clip);
         if (font != null) Destroy(font);
