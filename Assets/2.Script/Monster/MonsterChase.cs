@@ -360,7 +360,7 @@ public class MonsterChase : MonoBehaviour
                 NetworkClient.Instance != null && NetworkClient.Instance.offlineMode)
             {
                 PlayerController victim = player.GetComponent<PlayerController>();
-                if (victim != null && !victim.IsDeadState) victim.TakeDamage(damage);
+                if (victim != null && !victim.IsDeadState) victim.TakeDamage(damage, transform.position);
             }
             pendingHitAt = -1f;
             pendingTarget = null;

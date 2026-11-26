@@ -1059,7 +1059,17 @@ public class NetworkClient : MonoBehaviour
         if (parts.Length < 3) return;
         if (int.TryParse(parts[1], out int targetPlayerId) && int.TryParse(parts[2], out int damage))
         {
-            ApplyPlayerDamage(targetPlayerId, damage);
+            Vector3? source = null;
+            if (parts.Length >= 4 && int.TryParse(parts[3], out int id))
+            {
+                var mimic = FindMimic(id);
+                MonsterNetworkSetup attacker = monsterSetups == null ? null :
+                    Array.Find(monsterSetups, monster => monster != null && monster.monsterId == id);
+                // Both ID namespaces start at one. An ambiguous packet has no reliable direction.
+                if (attacker != null && mimic == null) source = attacker.transform.position;
+                if (attacker == null && mimic != null) source = mimic.transform.position;
+            }
+            ApplyPlayerDamage(targetPlayerId, damage, source);
         }
     }
 
@@ -1086,7 +1096,7 @@ public class NetworkClient : MonoBehaviour
         if (skill != null) skill.OnServerHealResult(accepted == 1);
     }
 
-    void ApplyPlayerDamage(int targetPlayerId, int damage)
+    void ApplyPlayerDamage(int targetPlayerId, int damage, Vector3? source)
     {
         GameObject targetObject = GetPlayerObject(targetPlayerId);
         if (targetObject == null) return;
@@ -1094,7 +1104,7 @@ public class NetworkClient : MonoBehaviour
         PlayerController playerController = targetObject.GetComponent<PlayerController>();
         if (playerController == null) return;
 
-        playerController.TakeDamage(damage);
+        playerController.TakeDamage(damage, source);
     }
 
     void ProcessItemPickupPacket(string[] parts)

@@ -11,6 +11,9 @@ public class GamePresentation : MonoBehaviour
     CanvasGroup damageGroup;
     float damageUntil;
     Texture2D damageVignette;
+    RawImage damageImage;
+    Vector2 hitOffset;
+    float hitStrength;
     const float DamageFadeSeconds = 0.65f;
     Text caption;
     AudioSource speaker;
@@ -94,9 +97,11 @@ public class GamePresentation : MonoBehaviour
         {
             float u = 2f * x / (resolution - 1) - 1f;
             float v = 2f * y / (resolution - 1) - 1f;
-            float radius = Mathf.Sqrt(u * u + v * v);
-            float edge = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.55f, 1.35f, radius));
-            pixels[y * resolution + x] = new Color(0.42f, 0.015f, 0.025f, edge * 0.55f);
+            float cloud = Mathf.PerlinNoise(u * 3f + 6f, v * 3f + 6f);
+            float grain = Mathf.PerlinNoise(u * 11f + 12f, v * 11f + 12f);
+            float radius = Mathf.Max(Mathf.Abs(u), Mathf.Abs(v)) + (cloud - 0.5f) * 0.30f + (grain - 0.5f) * 0.10f;
+            float edge = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.74f, 1.10f, radius));
+            pixels[y * resolution + x] = new Color(0.19f + cloud * 0.32f, 0.016f, 0.035f, edge * 0.88f);
         }
         damageVignette.SetPixels32(pixels);
         damageVignette.Apply(false, true);
@@ -106,14 +111,18 @@ public class GamePresentation : MonoBehaviour
         rect.anchorMax = Vector2.one;
         rect.offsetMin = rect.offsetMax = Vector2.zero;
         RawImage image = rect.GetComponent<RawImage>();
+        damageImage = image;
         image.texture = damageVignette;
         image.raycastTarget = false;
     }
 
-    public void FlashDamage()
+    public void FlashDamage(Vector2 direction = default, float severity = 0.1f)
     {
         damageUntil = Time.unscaledTime + DamageFadeSeconds;
-        damageGroup.alpha = 1f;
+        hitOffset = direction.normalized * 0.12f;
+        hitStrength = Mathf.Lerp(0.68f, 1f, Mathf.Clamp01(severity * 3f));
+        damageImage.uvRect = new Rect(hitOffset, Vector2.one);
+        damageGroup.alpha = hitStrength;
     }
 
     public void Notify(string message, string sound)
@@ -153,7 +162,11 @@ public class GamePresentation : MonoBehaviour
         float alpha = Time.unscaledTime < noticeUntil ? 1 : 0;
         group.alpha = Mathf.MoveTowards(group.alpha, alpha, Time.unscaledDeltaTime * 5);
         float remainingDamage = Mathf.Clamp01((damageUntil - Time.unscaledTime) / DamageFadeSeconds);
-        damageGroup.alpha = ended ? 0f : remainingDamage * remainingDamage;
+        if (damageGroup.alpha > 0f)
+        {
+            damageImage.uvRect = new Rect(hitOffset * Mathf.Lerp(0.65f, 1f, remainingDamage), Vector2.one);
+            damageGroup.alpha = ended ? 0f : hitStrength * Mathf.SmoothStep(0f, 1f, remainingDamage);
+        }
     }
 
     // Lightweight fallback sounds. Dedicated authored clips can override monster cues.

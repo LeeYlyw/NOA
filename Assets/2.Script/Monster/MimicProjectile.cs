@@ -90,7 +90,7 @@ public class MimicProjectile : MonoBehaviour
                 }
                 else
                 {
-                    player.TakeDamage(damage);
+                    player.TakeDamage(damage, player.transform.position - direction);
                 }
             }
             Destroy(gameObject);
